@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import type { z, ZodTypeAny } from 'zod';
 import { logger } from '@/lib/logger';
 
 /**
@@ -91,6 +92,53 @@ export async function complete(options: CompleteOptions): Promise<string> {
 export async function completeJson<T>(options: CompleteOptions): Promise<T> {
   const text = await complete(options);
   return parseJson<T>(text);
+}
+
+/**
+ * Generate JSON and validate it against a Zod schema. On a parse/validation
+ * failure, retry ONCE with a clarifying instruction that echoes the error and
+ * the exact shape required; if the retry still fails, throw. This is the
+ * guarantee behind "never save malformed content" (Content Studio, S3).
+ */
+export async function completeStructured<S extends ZodTypeAny>(
+  options: CompleteOptions & { schema: S },
+): Promise<z.infer<S>> {
+  const { schema, ...rest } = options;
+
+  const attempt = async (extra?: string): Promise<z.infer<S>> => {
+    const prompt = extra ? `${rest.prompt}\n\n${extra}` : rest.prompt;
+    const text = await complete({ ...rest, prompt });
+    const parsed = schema.safeParse(parseJson<unknown>(text));
+    if (!parsed.success) {
+      throw new SchemaValidationError(parsed.error.message, text);
+    }
+    return parsed.data;
+  };
+
+  try {
+    return await attempt();
+  } catch (err) {
+    const detail =
+      err instanceof SchemaValidationError ? err.message : String(err);
+    logger.warn('completeStructured: first attempt invalid, retrying once', {
+      detail: detail.slice(0, 300),
+    });
+    return attempt(
+      'Your previous response did not match the required JSON schema. ' +
+        `Validation errors: ${detail.slice(0, 500)}. ` +
+        'Respond again with ONLY valid JSON matching the exact schema described above — no prose, no markdown fences.',
+    );
+  }
+}
+
+export class SchemaValidationError extends Error {
+  constructor(
+    message: string,
+    readonly raw: string,
+  ) {
+    super(message);
+    this.name = 'SchemaValidationError';
+  }
 }
 
 function extractText(
