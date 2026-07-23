@@ -36,7 +36,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Trend Intelligence',
     href: '/dashboard/trends',
     icon: Radar,
-    ready: false,
+    ready: true,
     sprint: 2,
     description: 'Daily digests of what your market is talking about.',
   },
