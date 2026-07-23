@@ -23,6 +23,31 @@ const MAX_KEYWORDS = 10;
 const MAX_FEEDS = 8;
 const MAX_ITEMS_PER_FEED = 20;
 
+/**
+ * Curated keyless publisher feeds — always ingested for breadth. When the
+ * company has keywords configured, only items matching a keyword are kept (so
+ * the digest stays on-topic); with no keywords, they provide general coverage.
+ * All are public RSS/Atom the publisher offers for consumption (not scraping).
+ */
+const CURATED_FEEDS: Array<{ url: string; label: string }> = [
+  { url: 'https://techcrunch.com/feed/', label: 'TechCrunch' },
+  { url: 'https://www.theverge.com/rss/index.xml', label: 'The Verge' },
+  { url: 'https://feeds.arstechnica.com/arstechnica/index', label: 'Ars Technica' },
+  { url: 'https://venturebeat.com/feed/', label: 'VentureBeat' },
+  { url: 'https://www.wired.com/feed/rss', label: 'Wired' },
+  { url: 'https://feeds.bbci.co.uk/news/business/rss.xml', label: 'BBC Business' },
+  { url: 'https://www.marketingdive.com/feeds/news/', label: 'Marketing Dive' },
+  { url: 'https://feeds.feedburner.com/entrepreneur/latest', label: 'Entrepreneur' },
+  {
+    url: 'https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-US&gl=US&ceid=US:en',
+    label: 'Google News · Tech',
+  },
+  {
+    url: 'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en',
+    label: 'Google News · Business',
+  },
+];
+
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
@@ -88,16 +113,25 @@ export class NewsSource implements TrendSource {
     const keywords = ctx.keywords.map((k) => k.toLowerCase()).filter(Boolean);
     const kws = ctx.keywords.slice(0, MAX_KEYWORDS);
 
-    const feeds: Array<{ url: string; label: string; keyword?: string }> = [
+    const feeds: Array<{
+      url: string;
+      label: string;
+      keyword?: string;
+      requireMatch?: boolean;
+    }> = [
       // Google News per keyword (freshness-restricted) + Bing per keyword.
       ...kws.map((k) => ({ url: googleNewsUrl(k), label: 'Google News', keyword: k.toLowerCase() })),
       ...kws.map((k) => ({ url: bingNewsUrl(k, now), label: 'Bing News', keyword: k.toLowerCase() })),
-      // Company-configured RSS/Atom feeds.
+      // Curated publisher feeds — on-topic only when keywords exist.
+      ...CURATED_FEEDS.map((f) => ({ ...f, requireMatch: keywords.length > 0 })),
+      // Company-configured feeds — always kept (the user chose them).
       ...ctx.rssFeeds.slice(0, MAX_FEEDS).map((url) => ({ url, label: 'RSS' })),
     ];
 
     const results = await Promise.allSettled(
-      feeds.map((f) => this.readFeed(f.url, f.label, f.keyword, keywords, now)),
+      feeds.map((f) =>
+        this.readFeed(f.url, f.label, f.keyword, keywords, now, f.requireMatch ?? false),
+      ),
     );
 
     const items: TrendItem[] = [];
@@ -119,6 +153,7 @@ export class NewsSource implements TrendSource {
     keyword: string | undefined,
     allKeywords: string[],
     now: number,
+    requireMatch: boolean,
   ): Promise<TrendItem[]> {
     let xml: string;
     try {
@@ -172,6 +207,8 @@ export class NewsSource implements TrendSource {
       const haystack = `${title} ${text(raw.description)}`.toLowerCase();
       const matched = allKeywords.filter((k) => haystack.includes(k));
       if (keyword && !matched.includes(keyword)) matched.push(keyword);
+      // Curated feeds: keep only on-topic items when keywords are configured.
+      if (requireMatch && matched.length === 0) continue;
 
       const guid = text(raw.guid) || href;
       out.push({
