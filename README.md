@@ -59,7 +59,41 @@ openssl rand -base64 32
 | `NEXTAUTH_SECRET`                     | ✅                 | Session/JWT signing secret                         |
 | `ENCRYPTION_KEY`                      | ✅                 | Encrypts sensitive tokens at rest                  |
 | `GOOGLE_CLIENT_ID` / `_SECRET`        | Optional           | Enables **Continue with Google**                   |
-| `LINKEDIN_*`, `RESEND_*`, `ANTHROPIC_*` | Later sprints    | Documented now; unused in Sprint 1                 |
+| `ANTHROPIC_API_KEY`                   | Sprint 2 (AI)      | Powers trend-digest AI; without it, digests use basic non-AI summaries |
+| `LINKEDIN_CLIENT_ID` / `_SECRET`      | Sprint 2 (opt.)    | Enables **Connect LinkedIn** (official OIDC)       |
+| `REDDIT_CLIENT_ID` / `_SECRET` / `_USER_AGENT` | Sprint 2 (opt.) | Enables the Reddit trend source          |
+| `TWITTER_BEARER_TOKEN`                | Sprint 2 (opt.)    | Enables the X/Twitter trend source (off by default)|
+| `CRON_SECRET`                         | Sprint 2           | Protects the scheduled digest endpoint             |
+| `RESEND_*`                            | Later sprint       | Real email delivery (console stub until then)      |
+
+Hacker News and Google News trend sources need **no credentials**.
+
+### Sprint 2 — LinkedIn + Trend Intelligence
+
+**Get the API keys** (see [`.env.example`](.env.example) for exact var names):
+
+| Provider | Where | Notes |
+| --- | --- | --- |
+| Anthropic (Claude) | [console.anthropic.com](https://console.anthropic.com) → API Keys | Powers "why this matters" + suggested angles. Model: `claude-opus-4-8`. |
+| LinkedIn | [linkedin.com/developers/apps](https://www.linkedin.com/developers/apps) | Add product **"Sign In with LinkedIn using OpenID Connect"**; redirect URL `http://localhost:3000/api/linkedin/callback`. |
+| Reddit | [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) | Create a **script** app; read-only app-only token. Set a descriptive `REDDIT_USER_AGENT`. |
+
+**Run the daily digest job** — a protected endpoint (`POST /api/cron/trends`), platform-agnostic so any scheduler works:
+
+```bash
+# Manual / local:
+curl -X POST http://localhost:3000/api/cron/trends -H "authorization: Bearer $CRON_SECRET"
+# Vercel Cron (vercel.json): { "crons": [{ "path": "/api/cron/trends", "schedule": "0 13 * * *" }] }
+```
+
+Users can also click **Refresh** in the dashboard. Digests are idempotent per
+company per day (upsert on `companyId + date`).
+
+**LinkedIn scope reality:** we integrate only against the self-serve OIDC
+product (scopes `openid profile email`) for basic profile data. The public feed
+and posting are **not** available through LinkedIn's API without Marketing
+Developer Platform / Community Management approval — those are stubbed and
+flagged in code, never faked. No scraping, no unofficial endpoints, ever.
 
 ### Enabling Google OAuth
 
@@ -178,17 +212,29 @@ swallowed.
 
 ---
 
+## Shipped in Sprint 2
+
+- **LinkedIn official OAuth (OIDC)** — connect/disconnect flow, tokens encrypted
+  at rest (AES-256-GCM), CSRF-protected, audited. Company-page reads/publishing
+  are stubbed pending LinkedIn Marketing API approval.
+- **AI Trend Intelligence** — modular sources (`server/trends/sources/`: Reddit,
+  Hacker News, Google News RSS, X-stub), a pure scoring engine
+  (`server/trends/scoring.ts`), a reusable Claude wrapper (`server/ai/claude.ts`),
+  idempotent daily digest generation, and the `/dashboard/trends` UI with a
+  keyword/source config page.
+
 ## Explicitly deferred to later sprints
 
-- **LinkedIn OAuth + publishing (Sprint 2)** — table scaffolded; the provider
-  plugs into `lib/auth.ts` at the marked spot. **Official LinkedIn API only —
-  no scraping, no unofficial endpoints, no browser automation.**
-- **Real email delivery (Sprint 2)** — `lib/email.ts` logs to the console in
-  Sprint 1; swap in Resend/SendGrid with no call-site changes.
-- **Trend Hunter, Content Studio, Outreach, Engagement, Analytics** — nav items
-  render "Coming in Sprint N" placeholders driven by `lib/nav.ts`.
-- **Team invitations / billing** — the RBAC pattern (`lib/rbac.ts`) and
-  permissions exist; enforcement surfaces land with those features.
+- **LinkedIn publishing + company-page data** — requires LinkedIn Marketing
+  Developer Platform / Community Management approval; scaffolded + flagged.
+- **Content Studio (Sprint 3)** — the "Generate content from this" button on
+  each trend card links to the reserved `/dashboard/content/new?trendId=…`.
+- **Real email delivery** — `lib/email.ts` logs to console; swap in Resend with
+  no call-site changes.
+- **Outreach, Engagement, Analytics** — nav items render "Coming in Sprint N"
+  placeholders driven by `lib/nav.ts`.
+- **Team invitations / billing** — the RBAC pattern (`lib/rbac.ts`) exists;
+  enforcement surfaces land with those features.
 
 ---
 
