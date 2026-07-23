@@ -212,6 +212,31 @@ swallowed.
 
 ---
 
+## Shipped in Sprint 3
+
+- **Content Studio** — the flagship. Knowledge-base ingestion
+  (`server/knowledge/`: website with **robots.txt** compliance + throttling,
+  blog/RSS, and `.txt`/`.md`/`.pdf` uploads via `unpdf`), chunking + a
+  keyword/recency **retrieval** function, an AI-analyzed **Brand Voice Profile**
+  (human-editable) injected into every generation, and a Claude-powered
+  **generator** for LinkedIn posts, carousels, X threads, and blog drafts —
+  every output validated against a strict per-type Zod schema (retry-once).
+- **Approval queue** (`/dashboard/content`) — kanban by status, detail editor
+  with per-type preview, Refine/Regenerate, bulk actions, and a **state machine
+  that makes PUBLISHED reachable only from APPROVED** (enforced in the service
+  layer — no code path publishes an unapproved draft).
+- **Publishing** — official LinkedIn Company Page API wired (`/rest/posts`),
+  honestly **scope-gated**: until Community Management API approval +
+  `w_organization_social` + `LINKEDIN_ORG_URN` exist, every type uses the
+  **"copy for manual posting"** fallback (never a fake published state).
+  Scheduled publish via `POST /api/cron/publish` (idempotent).
+- **Content calendar** (`/dashboard/content/calendar`).
+
+New deps: `unpdf` (PDF text), `node-html-parser` (HTML→text), `robots-parser`.
+Retrieval is keyword+recency (semantic/vector search is a documented backlog
+item — the natural home for a small Python ML service). No new required key
+beyond `ANTHROPIC_API_KEY`; `LINKEDIN_ORG_URN` is optional/pending.
+
 ## Shipped in Sprint 2
 
 - **LinkedIn official OAuth (OIDC)** — connect/disconnect flow, tokens encrypted
