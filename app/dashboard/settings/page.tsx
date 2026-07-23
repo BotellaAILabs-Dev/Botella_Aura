@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Linkedin, Radar, ChevronRight } from 'lucide-react';
+import { Linkedin, Radar, BookOpen, ChevronRight } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
@@ -137,6 +137,23 @@ export default async function SettingsPage() {
             </CardHeader>
             <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
               Configure sources <ChevronRight className="h-4 w-4" />
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link href="/dashboard/settings/knowledge-base" className="group">
+          <Card className="h-full transition-shadow group-hover:shadow-md">
+            <CardHeader>
+              <div className="mb-1 flex items-center gap-2">
+                <BookOpen className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">Knowledge base &amp; brand voice</CardTitle>
+              </div>
+              <CardDescription>
+                Ingest your content so AI writes in your voice.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
+              Manage knowledge base <ChevronRight className="h-4 w-4" />
             </CardContent>
           </Card>
         </Link>

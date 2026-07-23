@@ -44,7 +44,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Content Studio',
     href: '/dashboard/content',
     icon: PenLine,
-    ready: false,
+    ready: true,
     sprint: 3,
     description: 'Generate on-brand posts, carousels, and threads.',
   },

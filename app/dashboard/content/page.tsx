@@ -1,5 +1,74 @@
-import { ComingSoon } from '@/components/dashboard/coming-soon';
+import Link from 'next/link';
+import type { Metadata } from 'next';
+import { CalendarDays, BookOpen } from 'lucide-react';
 
-export default function ContentPage() {
-  return <ComingSoon href="/dashboard/content" />;
+import { requireUser } from '@/lib/auth-helpers';
+import { resolveActiveCompany } from '@/lib/active-company';
+import { listDrafts } from '@/server/content/content.service';
+import { draftSnippet } from '@/lib/content-ui';
+import { PageHeader } from '@/components/dashboard/page-header';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { PenLine } from 'lucide-react';
+import { CreateContentDialog } from '@/components/dashboard/content/create-content-dialog';
+import { QueueBoard, type DraftCard } from '@/components/dashboard/content/queue-board';
+import type { ContentTypeKey } from '@/lib/validations/content';
+
+export const metadata: Metadata = { title: 'Content Studio' };
+
+export default async function ContentPage() {
+  const user = await requireUser();
+  const { active } = await resolveActiveCompany(user.id);
+  if (!active) return null;
+
+  const drafts = await listDrafts(active.id);
+  const cards: DraftCard[] = drafts.map((d) => {
+    const meta = (d.aiMetadata ?? {}) as { source?: { kind?: string } };
+    return {
+      id: d.id,
+      type: d.type as ContentTypeKey,
+      status: d.status,
+      title: d.title,
+      snippet: draftSnippet(d.type as ContentTypeKey, d.body),
+      sourceKind: meta.source?.kind ?? null,
+      campaignName: d.campaign?.name ?? null,
+      scheduledFor: d.scheduledFor ? d.scheduledFor.toISOString() : null,
+      updatedAt: d.updatedAt.toISOString(),
+    };
+  });
+
+  return (
+    <div>
+      <PageHeader
+        title="Content Studio"
+        description="AI drafts on-brand content. You approve before anything publishes."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/dashboard/content/calendar">
+                <CalendarDays className="h-4 w-4" /> Calendar
+              </Link>
+            </Button>
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/dashboard/settings/knowledge-base">
+                <BookOpen className="h-4 w-4" /> Knowledge base
+              </Link>
+            </Button>
+            <CreateContentDialog />
+          </div>
+        }
+      />
+
+      {cards.length === 0 ? (
+        <EmptyState
+          icon={PenLine}
+          title="No content yet"
+          description="Generate your first draft from a brief or a trend. It lands here in Draft, and nothing publishes until you approve it."
+          action={<CreateContentDialog />}
+        />
+      ) : (
+        <QueueBoard drafts={cards} />
+      )}
+    </div>
+  );
 }
