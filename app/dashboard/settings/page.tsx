@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
-import { Linkedin } from 'lucide-react';
+import Link from 'next/link';
+import { Linkedin, Radar, ChevronRight } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
@@ -20,7 +21,6 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { EmptyState } from '@/components/ui/empty-state';
 import { getInitials } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Settings' };
@@ -105,22 +105,42 @@ export default async function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* LinkedIn connection — placeholder for Sprint 2 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>LinkedIn connection</CardTitle>
-          <CardDescription>
-            Connect via the official LinkedIn API to publish approved content.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <EmptyState
-            icon={Linkedin}
-            title="Not connected yet"
-            description="LinkedIn OAuth arrives in Sprint 2. Aura will only ever use the official LinkedIn API — never scraping or automation — and will publish only what you've explicitly approved."
-          />
-        </CardContent>
-      </Card>
+      {/* Sub-settings navigation (Sprint 2) */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Link href="/dashboard/settings/connections" className="group">
+          <Card className="h-full transition-shadow group-hover:shadow-md">
+            <CardHeader>
+              <div className="mb-1 flex items-center gap-2">
+                <Linkedin className="h-5 w-5 text-[#0A66C2]" />
+                <CardTitle className="text-base">Connections</CardTitle>
+              </div>
+              <CardDescription>
+                Connect LinkedIn (official API) to personalize your content.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
+              Manage connections <ChevronRight className="h-4 w-4" />
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link href="/dashboard/settings/trends" className="group">
+          <Card className="h-full transition-shadow group-hover:shadow-md">
+            <CardHeader>
+              <div className="mb-1 flex items-center gap-2">
+                <Radar className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">Trend sources</CardTitle>
+              </div>
+              <CardDescription>
+                Keywords, subreddits, and competitors your digest monitors.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
+              Configure sources <ChevronRight className="h-4 w-4" />
+            </CardContent>
+          </Card>
+        </Link>
+      </div>
     </div>
   );
 }
