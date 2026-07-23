@@ -214,6 +214,26 @@ export interface LinkedInStatus {
   needsReconnect: boolean;
 }
 
+/**
+ * Decrypted access token for an ACTIVE, non-expired connection, or null.
+ * Used by the publishing service. Never returns tokens for expired/revoked
+ * connections (caller must prompt reconnect).
+ */
+export async function getPublishContext(companyId: string): Promise<{
+  token: string;
+  scope: string | null;
+  linkedInUserId: string | null;
+} | null> {
+  const conn = await db.linkedInConnection.findUnique({ where: { companyId } });
+  if (!conn?.accessTokenEnc || conn.status !== 'ACTIVE') return null;
+  if (conn.expiresAt && conn.expiresAt < new Date()) return null;
+  return {
+    token: decrypt(conn.accessTokenEnc),
+    scope: conn.scope,
+    linkedInUserId: conn.linkedInUserId,
+  };
+}
+
 export async function getLinkedInStatus(
   companyId: string,
 ): Promise<LinkedInStatus> {

@@ -47,6 +47,26 @@ export async function requireCompanyMembership(companyId: string) {
   return { user, membership };
 }
 
+/**
+ * Resolve the current user + their active company + membership in one call.
+ * Throws ForbiddenError if there's no active company or the user isn't a member.
+ * Convenience for the many company-scoped API routes (Content Studio, trends).
+ */
+export async function requireActiveCompany() {
+  const user = await requireUser();
+  // Imported lazily to avoid a server-only (next/headers) import in the edge
+  // middleware bundle that also pulls this module.
+  const { resolveActiveCompany } = await import('@/lib/active-company');
+  const { getMembership } = await import(
+    '@/server/services/company.service'
+  );
+  const { active } = await resolveActiveCompany(user.id);
+  if (!active) throw new ForbiddenError('No active company.');
+  const membership = await getMembership(user.id, active.id);
+  if (!membership) throw new ForbiddenError('You do not have access to this company.');
+  return { user, company: active, membership };
+}
+
 /** Require a minimum company role (OWNER > ADMIN > MEMBER not assumed — exact set). */
 export async function requireCompanyRole(
   companyId: string,
