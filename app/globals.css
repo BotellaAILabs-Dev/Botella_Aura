@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Botella Aura design tokens.
+ * Neutral slate surfaces + one confident indigo-violet accent ("Aura").
+ * All values are HSL channels so Tailwind can apply opacity modifiers.
+ * See DESIGN.md for the full rationale.
+ */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    /* Accent — indigo-violet */
+    --primary: 250 84% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 250 60% 96%;
+    --accent-foreground: 250 84% 42%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 38 92% 12%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 250 84% 60%;
+
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 229 27% 7%;
+    --foreground: 210 40% 98%;
+
+    --card: 228 24% 9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 228 24% 9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 250 84% 67%;
+    --primary-foreground: 229 27% 7%;
+
+    --secondary: 223 24% 16%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 223 24% 14%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 250 30% 20%;
+    --accent-foreground: 250 84% 85%;
+
+    --destructive: 0 63% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 60% 48%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 38 92% 12%;
+
+    --border: 223 20% 18%;
+    --input: 223 20% 20%;
+    --ring: 250 84% 67%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1;
+  }
+  /* Consistent, accessible focus rings across interactive elements. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+/* Subtle branded background wash used on auth + marketing surfaces. */
+@layer components {
+  .aura-gradient {
+    background-image:
+      radial-gradient(
+        60% 50% at 50% 0%,
+        hsl(var(--primary) / 0.12) 0%,
+        transparent 70%
+      ),
+      radial-gradient(
+        40% 40% at 100% 100%,
+        hsl(var(--primary) / 0.08) 0%,
+        transparent 70%
+      );
+  }
+}
