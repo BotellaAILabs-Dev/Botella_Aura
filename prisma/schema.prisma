@@ -86,12 +86,43 @@ enum AuditAction {
   TREND_DIGEST_GENERATED
   TREND_DIGEST_REQUESTED
   AI_SUGGESTION_GENERATED
-  // --- Sprint 3+ (scaffolded for the audit trail) ---
+  // --- Sprint 3 (Content Studio) ---
+  KNOWLEDGE_SOURCE_SYNCED
+  KNOWLEDGE_DOCUMENT_UPLOADED
+  BRAND_VOICE_GENERATED
+  BRAND_VOICE_UPDATED
   CONTENT_DRAFT_CREATED
+  CONTENT_REGENERATED
   CONTENT_SUBMITTED_FOR_APPROVAL
+  CONTENT_CHANGES_REQUESTED
   CONTENT_APPROVED
   CONTENT_REJECTED
+  CONTENT_SCHEDULED
   CONTENT_PUBLISHED
+}
+
+/// Sprint 3 — origin of an ingested knowledge chunk.
+enum KnowledgeSourceType {
+  WEBSITE
+  BLOG
+  UPLOAD
+  PAST_POST
+}
+
+/// Sprint 3 — sync lifecycle of a tracked knowledge source.
+enum KnowledgeSourceStatus {
+  PENDING
+  SYNCING
+  SYNCED
+  ERROR
+}
+
+/// Sprint 3 — campaign lifecycle (Campaign Builder UI lands a later sprint).
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  ARCHIVED
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +224,9 @@ model Company {
   brandVoiceNotes String?  @db.Text
   logoUrl         String?
   preferences     Json     @default("{}")
+  /// Sprint 3 — AI-generated, human-editable brand voice profile (see
+  /// server/content/brand-voice.service.ts). Injected into every generation.
+  brandVoiceProfile Json?
   onboardedAt     DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -204,6 +238,9 @@ model Company {
   trendDigests        TrendDigest[]
   competitorProfiles  CompetitorProfile[]
   trendConfig         CompanyTrendConfig?
+  knowledgeSources    KnowledgeSource[]
+  knowledgeChunks     KnowledgeChunk[]
+  campaigns           Campaign[]
 
   @@index([slug])
 }
@@ -285,24 +322,94 @@ model LinkedInConnection {
 }
 
 /// Sprint 3 — AI-generated content pending human approval before publish.
+/// `body` holds the structured, Zod-validated content per type (see
+/// lib/validations/content.ts). Nothing reaches PUBLISHED without an explicit
+/// human Approve action — enforced in server/content/content.service.ts.
 model ContentDraft {
-  id          String        @id @default(cuid())
-  companyId   String
-  createdById String?
-  type        ContentType
-  status      ContentStatus @default(DRAFT)
-  title       String?
-  /// Rich body: plain text for posts, JSON blocks for carousels/threads.
-  body        Json          @default("{}")
-  /// Optional record of the AI generation context (model, prompt, sources).
-  aiMetadata  Json          @default("{}")
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id             String        @id @default(cuid())
+  companyId      String
+  createdById    String?
+  campaignId     String?
+  type           ContentType
+  status         ContentStatus @default(DRAFT)
+  title          String?
+  /// Rich body: structured JSON per content type.
+  body           Json          @default("{}")
+  /// Generation context: { source: {kind, ref, brief}, model, promptVersion,
+  /// knowledgeChunkIds, brandVoiceApplied }.
+  aiMetadata     Json          @default("{}")
+  rejectionReason String?      @db.Text
+  scheduledFor   DateTime?
+  publishedAt    DateTime?
+  /// LinkedIn post URN/URL after a successful official-API publish.
+  publishedUrl   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdBy User?   @relation("ContentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User?     @relation("ContentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  campaign  Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
   @@index([companyId, status])
+  @@index([companyId, scheduledFor])
+  @@index([campaignId])
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 3 — Content Studio: knowledge base, campaigns
+// ---------------------------------------------------------------------------
+
+/// A tracked ingestion source (website/blog) with sync status. Uploads create
+/// chunks directly and are summarized on the ingestion page from KnowledgeChunk.
+model KnowledgeSource {
+  id           String                @id @default(cuid())
+  companyId    String
+  type         KnowledgeSourceType
+  url          String?
+  label        String
+  status       KnowledgeSourceStatus @default(PENDING)
+  lastSyncedAt DateTime?
+  error        String?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, type, url])
+  @@index([companyId])
+}
+
+/// A retrievable chunk of the company's own content, grounding AI generation.
+model KnowledgeChunk {
+  id         String              @id @default(cuid())
+  companyId  String
+  sourceType KnowledgeSourceType
+  sourceUrl  String?
+  title      String?
+  content    String              @db.Text
+  tokenCount Int?
+  createdAt  DateTime            @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, sourceType])
+}
+
+/// Sprint 3 stub — Campaign Builder UI arrives in a later sprint. Content can
+/// already be tagged to a campaign at generation time.
+model Campaign {
+  id        String         @id @default(cuid())
+  companyId String
+  name      String
+  goal      String?        @db.Text
+  status    CampaignStatus @default(DRAFT)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  drafts  ContentDraft[]
+
+  @@index([companyId])
 }
 
 /// Sprint 2 — daily trend intelligence digests per company.
