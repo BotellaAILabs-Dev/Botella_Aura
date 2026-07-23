@@ -9,6 +9,15 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
+// `tsx prisma/seed.ts` does not auto-load .env the way the Prisma CLI does, so
+// load it here to keep `pnpm db:seed` working standalone from a clean clone.
+// process.loadEnvFile is built into Node >= 20.12 (zero dependencies).
+try {
+  process.loadEnvFile();
+} catch {
+  // .env is optional — env vars may already be set in the shell / CI.
+}
+
 const prisma = new PrismaClient();
 
 const DEMO_EMAIL = 'demo@botella.ai';
