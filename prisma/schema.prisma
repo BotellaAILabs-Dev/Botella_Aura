@@ -1,0 +1,323 @@
+// ============================================================================
+// Botella Aura — Prisma schema
+// ----------------------------------------------------------------------------
+// Designed up front for the full 10-sprint roadmap so later sprints do not
+// require painful migrations. Sprint 1 actively USES: User, Company,
+// CompanyMember, Account, Session, VerificationToken, PasswordResetToken,
+// AuditLog. The remaining models (LinkedInConnection, ContentDraft,
+// TrendDigest, CompetitorProfile) are scaffolded now and wired up in the
+// sprint noted on each model.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+/// System-wide role on the User record. Distinct from CompanyRole, which is
+/// the per-company membership role used for RBAC inside a workspace.
+enum SystemRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+/// Per-company membership role. Drives workspace RBAC (e.g. only OWNER/ADMIN
+/// may edit company settings or manage billing in later sprints).
+enum CompanyRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+/// Lifecycle of a LinkedIn connection (Sprint 2). Scaffolded now.
+enum LinkedInConnectionStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  REVOKED
+  ERROR
+}
+
+/// Content types Aura can generate (Sprint 3+). Scaffolded now.
+enum ContentType {
+  LINKEDIN_POST
+  CAROUSEL
+  TWEET_THREAD
+  BLOG
+}
+
+/// Approval lifecycle for generated content. The core human-in-the-loop
+/// guarantee: nothing reaches PUBLISHED without passing through APPROVED.
+enum ContentStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  PUBLISHED
+}
+
+/// Typed audit actions. Kept as an enum (not free strings) so the audit trail
+/// stays queryable and consistent as new sprints add actions.
+enum AuditAction {
+  USER_SIGNED_UP
+  USER_LOGGED_IN
+  USER_LOGGED_OUT
+  PASSWORD_RESET_REQUESTED
+  PASSWORD_RESET_COMPLETED
+  COMPANY_CREATED
+  COMPANY_UPDATED
+  COMPANY_MEMBER_ADDED
+  COMPANY_MEMBER_REMOVED
+  ONBOARDING_COMPLETED
+  // --- Sprint 2+ (scaffolded for the audit trail) ---
+  LINKEDIN_CONNECTED
+  LINKEDIN_DISCONNECTED
+  CONTENT_DRAFT_CREATED
+  CONTENT_SUBMITTED_FOR_APPROVAL
+  CONTENT_APPROVED
+  CONTENT_REJECTED
+  CONTENT_PUBLISHED
+  AI_SUGGESTION_GENERATED
+}
+
+// ---------------------------------------------------------------------------
+// Core identity + auth (Sprint 1)
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String     @id @default(cuid())
+  email         String     @unique
+  /// Nullable: OAuth-only users (e.g. Google) have no local password.
+  passwordHash  String?
+  name          String?
+  image         String?
+  role          SystemRole @default(OWNER)
+  emailVerified DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  accounts            Account[]
+  sessions            Session[]
+  memberships         CompanyMember[]
+  passwordResetTokens PasswordResetToken[]
+  auditLogs           AuditLog[]
+  createdContent      ContentDraft[]       @relation("ContentCreatedBy")
+
+  @@index([email])
+}
+
+/// NextAuth OAuth account linkage. Adding LinkedIn in Sprint 2 requires NO
+/// schema change here — it is just another row with provider = "linkedin".
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+/// Password reset via single-use, hashed, expiring tokens (Sprint 1).
+/// We store only a SHA-256 hash of the token; the raw token lives only in the
+/// emailed link. See server/services/auth-token.service.ts.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Workspace / tenancy (Sprint 1)
+// ---------------------------------------------------------------------------
+
+/// A Company is the tenant boundary. Everything the AI produces is scoped to a
+/// company. `preferences` is an extensible JSON bag for onboarding/AI-prompt
+/// data so later sprints can add signals without a migration; well-known
+/// fields (brandVoiceNotes, industry, website) stay as explicit columns.
+model Company {
+  id              String   @id @default(cuid())
+  name            String
+  slug            String   @unique
+  website         String?
+  industry        String?
+  brandVoiceNotes String?  @db.Text
+  logoUrl         String?
+  preferences     Json     @default("{}")
+  onboardedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  members             CompanyMember[]
+  auditLogs           AuditLog[]
+  linkedInConnections LinkedInConnection[]
+  contentDrafts       ContentDraft[]
+  trendDigests        TrendDigest[]
+  competitorProfiles  CompetitorProfile[]
+
+  @@index([slug])
+}
+
+/// User <-> Company join with a per-company role (RBAC).
+model CompanyMember {
+  id        String      @id @default(cuid())
+  userId    String
+  companyId String
+  role      CompanyRole @default(MEMBER)
+  createdAt DateTime    @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
+  @@index([companyId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Trust & safety — audit trail (Sprint 1, used forever)
+// ---------------------------------------------------------------------------
+
+/// Append-only audit trail. Every meaningful business action — every AI
+/// suggestion, every human approval, every publish — is recorded here. This is
+/// a product principle (transparency/trust + future explainability), not
+/// optional. `userId`/`companyId` are nullable to allow system events and
+/// pre-company events (e.g. signup before any company exists).
+model AuditLog {
+  id        String      @id @default(cuid())
+  companyId String?
+  userId    String?
+  action    AuditAction
+  /// Free-form structured context: what changed, which entity, AI rationale.
+  metadata  Json        @default("{}")
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime    @default(now())
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+  @@index([userId, createdAt])
+  @@index([action])
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 2+ placeholders (scaffolded now; wired up in the noted sprint)
+// ---------------------------------------------------------------------------
+
+/// Sprint 2 — official LinkedIn OAuth connection, scoped to a company.
+/// accessToken/refreshToken are stored ENCRYPTED at rest (AES-256-GCM via
+/// lib/crypto.ts). No scraping, no unofficial API — official OAuth only.
+model LinkedInConnection {
+  id                  String                   @id @default(cuid())
+  companyId           String
+  linkedInUserId      String?
+  /// Ciphertext (base64). Never store raw tokens.
+  accessTokenEnc      String?                  @db.Text
+  refreshTokenEnc     String?                  @db.Text
+  scope               String?
+  expiresAt           DateTime?
+  status              LinkedInConnectionStatus @default(PENDING)
+  connectedAt         DateTime?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+}
+
+/// Sprint 3 — AI-generated content pending human approval before publish.
+model ContentDraft {
+  id          String        @id @default(cuid())
+  companyId   String
+  createdById String?
+  type        ContentType
+  status      ContentStatus @default(DRAFT)
+  title       String?
+  /// Rich body: plain text for posts, JSON blocks for carousels/threads.
+  body        Json          @default("{}")
+  /// Optional record of the AI generation context (model, prompt, sources).
+  aiMetadata  Json          @default("{}")
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("ContentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status])
+}
+
+/// Sprint 2 — daily trend intelligence digests per company.
+model TrendDigest {
+  id        String   @id @default(cuid())
+  companyId String
+  date      DateTime
+  payload   Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, date])
+  @@index([companyId])
+}
+
+/// Sprint 5 — tracked competitor profiles per company.
+model CompetitorProfile {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  url       String?
+  notes     String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+}
