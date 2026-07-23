@@ -1,0 +1,25 @@
+# Local Postgres for development. Optional — use any Postgres you like and set
+# DATABASE_URL accordingly. This just makes a clean-clone setup one command:
+#   docker compose up -d
+# Matches the default DATABASE_URL in .env.example.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: botella-aura-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: botella_aura
+    ports:
+      - '5432:5432'
+    volumes:
+      - botella_aura_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  botella_aura_pgdata:
