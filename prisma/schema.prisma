@@ -78,15 +78,20 @@ enum AuditAction {
   COMPANY_MEMBER_ADDED
   COMPANY_MEMBER_REMOVED
   ONBOARDING_COMPLETED
-  // --- Sprint 2+ (scaffolded for the audit trail) ---
+  // --- Sprint 2 (Trend Intelligence + LinkedIn) ---
   LINKEDIN_CONNECTED
   LINKEDIN_DISCONNECTED
+  LINKEDIN_TOKEN_REFRESHED
+  TREND_CONFIG_UPDATED
+  TREND_DIGEST_GENERATED
+  TREND_DIGEST_REQUESTED
+  AI_SUGGESTION_GENERATED
+  // --- Sprint 3+ (scaffolded for the audit trail) ---
   CONTENT_DRAFT_CREATED
   CONTENT_SUBMITTED_FOR_APPROVAL
   CONTENT_APPROVED
   CONTENT_REJECTED
   CONTENT_PUBLISHED
-  AI_SUGGESTION_GENERATED
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +203,7 @@ model Company {
   contentDrafts       ContentDraft[]
   trendDigests        TrendDigest[]
   competitorProfiles  CompetitorProfile[]
+  trendConfig         CompanyTrendConfig?
 
   @@index([slug])
 }
@@ -257,19 +263,25 @@ model LinkedInConnection {
   id                  String                   @id @default(cuid())
   companyId           String
   linkedInUserId      String?
+  /// Connected profile display (from OIDC userinfo) — safe, non-secret, shown in UI.
+  displayName         String?
+  avatarUrl           String?
   /// Ciphertext (base64). Never store raw tokens.
   accessTokenEnc      String?                  @db.Text
   refreshTokenEnc     String?                  @db.Text
   scope               String?
   expiresAt           DateTime?
   status              LinkedInConnectionStatus @default(PENDING)
+  /// Populated when status = ERROR/EXPIRED to explain the reconnect prompt.
+  errorMessage        String?
   connectedAt         DateTime?
   createdAt           DateTime                 @default(now())
   updatedAt           DateTime                 @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  @@index([companyId])
+  // One connection per company for Sprint 2 (upserted on connect).
+  @@unique([companyId])
 }
 
 /// Sprint 3 — AI-generated content pending human approval before publish.
@@ -294,6 +306,9 @@ model ContentDraft {
 }
 
 /// Sprint 2 — daily trend intelligence digests per company.
+/// `payload` holds the structured digest:
+///   { items: [{ id, title, source, url, score, aiSummary, suggestedAngle }],
+///     generatedAt, model, sources: {...counts} }
 model TrendDigest {
   id        String   @id @default(cuid())
   companyId String
@@ -303,8 +318,35 @@ model TrendDigest {
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
+  // Idempotency: one digest per company per calendar day (see NON-NEGOTIABLE #6).
   @@unique([companyId, date])
   @@index([companyId])
+}
+
+/// Sprint 2 — per-company Trend Intelligence configuration. 1:1 with Company.
+/// String[] columns use native Postgres text[]. Smart defaults are seeded from
+/// onboarding data (industry + brand voice) via a one-time Claude call, then
+/// fully user-editable on /dashboard/settings/trends.
+model CompanyTrendConfig {
+  id              String   @id @default(cuid())
+  companyId       String   @unique
+  /// Topics/phrases relevant to the company's market.
+  keywords        String[] @default([])
+  /// Subreddits to monitor (names without the "r/" prefix).
+  subreddits      String[] @default([])
+  /// Additional RSS feed URLs to ingest alongside keyword-based Google News.
+  rssFeeds        String[] @default([])
+  /// Lightweight competitor watch list (names). The richer CompetitorProfile
+  /// table (Sprint 5) is the system of record; this feeds trend mention checks.
+  competitorNames String[] @default([])
+  /// Which sources are enabled: { reddit, hackernews, news, twitter }.
+  enabledSources  Json     @default("{\"reddit\":true,\"hackernews\":true,\"news\":true,\"twitter\":false}")
+  /// True once smart defaults have been generated, so we don't overwrite edits.
+  defaultsSeeded  Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 /// Sprint 5 — tracked competitor profiles per company.
