@@ -40,6 +40,7 @@ export class HackerNewsSource implements TrendSource {
     try {
       ids = await getJson<number[]>(`${HN_BASE}/topstories.json`, {
         timeoutMs: 8000,
+        cache: 'no-store', // always fetch the live top-stories list
       });
     } catch (err) {
       logger.warn('HackerNews: failed to load top stories', {
