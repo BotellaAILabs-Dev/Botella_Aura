@@ -1,0 +1,10 @@
+# pnpm 10+ blocks dependency build scripts by default. These are trusted and
+# required (Prisma query engine, esbuild for Vitest, the ESLint resolver), so
+# they are explicitly approved to build on install — keeping a clean-clone
+# `pnpm install` fully reproducible with no manual step.
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  esbuild: true
+  prisma: true
+  unrs-resolver: true
