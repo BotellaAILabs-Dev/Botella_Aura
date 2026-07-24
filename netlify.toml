@@ -25,10 +25,12 @@
 
 [build.environment]
   NODE_VERSION = "20"
-  # Netlify Functions run on AWS Lambda (Amazon Linux), not the build image.
-  # Prisma must download that engine at build time or queries fail at runtime.
-  PRISMA_CLI_BINARY_TARGETS = "native,rhel-openssl-3.0.x"
   NEXT_TELEMETRY_DISABLED = "1"
+  # NOTE: do NOT set PRISMA_CLI_BINARY_TARGETS here. It *overrides* the schema's
+  # binaryTargets and does not accept the "native" keyword, which fails the
+  # build with: "Unknown binaryTarget native". The Lambda engine target is
+  # declared in prisma/schema.prisma (`binaryTargets`) instead — that is the
+  # supported way and it understands "native".
 
 # The official runtime: handles SSR, API routes, middleware, ISR, and images.
 # Netlify installs this automatically; declaring it makes the setup explicit.

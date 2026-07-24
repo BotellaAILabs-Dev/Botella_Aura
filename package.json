@@ -28,6 +28,16 @@
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "esbuild",
+      "unrs-resolver",
+      "sharp"
+    ]
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.5",
     "@hookform/resolvers": "^3.9.1",
