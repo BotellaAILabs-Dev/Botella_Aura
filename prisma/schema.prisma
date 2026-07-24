@@ -20,7 +20,15 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // Runtime queries: use the POOLED connection string in serverless (Neon /
+  // Supabase pooler). Serverless functions open many short-lived connections,
+  // so pooling prevents exhausting Postgres connection limits.
+  url       = env("DATABASE_URL")
+  // Migrations: must use a DIRECT (non-pooled) connection. PgBouncer's
+  // transaction pooling breaks the advisory locks `prisma migrate deploy`
+  // relies on. If your provider gives you only one URL, set DIRECT_URL to the
+  // same value as DATABASE_URL — that is always safe.
+  directUrl = env("DIRECT_URL")
 }
 
 // ---------------------------------------------------------------------------
