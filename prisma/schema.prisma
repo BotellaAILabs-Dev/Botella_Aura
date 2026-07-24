@@ -11,6 +11,11 @@
 
 generator client {
   provider = "prisma-client-js"
+  // "native" = local dev. The rhel target is required for Netlify/Vercel
+  // serverless functions (AWS Lambda / Amazon Linux) — without it, Prisma
+  // throws "Query engine library for current platform could not be found"
+  // at runtime in production.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
