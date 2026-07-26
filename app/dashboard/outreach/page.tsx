@@ -50,6 +50,8 @@ export default async function OutreachPage() {
       type: m.type,
       status: m.status as OutreachStatusKey,
       draftText: m.draftText,
+      connectionAccepted: m.connectionAccepted,
+      replyReceived: m.replyReceived,
     })),
   }));
 

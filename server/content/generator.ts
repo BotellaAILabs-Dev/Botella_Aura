@@ -7,6 +7,7 @@ import {
   generateBrandVoiceProfile,
   brandVoiceToPrompt,
 } from '@/server/content/brand-voice.service';
+import { getActiveMemories, memoriesToPrompt } from '@/server/memory/memory.service';
 import {
   bodySchemaFor,
   type ContentTypeKey,
@@ -84,16 +85,25 @@ export async function generateDraft({
   const brief = await resolveBrief(company, source);
   const chunks = await retrieve(companyId, brief.query, { limit: 6 });
   const voice = await generateBrandVoiceProfile({ company, userId });
+  // Sprint 5 — inject learned performance patterns ("gets smarter every week").
+  // Empty string when the company has no real insights yet, so fresh accounts
+  // are unaffected (no fabricated guidance).
+  const memoryBlock = memoriesToPrompt(await getActiveMemories(companyId), {
+    types: ['CONTENT_FORMAT', 'CONTENT_LENGTH', 'TIMING', 'TOPIC', 'HASHTAG'],
+  });
 
   const spec = TYPE_SPECS[type];
   const system = [
     `You are the content writer for ${company.name}.`,
     brandVoiceToPrompt(voice),
+    memoryBlock,
     '',
     'Ground your writing in the company knowledge below — reflect their real ',
     'products, positioning, and facts. Do not invent product names or claims.',
     'Respond with ONLY valid JSON matching the schema. No markdown, no prose.',
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   const prompt = [
     `TASK: Write a ${spec.label}.`,

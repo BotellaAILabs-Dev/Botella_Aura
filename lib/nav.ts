@@ -9,6 +9,7 @@ import {
   BarChart3,
   Settings,
   Target,
+  Brain,
 } from 'lucide-react';
 
 /**
@@ -80,6 +81,14 @@ export const NAV_ITEMS: NavItem[] = [
     ready: true,
     sprint: 4,
     description: 'Track competitor activity and positioning.',
+  },
+  {
+    label: 'Marketing Memory',
+    href: '/dashboard/memory',
+    icon: Brain,
+    ready: true,
+    sprint: 5,
+    description: 'What we’ve learned about your audience — smarter every week.',
   },
   {
     label: 'Analytics',

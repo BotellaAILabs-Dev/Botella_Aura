@@ -12,6 +12,7 @@ import {
   brandVoiceToPrompt,
 } from '@/server/content/brand-voice.service';
 import { retrieve, chunksToContext } from '@/server/knowledge/retrieve';
+import { getActiveMemories, memoriesToPrompt } from '@/server/memory/memory.service';
 import { getLeadOrThrow } from '@/server/outreach/lead.service';
 
 /**
@@ -122,10 +123,15 @@ async function buildDrafts(args: {
       retrieve(companyId, `${leadCompany} ${signalText}`, { limit: 4 }),
     ]);
     const voice = await generateBrandVoiceProfile({ company: company!, userId });
+    // Sprint 5 — inject learned outreach patterns (empty when no data yet).
+    const memoryBlock = memoriesToPrompt(await getActiveMemories(companyId), {
+      types: ['OUTREACH_APPROACH', 'TIMING'],
+    });
 
     const system = [
       `You write outreach on behalf of ${companyName}.`,
       brandVoiceToPrompt(voice),
+      memoryBlock,
       'Rules: reference the ACTUAL signal naturally; be specific and human, not ' +
         'salesy or generic; no flattery cliches. The connectionNote MUST be under ' +
         '300 characters (LinkedIn limit). The followup is a short message to send ' +

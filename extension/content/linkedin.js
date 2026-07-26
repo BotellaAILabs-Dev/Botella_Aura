@@ -232,7 +232,57 @@
     hint.textContent =
       'Reads only the post already on your screen. We never fetch LinkedIn.';
     wrap.appendChild(hint);
+
+    // Sprint 5 — sync the metrics visible on your OWN post page.
+    const metricsBtn = document.createElement('button');
+    metricsBtn.className = 'aura-btn aura-mt';
+    metricsBtn.textContent = '📊 Sync this post’s metrics';
+    metricsBtn.addEventListener('click', () => onSyncMetrics(wrap));
+    wrap.appendChild(metricsBtn);
     return wrap;
+  }
+
+  async function onSyncMetrics(wrap) {
+    const m = readPostMetrics();
+    if (!m || (m.likes == null && m.comments == null && m.reposts == null)) {
+      note(wrap, 'No visible metrics found. Open your published post to sync its numbers.', 'warn');
+      return;
+    }
+    const res = await msg({
+      type: 'AURA_SYNC_METRICS',
+      postUrl: location.href,
+      likes: m.likes,
+      comments: m.comments,
+      reposts: m.reposts,
+    });
+    if (res && res.ok) {
+      note(
+        wrap,
+        res.data && res.data.matched
+          ? `Synced (${m.likes ?? 0} likes, ${m.comments ?? 0} comments) to the matching post.`
+          : 'Synced — but no matching Botella Aura post was found for this URL.',
+        res.data && res.data.matched ? 'ok' : 'warn',
+      );
+    } else {
+      note(wrap, (res && res.data && res.data.error) || 'Sync failed.', 'error');
+    }
+  }
+
+  /** Read like/comment/repost counts already rendered on the user's own post. */
+  function readPostMetrics() {
+    const num = (el) => {
+      if (!el) return null;
+      const digits = (el.textContent || '').replace(/[^\d]/g, '');
+      return digits ? parseInt(digits, 10) : null;
+    };
+    const likes = num(document.querySelector('.social-details-social-counts__reactions-count'));
+    const commentsEl = document.querySelector(
+      '.social-details-social-counts__comments, [aria-label*="comment" i]',
+    );
+    const comments = num(commentsEl);
+    const repostsEl = document.querySelector('[aria-label*="repost" i], [aria-label*="share" i]');
+    const reposts = num(repostsEl);
+    return { likes, comments, reposts };
   }
 
   async function onEngage(wrap, btn) {

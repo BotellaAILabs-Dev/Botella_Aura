@@ -389,6 +389,8 @@ model Company {
   engagementComments  EngagementComment[]
   discoveryProfiles   DiscoveryProfile[]
   discoveryRuns       DiscoveryRun[]
+  performanceSnapshots PerformanceSnapshot[]
+  marketingMemories   MarketingMemory[]
 
   @@index([slug])
 }
@@ -497,6 +499,7 @@ model ContentDraft {
   company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdBy User?     @relation("ContentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   campaign  Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  performanceSnapshots PerformanceSnapshot[]
 
   @@index([companyId, status])
   @@index([companyId, scheduledFor])
@@ -794,11 +797,16 @@ model OutreachMessage {
   aiMetadata Json          @default("{}")
   rejectionReason String?
   sentAt    DateTime?
+  /// Sprint 5 — the "did it work" outcome signals, manually confirmed by the
+  /// user (no API exposes these). Feed the Marketing Memory learning loop.
+  connectionAccepted Boolean @default(false)
+  replyReceived      Boolean @default(false)
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 
   lead    Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  performanceSnapshots PerformanceSnapshot[]
 
   @@index([companyId, status])
   @@index([leadId])
@@ -891,6 +899,59 @@ model EngagementComment {
   updatedAt     DateTime         @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  performanceSnapshots PerformanceSnapshot[]
 
   @@index([companyId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 5 — Marketing Memory / Learning Loop
+// ---------------------------------------------------------------------------
+
+/// A captured performance measurement for a published item. `metrics` is a
+/// source-shaped JSON bag (e.g. { impressions, likes, comments, clicks }).
+/// NON-NEGOTIABLE #2: we never fabricate — a snapshot only exists when a real
+/// source (LinkedIn API, the extension's DOM read of the user's own post, or a
+/// manual entry) provided numbers.
+model PerformanceSnapshot {
+  id                 String            @id @default(cuid())
+  companyId          String
+  contentDraftId     String?
+  outreachMessageId  String?
+  engagementCommentId String?
+  source             PerformanceSource
+  metrics            Json              @default("{}")
+  capturedAt         DateTime          @default(now())
+  createdAt          DateTime          @default(now())
+
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contentDraft      ContentDraft?      @relation(fields: [contentDraftId], references: [id], onDelete: Cascade)
+  outreachMessage   OutreachMessage?   @relation(fields: [outreachMessageId], references: [id], onDelete: Cascade)
+  engagementComment EngagementComment? @relation(fields: [engagementCommentId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, capturedAt])
+  @@index([contentDraftId])
+}
+
+/// A learned marketing insight extracted from real PerformanceSnapshot data.
+/// NON-NEGOTIABLE #3: every insight references the data that supports it via
+/// `supportingDataSummary`, and `confidence`/`sampleSize` are derived from how
+/// much real data exists — never confident-sounding output from thin data.
+model MarketingMemory {
+  id                   String           @id @default(cuid())
+  companyId            String
+  insightType          InsightType
+  insight              String           @db.Text
+  confidence           MemoryConfidence @default(LOW)
+  sampleSize           Int              @default(0)
+  /// { basis: string, metric: string, itemIds: string[], ... } — traceable.
+  supportingDataSummary Json            @default("{}")
+  isActive             Boolean          @default(true)
+  generatedAt          DateTime         @default(now())
+  createdAt            DateTime         @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, insightType])
+  @@index([companyId, isActive])
 }

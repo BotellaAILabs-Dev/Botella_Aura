@@ -111,6 +111,20 @@ async function handle(msg) {
     case 'AURA_RATE': {
       return await rateUsage();
     }
+    case 'AURA_SYNC_METRICS': {
+      // Sync REAL metrics the user can see on their own post page. Not an
+      // outbound action, so it is not counted against the send rate cap.
+      const r = await apiFetch('/api/extension/metrics', {
+        method: 'POST',
+        body: JSON.stringify({
+          postUrl: msg.postUrl,
+          ...(msg.likes != null ? { likes: msg.likes } : {}),
+          ...(msg.comments != null ? { comments: msg.comments } : {}),
+          ...(msg.reposts != null ? { reposts: msg.reposts } : {}),
+        }),
+      });
+      return { ok: r.ok, status: r.status, data: r.data };
+    }
     case 'AURA_ENGAGE_DRAFT': {
       // Draft a comment for a post the user is already viewing. The post text is
       // captured client-side and sent up; the backend never reads LinkedIn.

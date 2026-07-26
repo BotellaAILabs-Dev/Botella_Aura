@@ -45,6 +45,8 @@ export interface OutreachMessageRow {
   type: string;
   status: OutreachStatusKey;
   draftText: string;
+  connectionAccepted?: boolean;
+  replyReceived?: boolean;
 }
 export interface OutreachSignalRow {
   id: string;
@@ -289,6 +291,60 @@ function MessageBlock({
           )}
         </div>
       )}
+
+      {/* Sprint 5 — manual "did it work" outcome (feeds Marketing Memory) */}
+      {canManage && message.status === 'SENT' && (
+        <OutcomeToggles message={message} />
+      )}
+    </div>
+  );
+}
+
+function OutcomeToggles({ message }: { message: OutreachMessageRow }) {
+  const router = useRouter();
+  const [accepted, setAccepted] = useState(!!message.connectionAccepted);
+  const [replied, setReplied] = useState(!!message.replyReceived);
+
+  async function update(patch: { connectionAccepted?: boolean; replyReceived?: boolean }) {
+    const res = await fetch(`/api/outreach/messages/${message.id}/outcome`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      toast.error('Could not save outcome.');
+      return;
+    }
+    router.refresh();
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-border pt-2 text-sm">
+      <span className="text-xs text-muted-foreground">Did it work?</span>
+      <label className="flex items-center gap-1.5">
+        <input
+          type="checkbox"
+          checked={accepted}
+          onChange={(e) => {
+            setAccepted(e.target.checked);
+            update({ connectionAccepted: e.target.checked });
+          }}
+          className="h-4 w-4 accent-[hsl(var(--primary))]"
+        />
+        Connection accepted
+      </label>
+      <label className="flex items-center gap-1.5">
+        <input
+          type="checkbox"
+          checked={replied}
+          onChange={(e) => {
+            setReplied(e.target.checked);
+            update({ replyReceived: e.target.checked });
+          }}
+          className="h-4 w-4 accent-[hsl(var(--primary))]"
+        />
+        Reply received
+      </label>
     </div>
   );
 }
