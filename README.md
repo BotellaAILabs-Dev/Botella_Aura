@@ -149,6 +149,41 @@ curl -X POST http://localhost:3000/api/cron/outreach     -H "authorization: Bear
 Nothing in Sprint 4 sends, posts, or connects without an explicit human click in
 the extension — every action is audited in `AuditLog`.
 
+### Sprint 5 — Lead Discovery + Marketing Memory
+
+Two modules that make Aura compound in value the longer it's used.
+
+**Lead Discovery Engine** (`/dashboard/leads`, `/dashboard/leads/discover`) —
+proactive prospecting. Define a `DiscoveryProfile` (industry, stage, role titles,
+geography, keywords); discovery searches **legitimate public sources** (GitHub
+org search + robots-gated company team pages that actually run keyless;
+Crunchbase + Google Custom Search behind optional keys) to build an AI-scored
+lead list. Discovered leads are **deduped against existing signal leads** (never
+a duplicate row) and flow into the Sprint 4 outreach pipeline via "Draft
+outreach" — no parallel pipeline. Optional weekly auto-run.
+
+**Marketing Memory / Learning Loop** (`/dashboard/memory`) — the product
+remembers what works. Real performance data is captured honestly: the extension
+syncs the like/comment counts already visible on **your own** post page (no
+server-side LinkedIn fetch), and outreach outcomes are a manual toggle. A weekly
+job extracts data-grounded `MarketingMemory` insights — and honestly returns
+**"not enough data yet"** below 10 measured posts rather than inventing any. Those
+insights are **injected into the content + outreach generators**, so drafts get
+smarter every week. The dashboard shows insight cards (with the data behind
+each), an engagement trend chart, and best/worst posts. **No metric or insight is
+ever fabricated.**
+
+**New env (all optional):** `GOOGLE_CSE_API_KEY` + `GOOGLE_CSE_CX` (web-search
+discovery). Reuses `GITHUB_TOKEN` / `CRUNCHBASE_API_KEY`. See
+[`.env.example`](.env.example).
+
+**New scheduled jobs** (protected by `CRON_SECRET`):
+
+```bash
+curl -X POST http://localhost:3000/api/cron/discovery -H "authorization: Bearer $CRON_SECRET"  # weekly
+curl -X POST http://localhost:3000/api/cron/memory     -H "authorization: Bearer $CRON_SECRET"  # weekly
+```
+
 ---
 
 ## Scripts
