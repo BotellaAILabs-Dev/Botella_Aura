@@ -123,6 +123,22 @@ enum AuditAction {
   EXTENSION_TOKEN_ISSUED
   EXTENSION_TOKEN_REVOKED
   EXTENSION_ACTION_COMPLETED
+  // --- Sprint 4 (Outreach Intelligence) ---
+  OUTREACH_CONFIG_UPDATED
+  LEAD_CREATED
+  LEAD_UPDATED
+  LEAD_REMOVED
+  LEAD_SIGNAL_DETECTED
+  OUTREACH_DRAFTED
+  OUTREACH_SUBMITTED_FOR_APPROVAL
+  OUTREACH_APPROVED
+  OUTREACH_REJECTED
+  OUTREACH_SENT
+  // --- Sprint 4 (Engagement Copilot) ---
+  ENGAGEMENT_TARGET_ADDED
+  ENGAGEMENT_TARGET_REMOVED
+  ENGAGEMENT_COMMENT_DRAFTED
+  ENGAGEMENT_COMMENT_POSTED
 }
 
 /// Sprint 3 — origin of an ingested knowledge chunk.
@@ -147,6 +163,49 @@ enum CampaignStatus {
   ACTIVE
   COMPLETED
   ARCHIVED
+}
+
+/// Sprint 4 — lead lifecycle in the Outreach module.
+enum LeadStatus {
+  NEW
+  QUALIFIED
+  DRAFTED
+  CONTACTED
+  ARCHIVED
+}
+
+/// Sprint 4 — kinds of public buying/relevance signal detected for a lead.
+enum SignalType {
+  FUNDING
+  HIRING
+  GITHUB_ACTIVITY
+  NEWS
+  LEADERSHIP_CHANGE
+}
+
+/// Sprint 4 — outreach message kinds. Followups are only sent AFTER a
+/// connection is accepted (tracked via the extension, not an API).
+enum OutreachType {
+  CONNECTION_NOTE
+  FOLLOWUP
+}
+
+/// Sprint 4 — approval lifecycle for outreach messages. Mirrors ContentStatus:
+/// nothing reaches SENT without an explicit human Approve + a human click in
+/// the extension.
+enum OutreachStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  SENT
+  REJECTED
+}
+
+/// Sprint 4 — Engagement Copilot comment lifecycle.
+enum EngagementStatus {
+  DRAFT
+  POSTED
+  DISCARDED
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +327,11 @@ model Company {
   knowledgeChunks     KnowledgeChunk[]
   campaigns           Campaign[]
   extensionTokens     ExtensionToken[]
+  leads               Lead[]
+  outreachMessages    OutreachMessage[]
+  outreachConfig      OutreachConfig?
+  engagementTargets   EngagementTarget[]
+  engagementComments  EngagementComment[]
 
   @@index([slug])
 }
@@ -584,4 +648,135 @@ model ExtensionToken {
 
   @@index([userId])
   @@index([companyId])
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 4 — Outreach Intelligence
+// ---------------------------------------------------------------------------
+
+/// Per-company outreach targeting config (1:1 with Company). Mirrors
+/// CompanyTrendConfig. Drives which public signal sources run and how leads are
+/// filtered. String[] use native Postgres text[].
+model OutreachConfig {
+  id             String   @id @default(cuid())
+  companyId      String   @unique
+  /// Target industries/keywords the company sells into.
+  industries     String[] @default([])
+  /// Role titles worth reaching (e.g. "Head of Marketing").
+  roleTitles     String[] @default([])
+  /// Company size/stage filters (free-form tags, e.g. "seed", "50-200").
+  companyStages  String[] @default([])
+  /// Which signal sources are on: { crunchbase, github, jobs, news }.
+  enabledSources Json     @default("{\"crunchbase\":false,\"github\":true,\"jobs\":true,\"news\":true}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+/// A potential outreach target. Sourced from public signal at COMPANY
+/// granularity; a person's name/title/LinkedIn URL are added/confirmed by the
+/// user (never scraped from LinkedIn).
+model Lead {
+  id                String     @id @default(cuid())
+  companyId         String
+  /// Person name — optional until the user confirms it.
+  name              String?
+  title             String?
+  /// The target organization the signal is about.
+  companyName       String
+  sourceUrl         String?
+  /// Publicly-discoverable profile URL, manually confirmed by the user.
+  linkedInProfileUrl String?
+  status            LeadStatus @default(NEW)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  signals  LeadSignal[]
+  messages OutreachMessage[]
+
+  @@index([companyId, status])
+}
+
+/// A detected public signal attached to a lead (funding, hiring, etc.).
+model LeadSignal {
+  id          String     @id @default(cuid())
+  leadId      String
+  signalType  SignalType
+  description String     @db.Text
+  sourceUrl   String?
+  detectedAt  DateTime   @default(now())
+  createdAt   DateTime   @default(now())
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+}
+
+/// An AI-drafted outreach message pending human approval, then a human send via
+/// the extension. Nothing reaches SENT without both.
+model OutreachMessage {
+  id        String         @id @default(cuid())
+  leadId    String
+  companyId String
+  type      OutreachType
+  status    OutreachStatus @default(DRAFT)
+  draftText String         @db.Text
+  /// Generation context: { model, promptVersion, signalId, brandVoiceApplied }.
+  aiMetadata Json          @default("{}")
+  rejectionReason String?
+  sentAt    DateTime?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  lead    Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@index([leadId])
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 4 — Engagement Copilot
+// ---------------------------------------------------------------------------
+
+/// A public LinkedIn profile/page the user chose to monitor for engagement.
+/// Monitoring happens ENTIRELY in the extension (DOM already shown to the user);
+/// the backend never fetches these feeds.
+model EngagementTarget {
+  id         String   @id @default(cuid())
+  companyId  String
+  label      String
+  profileUrl String
+  createdAt  DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, profileUrl])
+  @@index([companyId])
+}
+
+/// An AI-drafted comment for a post the user was already viewing. The post text
+/// is captured client-side by the extension and sent here to draft; the human
+/// posts it with one click in the extension. The web app is the system of
+/// record (read-only history at /dashboard/engagement).
+model EngagementComment {
+  id            String           @id @default(cuid())
+  companyId     String
+  createdById   String?
+  targetPostUrl String
+  targetAuthor  String?
+  /// The visible post text the comment responds to (from the user's own DOM).
+  postExcerpt   String?          @db.Text
+  draftText     String           @db.Text
+  status        EngagementStatus @default(DRAFT)
+  aiMetadata    Json             @default("{}")
+  postedAt      DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
 }

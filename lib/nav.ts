@@ -52,7 +52,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Outreach',
     href: '/dashboard/outreach',
     icon: Send,
-    ready: false,
+    ready: true,
     sprint: 4,
     description: 'Draft personalized outreach — reviewed before it sends.',
   },

@@ -37,7 +37,10 @@ export async function completeAction(args: {
     case 'content_draft':
       await completeContentDraft(ctx, itemId, postedUrl ?? null, requestMeta);
       break;
-    // Module 3 / Module 4 add 'outreach_message' and 'engagement_comment' here.
+    case 'outreach_message':
+      await completeOutreachMessage(ctx, itemId, requestMeta);
+      break;
+    // Module 4 adds 'engagement_comment' here.
     default:
       throw new ActionItemError(`Unsupported item type: ${itemType}`, 400);
   }
@@ -86,6 +89,43 @@ async function completeContentDraft(
         userId: ctx.userId,
         companyId: ctx.companyId,
         metadata: { draftId, via: 'chrome_extension', postedUrl },
+        ...requestMeta,
+      },
+      tx,
+    );
+  });
+}
+
+async function completeOutreachMessage(
+  ctx: ExtensionContext,
+  messageId: string,
+  requestMeta?: Meta,
+): Promise<void> {
+  const message = await db.outreachMessage.findFirst({
+    where: { id: messageId, companyId: ctx.companyId },
+  });
+  if (!message) throw new ActionItemError('Outreach message not found.', 404);
+  if (message.status === 'SENT') return; // idempotent
+  if (message.status !== 'APPROVED') {
+    throw new ActionItemError('Only approved messages can be marked sent.', 409);
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.outreachMessage.update({
+      where: { id: messageId },
+      data: { status: 'SENT', sentAt: new Date() },
+    });
+    // Mark the lead contacted so the pipeline reflects reality.
+    await tx.lead.update({
+      where: { id: message.leadId },
+      data: { status: 'CONTACTED' },
+    });
+    await recordAudit(
+      {
+        action: 'OUTREACH_SENT',
+        userId: ctx.userId,
+        companyId: ctx.companyId,
+        metadata: { messageId, via: 'chrome_extension' },
         ...requestMeta,
       },
       tx,

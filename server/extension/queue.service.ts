@@ -65,8 +65,34 @@ export async function getQueue(companyId: string): Promise<QueueItem[]> {
     });
   }
 
-  // Outreach (Module 3) and Engagement (Module 4) items are appended here once
-  // those modules land — the extension already renders any QueueItem shape.
+  // --- Approved outreach messages awaiting a human send (Module 3) ---
+  const messages = await db.outreachMessage.findMany({
+    where: { companyId, status: 'APPROVED' },
+    orderBy: { updatedAt: 'desc' },
+    take: 50,
+    include: { lead: true },
+  });
+  for (const m of messages) {
+    const who = m.lead.name
+      ? `${m.lead.name} (${m.lead.companyName})`
+      : m.lead.companyName;
+    items.push({
+      id: `outreach_message:${m.id}`,
+      itemType: 'outreach_message',
+      itemId: m.id,
+      title:
+        m.type === 'CONNECTION_NOTE'
+          ? `Connection note → ${who}`
+          : `Follow-up → ${who}`,
+      subtitle: m.type === 'CONNECTION_NOTE' ? 'Connection note' : 'Follow-up',
+      text: m.draftText,
+      target: 'linkedin_message',
+      contextUrl: m.lead.linkedInProfileUrl ?? undefined,
+      createdAt: m.updatedAt.toISOString(),
+    });
+  }
+
+  // Engagement (Module 4) items are appended here once that module lands.
 
   return items;
 }
