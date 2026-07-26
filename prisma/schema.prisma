@@ -10,7 +10,7 @@
 // ============================================================================
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   // "native" = local dev. The rhel target is required for Netlify/Vercel
   // serverless functions (AWS Lambda / Amazon Linux) — without it, Prisma
   // throws "Query engine library for current platform could not be found"
@@ -19,7 +19,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   // Runtime queries: use the POOLED connection string in serverless (Neon /
   // Supabase pooler). Serverless functions open many short-lived connections,
   // so pooling prevents exhausting Postgres connection limits.
@@ -112,6 +112,13 @@ enum AuditAction {
   CONTENT_REJECTED
   CONTENT_SCHEDULED
   CONTENT_PUBLISHED
+  // --- Sprint 4 (Competitor Intelligence) ---
+  COMPETITOR_ADDED
+  COMPETITOR_UPDATED
+  COMPETITOR_REMOVED
+  COMPETITOR_SNAPSHOT_CAPTURED
+  COMPETITOR_REPORT_REQUESTED
+  COMPETITOR_REPORT_GENERATED
 }
 
 /// Sprint 3 — origin of an ingested knowledge chunk.
@@ -229,20 +236,20 @@ model PasswordResetToken {
 /// data so later sprints can add signals without a migration; well-known
 /// fields (brandVoiceNotes, industry, website) stay as explicit columns.
 model Company {
-  id              String   @id @default(cuid())
-  name            String
-  slug            String   @unique
-  website         String?
-  industry        String?
-  brandVoiceNotes String?  @db.Text
-  logoUrl         String?
-  preferences     Json     @default("{}")
+  id                String    @id @default(cuid())
+  name              String
+  slug              String    @unique
+  website           String?
+  industry          String?
+  brandVoiceNotes   String?   @db.Text
+  logoUrl           String?
+  preferences       Json      @default("{}")
   /// Sprint 3 — AI-generated, human-editable brand voice profile (see
   /// server/content/brand-voice.service.ts). Injected into every generation.
   brandVoiceProfile Json?
-  onboardedAt     DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  onboardedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   members             CompanyMember[]
   auditLogs           AuditLog[]
@@ -250,6 +257,7 @@ model Company {
   contentDrafts       ContentDraft[]
   trendDigests        TrendDigest[]
   competitorProfiles  CompetitorProfile[]
+  competitorReports   CompetitorReport[]
   trendConfig         CompanyTrendConfig?
   knowledgeSources    KnowledgeSource[]
   knowledgeChunks     KnowledgeChunk[]
@@ -310,23 +318,23 @@ model AuditLog {
 /// accessToken/refreshToken are stored ENCRYPTED at rest (AES-256-GCM via
 /// lib/crypto.ts). No scraping, no unofficial API — official OAuth only.
 model LinkedInConnection {
-  id                  String                   @id @default(cuid())
-  companyId           String
-  linkedInUserId      String?
+  id              String                   @id @default(cuid())
+  companyId       String
+  linkedInUserId  String?
   /// Connected profile display (from OIDC userinfo) — safe, non-secret, shown in UI.
-  displayName         String?
-  avatarUrl           String?
+  displayName     String?
+  avatarUrl       String?
   /// Ciphertext (base64). Never store raw tokens.
-  accessTokenEnc      String?                  @db.Text
-  refreshTokenEnc     String?                  @db.Text
-  scope               String?
-  expiresAt           DateTime?
-  status              LinkedInConnectionStatus @default(PENDING)
+  accessTokenEnc  String?                  @db.Text
+  refreshTokenEnc String?                  @db.Text
+  scope           String?
+  expiresAt       DateTime?
+  status          LinkedInConnectionStatus @default(PENDING)
   /// Populated when status = ERROR/EXPIRED to explain the reconnect prompt.
-  errorMessage        String?
-  connectedAt         DateTime?
-  createdAt           DateTime                 @default(now())
-  updatedAt           DateTime                 @updatedAt
+  errorMessage    String?
+  connectedAt     DateTime?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
@@ -339,25 +347,25 @@ model LinkedInConnection {
 /// lib/validations/content.ts). Nothing reaches PUBLISHED without an explicit
 /// human Approve action — enforced in server/content/content.service.ts.
 model ContentDraft {
-  id             String        @id @default(cuid())
-  companyId      String
-  createdById    String?
-  campaignId     String?
-  type           ContentType
-  status         ContentStatus @default(DRAFT)
-  title          String?
+  id              String        @id @default(cuid())
+  companyId       String
+  createdById     String?
+  campaignId      String?
+  type            ContentType
+  status          ContentStatus @default(DRAFT)
+  title           String?
   /// Rich body: structured JSON per content type.
-  body           Json          @default("{}")
+  body            Json          @default("{}")
   /// Generation context: { source: {kind, ref, brief}, model, promptVersion,
   /// knowledgeChunkIds, brandVoiceApplied }.
-  aiMetadata     Json          @default("{}")
-  rejectionReason String?      @db.Text
-  scheduledFor   DateTime?
-  publishedAt    DateTime?
+  aiMetadata      Json          @default("{}")
+  rejectionReason String?       @db.Text
+  scheduledFor    DateTime?
+  publishedAt     DateTime?
   /// LinkedIn post URN/URL after a successful official-API publish.
-  publishedUrl   String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  publishedUrl    String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdBy User?     @relation("ContentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -469,17 +477,75 @@ model CompanyTrendConfig {
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
-/// Sprint 5 — tracked competitor profiles per company.
+/// Sprint 4 — tracked competitor profiles per company. Signal is gathered ONLY
+/// from legitimate public sources (website diff, public news/RSS, GitHub API).
+/// The public LinkedIn Company Page feed is NOT read (no official API scope) —
+/// see server/competitors/sources/linkedin.ts, which is a flagged stub.
 model CompetitorProfile {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  url       String?
-  notes     String?  @db.Text
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(cuid())
+  companyId       String
+  name            String
+  /// Homepage / primary website URL (tracked for change detection).
+  url             String?
+  /// Optional pricing page URL (tracked separately from homepage).
+  pricingUrl      String?
+  /// Optional public LinkedIn Company Page URL (display + future API scope).
+  linkedInUrl     String?
+  /// Optional GitHub org/user login for public repo-activity signal.
+  githubOrg       String?
+  notes           String?  @db.Text
+  /// When false, the tracking pipeline skips this competitor.
+  trackingEnabled Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company   Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  snapshots CompetitorSnapshot[]
+
+  @@index([companyId])
+}
+
+/// Sprint 4 — a point-in-time capture of a competitor's public signal. Each run
+/// hashes the homepage/pricing text and, when content changed vs the previous
+/// snapshot, stores a Claude-written human-readable `changesSummary`.
+model CompetitorSnapshot {
+  id             String   @id @default(cuid())
+  competitorId   String
+  capturedAt     DateTime @default(now())
+  /// SHA-256 of normalized homepage text (fast change detection).
+  homepageHash   String?
+  /// Extracted, normalized homepage text (bounded) for diffing/summary.
+  homepageText   String?  @db.Text
+  pricingHash    String?
+  pricingText    String?  @db.Text
+  /// Structured, human-readable diff:
+  ///   { hasChanges, homepage?: string, pricing?: string, news: [...],
+  ///     github?: {...}, model }
+  changesSummary Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  competitor CompetitorProfile @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+
+  @@index([competitorId, capturedAt])
+}
+
+/// Sprint 4 — weekly aggregated competitor intelligence report per company.
+/// `payload` holds the structured, Claude-generated digest:
+///   { competitors: [{ competitor, newLaunches, pricingChanges,
+///     notableActivity, strategicTakeaway }], synthesis, generatedAt, model }
+model CompetitorReport {
+  id          String   @id @default(cuid())
+  companyId   String
+  /// Monday 00:00 UTC of the ISO week the report covers (idempotency key).
+  weekStart   DateTime
+  weekEnd     DateTime
+  payload     Json     @default("{}")
+  model       String?
+  generatedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  @@index([companyId])
+  @@unique([companyId, weekStart])
+  @@index([companyId, weekStart])
 }

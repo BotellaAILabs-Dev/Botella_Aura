@@ -68,8 +68,8 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Competitors',
     href: '/dashboard/competitors',
     icon: Users,
-    ready: false,
-    sprint: 5,
+    ready: true,
+    sprint: 4,
     description: 'Track competitor activity and positioning.',
   },
   {
