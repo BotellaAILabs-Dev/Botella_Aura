@@ -8,6 +8,7 @@ import {
   Users,
   BarChart3,
   Settings,
+  Target,
 } from 'lucide-react';
 
 /**
@@ -47,6 +48,14 @@ export const NAV_ITEMS: NavItem[] = [
     ready: true,
     sprint: 3,
     description: 'Generate on-brand posts, carousels, and threads.',
+  },
+  {
+    label: 'Leads',
+    href: '/dashboard/leads',
+    icon: Target,
+    ready: true,
+    sprint: 5,
+    description: 'Discover and qualify prospects from public sources.',
   },
   {
     label: 'Outreach',

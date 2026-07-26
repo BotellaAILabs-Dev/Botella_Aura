@@ -139,6 +139,18 @@ enum AuditAction {
   ENGAGEMENT_TARGET_REMOVED
   ENGAGEMENT_COMMENT_DRAFTED
   ENGAGEMENT_COMMENT_POSTED
+  // --- Sprint 5 (Lead Discovery Engine) ---
+  DISCOVERY_PROFILE_CREATED
+  DISCOVERY_PROFILE_UPDATED
+  DISCOVERY_PROFILE_DELETED
+  DISCOVERY_RUN_STARTED
+  DISCOVERY_RUN_COMPLETED
+  LEAD_DISCOVERED
+  LEAD_SCORED
+  // --- Sprint 5 (Marketing Memory / Learning Loop) ---
+  PERFORMANCE_SNAPSHOT_CAPTURED
+  OUTREACH_OUTCOME_UPDATED
+  MARKETING_MEMORY_GENERATED
 }
 
 /// Sprint 3 — origin of an ingested knowledge chunk.
@@ -206,6 +218,49 @@ enum EngagementStatus {
   DRAFT
   POSTED
   DISCARDED
+}
+
+/// Sprint 5 — how a Lead entered the system. SIGNAL = Sprint 4 reactive
+/// detection; DISCOVERY_ENGINE = Sprint 5 proactive prospecting; MANUAL = added
+/// by the user. Existing Sprint 4 leads default to SIGNAL.
+enum LeadSource {
+  SIGNAL
+  DISCOVERY_ENGINE
+  MANUAL
+}
+
+/// Sprint 5 — lifecycle of a discovery run.
+enum DiscoveryRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+/// Sprint 5 — category of a learned marketing insight.
+enum InsightType {
+  CONTENT_FORMAT
+  CONTENT_LENGTH
+  TIMING
+  TOPIC
+  HASHTAG
+  OUTREACH_APPROACH
+  OTHER
+}
+
+/// Sprint 5 — confidence in an insight, derived from sample size.
+enum MemoryConfidence {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+/// Sprint 5 — where a performance metric came from. LinkedIn API analytics are
+/// unavailable at our current scope (honest "unavailable"); real numbers come
+/// from the extension DOM-read or a manual human toggle.
+enum PerformanceSource {
+  LINKEDIN_API
+  EXTENSION_DOM
+  MANUAL
 }
 
 // ---------------------------------------------------------------------------
@@ -332,6 +387,8 @@ model Company {
   outreachConfig      OutreachConfig?
   engagementTargets   EngagementTarget[]
   engagementComments  EngagementComment[]
+  discoveryProfiles   DiscoveryProfile[]
+  discoveryRuns       DiscoveryRun[]
 
   @@index([slug])
 }
@@ -689,14 +746,24 @@ model Lead {
   /// Publicly-discoverable profile URL, manually confirmed by the user.
   linkedInProfileUrl String?
   status            LeadStatus @default(NEW)
+  /// Sprint 5 — how this lead entered the system.
+  source            LeadSource @default(SIGNAL)
+  /// Sprint 5 — the DiscoveryProfile that found this lead (if discovered).
+  discoveryProfileId String?
+  /// Sprint 5 — AI fit score 0-100 against the discovery profile's criteria.
+  fitScore          Int?
+  /// Sprint 5 — short "why this lead" rationale (traceable, human-readable).
+  fitRationale      String?    @db.Text
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
 
-  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  signals  LeadSignal[]
-  messages OutreachMessage[]
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  discoveryProfile DiscoveryProfile? @relation(fields: [discoveryProfileId], references: [id], onDelete: SetNull)
+  signals          LeadSignal[]
+  messages         OutreachMessage[]
 
   @@index([companyId, status])
+  @@index([companyId, source])
 }
 
 /// A detected public signal attached to a lead (funding, hiring, etc.).
@@ -735,6 +802,53 @@ model OutreachMessage {
 
   @@index([companyId, status])
   @@index([leadId])
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 5 — Lead Discovery Engine (proactive prospecting)
+// ---------------------------------------------------------------------------
+
+/// A saved, reusable search profile describing WHO the company wants to reach.
+/// `criteria` is a structured JSON bag (industry, stage, roleTitles, geography,
+/// keywords) validated by lib/validations/discovery.ts. A profile can auto-run
+/// weekly (autoRun) via the discovery cron.
+model DiscoveryProfile {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  criteria  Json     @default("{}")
+  isActive  Boolean  @default(true)
+  autoRun   Boolean  @default(false)
+  lastRunAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  runs    DiscoveryRun[]
+  leads   Lead[]
+
+  @@index([companyId])
+}
+
+/// One execution of a DiscoveryProfile against the public sources — the run
+/// history surfaced at /dashboard/leads. `summary` records per-source counts +
+/// skipped sources (transparency), so a run with 0 results is honestly empty.
+model DiscoveryRun {
+  id                 String             @id @default(cuid())
+  companyId          String
+  discoveryProfileId String
+  status             DiscoveryRunStatus @default(RUNNING)
+  leadsFound         Int                @default(0)
+  leadsCreated       Int                @default(0)
+  summary            Json               @default("{}")
+  startedAt          DateTime           @default(now())
+  finishedAt         DateTime?
+
+  company Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  profile DiscoveryProfile @relation(fields: [discoveryProfileId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, startedAt])
+  @@index([discoveryProfileId])
 }
 
 // ---------------------------------------------------------------------------
