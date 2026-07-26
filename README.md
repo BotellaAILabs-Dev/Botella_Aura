@@ -105,6 +105,50 @@ flagged in code, never faked. No scraping, no unofficial endpoints, ever.
 The Google button only renders when both variables are present, so the app runs
 fine without it.
 
+### Sprint 4 — Competitors · Extension · Outreach · Engagement
+
+Four modules, all built on the product's core safety principle: **every LinkedIn
+action is performed by a real human clicking in their own browser via the
+extension. The backend never touches linkedin.com.**
+
+**1. Competitor Intelligence** (`/dashboard/competitors`) — track competitors
+from public signal only: website change detection (robots-respecting fetch +
+diff, Claude-summarized), public news/RSS, and GitHub public API. Weekly AI
+report at `/dashboard/competitors/reports`. The LinkedIn company-page feed is a
+flagged stub (no official scope — no scraping).
+
+**2. Chrome Extension** (`/extension`) — the action layer. Load it unpacked
+(`chrome://extensions` → Developer mode → Load unpacked → select `extension/`),
+then pair it from **Settings → Browser extension**. It shows a queue of approved
+items; you insert each into LinkedIn's own composer and click Post yourself.
+Auth is a separate, revocable, workspace-scoped bearer token (only its SHA-256
+hash is stored). See [`extension/README.md`](extension/README.md).
+
+**3. Outreach Intelligence** (`/dashboard/outreach`) — detect leads from public
+signal (GitHub, news, hiring RSS; Crunchbase optional behind a key), AI-draft
+brand-voice-grounded connection notes + follow-ups, approve them, and send from
+the extension. Configure targeting at `/dashboard/settings/outreach`.
+
+**4. Engagement Copilot** (`/dashboard/engagement`) — the extension offers to
+draft an on-brand comment on posts **already visible on your screen**; the post
+text is captured client-side and sent up — there is no server-side LinkedIn
+fetch. The web app is the read-only record. Choose monitored profiles at
+`/dashboard/settings/engagement`.
+
+**New env (all optional):** `GITHUB_TOKEN` (higher rate limit),
+`CRUNCHBASE_API_KEY` (funding signals), `EXTENSION_ALLOWED_ORIGIN` (pin a
+published extension in prod). See [`.env.example`](.env.example).
+
+**New scheduled jobs** (protected by `CRON_SECRET`, platform-agnostic):
+
+```bash
+curl -X POST http://localhost:3000/api/cron/competitors -H "authorization: Bearer $CRON_SECRET"  # weekly
+curl -X POST http://localhost:3000/api/cron/outreach     -H "authorization: Bearer $CRON_SECRET"  # daily
+```
+
+Nothing in Sprint 4 sends, posts, or connects without an explicit human click in
+the extension — every action is audited in `AuditLog`.
+
 ---
 
 ## Scripts

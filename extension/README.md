@@ -43,8 +43,14 @@ anytime from **Settings → Browser extension → Disconnect**.
      content script stores it automatically), or
    - copy the token and paste it into the extension popup.
 5. Open LinkedIn and click the floating **✦ Aura** button (bottom-right) to see
-   your approved items. Click **Insert into composer**, review, click
-   LinkedIn's own **Post** button yourself, then **Mark as posted**.
+   your approved items (posts from Content Studio, outreach messages). Click
+   **Insert into composer**, review, click LinkedIn's own **Post/Send** button
+   yourself, then **Mark as posted**.
+6. **Engagement Copilot:** while viewing a post, open the panel and click
+   **Draft a comment for this post**. The extension reads only the post text
+   already rendered on your screen, sends it up for an on-brand draft, and you
+   insert it into LinkedIn's own comment box and post it yourself. No server-side
+   LinkedIn fetch happens — the post text is captured client-side.
 
 ### Pointing at a deployed backend
 Pairing via **Send to extension** automatically pins the API base to whatever
