@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Botella Aura — Action Layer",
+  "version": "0.1.0",
+  "description": "Review and send your approved Botella Aura items on LinkedIn — one human click per action. No automation.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "https://*.linkedin.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Botella Aura"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://localhost:3000/*", "https://localhost:3000/*"],
+      "js": ["content/pairing.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.linkedin.com/*"],
+      "js": ["content/linkedin.js"],
+      "css": ["content/linkedin.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

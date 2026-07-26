@@ -1,0 +1,157 @@
+/* Botella Aura action panel — injected on linkedin.com. Namespaced with .aura-
+   to avoid clashing with LinkedIn's styles. */
+.aura-launcher {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483000;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 999px;
+  background: #6d4aff;
+  color: #fff;
+  font: 600 13px/1 -apple-system, system-ui, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(16, 24, 40, 0.24);
+}
+.aura-launcher:hover {
+  background: #5c3bef;
+}
+
+.aura-panel {
+  position: fixed;
+  right: 20px;
+  bottom: 72px;
+  z-index: 2147483000;
+  width: 360px;
+  max-height: 70vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  color: #101828;
+  border: 1px solid #e4e7ec;
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(16, 24, 40, 0.2);
+  font: 13px/1.45 -apple-system, system-ui, sans-serif;
+}
+.aura-hidden {
+  display: none;
+}
+.aura-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid #eef0f3;
+}
+.aura-title {
+  font-weight: 700;
+}
+.aura-x {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  color: #667085;
+}
+.aura-body {
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+.aura-muted {
+  color: #667085;
+  margin: 4px 0;
+}
+.aura-workspace {
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.aura-error {
+  color: #b42318;
+  margin: 4px 0;
+}
+.aura-usage {
+  background: #ecfdf3;
+  color: #067647;
+  border: 1px solid #abefc6;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.aura-item {
+  border: 1px solid #eef0f3;
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+.aura-item.aura-done {
+  opacity: 0.55;
+}
+.aura-item-title {
+  font-weight: 600;
+}
+.aura-item-sub {
+  color: #667085;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.aura-item-text {
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.aura-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.aura-btn {
+  border: 1px solid #d0d5dd;
+  background: #fff;
+  color: #344054;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.aura-btn:hover {
+  background: #f9fafb;
+}
+.aura-btn-primary {
+  background: #6d4aff;
+  border-color: #6d4aff;
+  color: #fff;
+}
+.aura-btn-primary:hover {
+  background: #5c3bef;
+}
+.aura-mt {
+  margin-top: 6px;
+}
+.aura-note {
+  margin-top: 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.aura-note-ok {
+  background: #ecfdf3;
+  color: #067647;
+}
+.aura-note-warn {
+  background: #fffaeb;
+  color: #b54708;
+}
+.aura-note-error {
+  background: #fef3f2;
+  color: #b42318;
+}

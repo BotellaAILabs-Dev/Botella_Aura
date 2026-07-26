@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>Botella Aura</title>
+  </head>
+  <body>
+    <header class="head">
+      <span class="brand">✦ Botella Aura</span>
+      <span id="dot" class="dot dot-off" title="Not paired"></span>
+    </header>
+
+    <main class="body">
+      <!-- Unpaired state -->
+      <section id="pair" class="hidden">
+        <p class="muted">
+          Pair this extension with your Botella Aura account. Generate a token in
+          <strong>Settings → Browser extension</strong>, then paste it here (or
+          click “Send to extension” on that page).
+        </p>
+        <label class="label" for="token">Pairing token</label>
+        <input id="token" class="input" type="password" placeholder="aura_ext_…" />
+        <button id="save" class="btn btn-primary">Pair extension</button>
+        <details class="advanced">
+          <summary>Advanced</summary>
+          <label class="label" for="apiBase">Botella Aura URL</label>
+          <input id="apiBase" class="input" type="text" placeholder="http://localhost:3000" />
+          <button id="saveApi" class="btn">Save URL</button>
+        </details>
+        <p id="pairMsg" class="msg"></p>
+      </section>
+
+      <!-- Paired state -->
+      <section id="connected" class="hidden">
+        <div class="status-card">
+          <div class="row"><span class="muted">Workspace</span><span id="company">—</span></div>
+          <div class="row"><span class="muted">Waiting in queue</span><span id="queue">—</span></div>
+          <div class="row"><span class="muted">Actions today</span><span id="today">—</span></div>
+        </div>
+        <div id="usage" class="usage">Healthy usage</div>
+        <p class="muted small">
+          Open LinkedIn and click the <strong>✦ Aura</strong> button to review and
+          send your approved items — one click each, by you.
+        </p>
+        <button id="openLi" class="btn">Open LinkedIn</button>
+        <button id="disconnect" class="btn btn-danger">Disconnect extension</button>
+      </section>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

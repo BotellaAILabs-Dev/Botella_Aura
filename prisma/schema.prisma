@@ -119,6 +119,10 @@ enum AuditAction {
   COMPETITOR_SNAPSHOT_CAPTURED
   COMPETITOR_REPORT_REQUESTED
   COMPETITOR_REPORT_GENERATED
+  // --- Sprint 4 (Chrome Extension — the human action layer) ---
+  EXTENSION_TOKEN_ISSUED
+  EXTENSION_TOKEN_REVOKED
+  EXTENSION_ACTION_COMPLETED
 }
 
 /// Sprint 3 — origin of an ingested knowledge chunk.
@@ -167,6 +171,7 @@ model User {
   passwordResetTokens PasswordResetToken[]
   auditLogs           AuditLog[]
   createdContent      ContentDraft[]       @relation("ContentCreatedBy")
+  extensionTokens     ExtensionToken[]
 
   @@index([email])
 }
@@ -262,6 +267,7 @@ model Company {
   knowledgeSources    KnowledgeSource[]
   knowledgeChunks     KnowledgeChunk[]
   campaigns           Campaign[]
+  extensionTokens     ExtensionToken[]
 
   @@index([slug])
 }
@@ -548,4 +554,34 @@ model CompetitorReport {
 
   @@unique([companyId, weekStart])
   @@index([companyId, weekStart])
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 4 — Chrome Extension (the human action layer)
+// ---------------------------------------------------------------------------
+
+/// A revocable, per-user bearer token for the companion Chrome Extension.
+/// SECURITY: we store ONLY sha256(rawToken) — the raw token lives only in the
+/// extension's chrome.storage.local. This token authorizes ONLY the
+/// /api/extension/* endpoints (queue read + action sync-back), never the full
+/// web session. It is scoped to one workspace (companyId) and independently
+/// revocable, so a compromised extension token cannot escalate to account
+/// access. See server/extension/token.service.ts + lib/extension-auth.ts.
+model ExtensionToken {
+  id         String    @id @default(cuid())
+  userId     String
+  companyId  String
+  /// Human label (e.g. browser/device) shown in settings.
+  label      String?
+  tokenHash  String    @unique
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([companyId])
 }

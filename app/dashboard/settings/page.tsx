@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Linkedin, Radar, BookOpen, ChevronRight } from 'lucide-react';
+import { Linkedin, Radar, BookOpen, ChevronRight, Puzzle } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
@@ -154,6 +154,23 @@ export default async function SettingsPage() {
             </CardHeader>
             <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
               Manage knowledge base <ChevronRight className="h-4 w-4" />
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link href="/dashboard/settings/extension" className="group">
+          <Card className="h-full transition-shadow group-hover:shadow-md">
+            <CardHeader>
+              <div className="mb-1 flex items-center gap-2">
+                <Puzzle className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">Browser extension</CardTitle>
+              </div>
+              <CardDescription>
+                Pair the extension to send approved items with one human click.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
+              Pair extension <ChevronRight className="h-4 w-4" />
             </CardContent>
           </Card>
         </Link>
