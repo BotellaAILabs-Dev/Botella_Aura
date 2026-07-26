@@ -60,8 +60,8 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Engagement',
     href: '/dashboard/engagement',
     icon: MessageCircle,
-    ready: false,
-    sprint: 6,
+    ready: true,
+    sprint: 4,
     description: 'Suggested replies and comments, approved by you.',
   },
   {

@@ -1,6 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Linkedin, Radar, BookOpen, ChevronRight, Puzzle, Send } from 'lucide-react';
+import {
+  Linkedin,
+  Radar,
+  BookOpen,
+  ChevronRight,
+  Puzzle,
+  Send,
+  MessageCircle,
+} from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
@@ -188,6 +196,23 @@ export default async function SettingsPage() {
             </CardHeader>
             <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
               Configure targeting <ChevronRight className="h-4 w-4" />
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link href="/dashboard/settings/engagement" className="group">
+          <Card className="h-full transition-shadow group-hover:shadow-md">
+            <CardHeader>
+              <div className="mb-1 flex items-center gap-2">
+                <MessageCircle className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">Engagement targets</CardTitle>
+              </div>
+              <CardDescription>
+                Public profiles to engage with via the extension.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
+              Manage targets <ChevronRight className="h-4 w-4" />
             </CardContent>
           </Card>
         </Link>

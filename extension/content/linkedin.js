@@ -98,6 +98,14 @@
       body.appendChild(w);
     }
 
+    // Engagement Copilot: draft a comment for the post currently on screen.
+    body.appendChild(renderEngageSection());
+
+    const queueHeading = document.createElement('div');
+    queueHeading.className = 'aura-muted aura-section-heading';
+    queueHeading.textContent = 'Your queue';
+    body.appendChild(queueHeading);
+
     if (items.length === 0) {
       const empty = document.createElement('p');
       empty.className = 'aura-muted';
@@ -207,6 +215,147 @@
     }
     n.className = `aura-note aura-note-${kind}`;
     n.textContent = text;
+  }
+
+  // --- Engagement Copilot -------------------------------------------------
+
+  function renderEngageSection() {
+    const wrap = document.createElement('div');
+    wrap.className = 'aura-engage';
+    const btn = document.createElement('button');
+    btn.className = 'aura-btn aura-btn-primary';
+    btn.textContent = '💬 Draft a comment for this post';
+    btn.addEventListener('click', () => onEngage(wrap, btn));
+    wrap.appendChild(btn);
+    const hint = document.createElement('p');
+    hint.className = 'aura-muted aura-engage-hint';
+    hint.textContent =
+      'Reads only the post already on your screen. We never fetch LinkedIn.';
+    wrap.appendChild(hint);
+    return wrap;
+  }
+
+  async function onEngage(wrap, btn) {
+    const post = readVisiblePost();
+    if (!post || !post.text) {
+      note(wrap, 'No post found on screen. Scroll to a post and try again.', 'warn');
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Drafting…';
+    const res = await msg({
+      type: 'AURA_ENGAGE_DRAFT',
+      postUrl: post.url,
+      postText: post.text,
+      author: post.author,
+    });
+    btn.disabled = false;
+    btn.textContent = '💬 Draft a comment for this post';
+    if (!res || !res.ok) {
+      note(wrap, (res && res.data && res.data.error) || 'Draft failed.', 'error');
+      return;
+    }
+    renderDraftedComment(wrap, res.data.commentId, res.data.text, post);
+  }
+
+  function renderDraftedComment(wrap, commentId, text, post) {
+    const prev = wrap.querySelector('.aura-engage-draft');
+    if (prev) prev.remove();
+
+    const card = document.createElement('div');
+    card.className = 'aura-engage-draft aura-item';
+    const ta = document.createElement('textarea');
+    ta.className = 'aura-textarea';
+    ta.rows = 4;
+    ta.value = text;
+    card.appendChild(ta);
+
+    const actions = document.createElement('div');
+    actions.className = 'aura-actions';
+
+    const insertBtn = document.createElement('button');
+    insertBtn.className = 'aura-btn aura-btn-primary';
+    insertBtn.textContent = 'Insert into comment box';
+    insertBtn.addEventListener('click', () => {
+      const ok = insertIntoCommentBox(ta.value);
+      if (!ok) {
+        navigator.clipboard.writeText(ta.value).catch(() => {});
+        note(card, 'Open the comment box, then insert again (copied as fallback).', 'warn');
+      } else {
+        note(card, 'Inserted. Post it yourself, then mark it posted.', 'ok');
+      }
+    });
+
+    const postedBtn = document.createElement('button');
+    postedBtn.className = 'aura-btn';
+    postedBtn.textContent = 'Mark as posted';
+    postedBtn.addEventListener('click', async () => {
+      const res = await msg({
+        type: 'AURA_COMPLETE',
+        itemType: 'engagement_comment',
+        itemId: commentId,
+        postedUrl: post.url,
+      });
+      if (res && res.ok) note(card, 'Marked as posted. Synced to Botella Aura.', 'ok');
+      else if (res && res.rateLimited) note(card, res.error, 'warn');
+      else note(card, (res && res.error) || 'Sync failed.', 'error');
+    });
+
+    actions.appendChild(insertBtn);
+    actions.appendChild(postedBtn);
+    card.appendChild(actions);
+    wrap.appendChild(card);
+  }
+
+  /** Read the post nearest the viewport center — ONLY DOM already rendered. */
+  function readVisiblePost() {
+    const candidates = Array.from(
+      document.querySelectorAll('.feed-shared-update-v2, .fie-impression-container'),
+    );
+    const centerY = window.innerHeight / 2;
+    let best = null;
+    let bestDist = Infinity;
+    for (const el of candidates) {
+      const rect = el.getBoundingClientRect();
+      if (rect.height < 40 || rect.bottom < 0 || rect.top > window.innerHeight) continue;
+      const dist = Math.abs(rect.top + rect.height / 2 - centerY);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = el;
+      }
+    }
+    const container = best || document.querySelector('.feed-shared-update-v2');
+    if (!container) return null;
+    const textEl = container.querySelector(
+      '.update-components-text, .feed-shared-inline-show-more-text, .update-components-update-v2__commentary',
+    );
+    const text = ((textEl ? textEl.innerText : container.innerText) || '')
+      .trim()
+      .slice(0, 5000);
+    const authorEl = container.querySelector(
+      '.update-components-actor__title, .update-components-actor__name',
+    );
+    const author = authorEl ? authorEl.innerText.trim().split('\n')[0] : undefined;
+    return { text, author, url: location.href };
+  }
+
+  /** Insert text into LinkedIn's comment editor if one is open. */
+  function insertIntoCommentBox(text) {
+    try {
+      const editor = document.querySelector(
+        '.comments-comment-box .ql-editor, .comments-comment-texteditor .ql-editor, form.comments-comment-box__form .ql-editor',
+      );
+      if (!editor) return false;
+      editor.focus();
+      editor.innerHTML = '';
+      const p = document.createElement('p');
+      p.textContent = text;
+      editor.appendChild(p);
+      editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**

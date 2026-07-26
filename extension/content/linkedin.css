@@ -155,3 +155,35 @@
   background: #fef3f2;
   color: #b42318;
 }
+.aura-engage {
+  border: 1px solid #e9e5ff;
+  background: #f6f4ff;
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 12px;
+}
+.aura-engage-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+.aura-engage-draft {
+  margin-top: 10px;
+  background: #fff;
+}
+.aura-section-heading {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.aura-textarea {
+  width: 100%;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+  margin-bottom: 8px;
+  box-sizing: border-box;
+}

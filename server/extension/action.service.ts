@@ -40,7 +40,9 @@ export async function completeAction(args: {
     case 'outreach_message':
       await completeOutreachMessage(ctx, itemId, requestMeta);
       break;
-    // Module 4 adds 'engagement_comment' here.
+    case 'engagement_comment':
+      await completeEngagementComment(ctx, itemId, requestMeta);
+      break;
     default:
       throw new ActionItemError(`Unsupported item type: ${itemType}`, 400);
   }
@@ -126,6 +128,35 @@ async function completeOutreachMessage(
         userId: ctx.userId,
         companyId: ctx.companyId,
         metadata: { messageId, via: 'chrome_extension' },
+        ...requestMeta,
+      },
+      tx,
+    );
+  });
+}
+
+async function completeEngagementComment(
+  ctx: ExtensionContext,
+  commentId: string,
+  requestMeta?: Meta,
+): Promise<void> {
+  const comment = await db.engagementComment.findFirst({
+    where: { id: commentId, companyId: ctx.companyId },
+  });
+  if (!comment) throw new ActionItemError('Comment not found.', 404);
+  if (comment.status === 'POSTED') return; // idempotent
+
+  await db.$transaction(async (tx) => {
+    await tx.engagementComment.update({
+      where: { id: commentId },
+      data: { status: 'POSTED', postedAt: new Date() },
+    });
+    await recordAudit(
+      {
+        action: 'ENGAGEMENT_COMMENT_POSTED',
+        userId: ctx.userId,
+        companyId: ctx.companyId,
+        metadata: { commentId, via: 'chrome_extension' },
         ...requestMeta,
       },
       tx,

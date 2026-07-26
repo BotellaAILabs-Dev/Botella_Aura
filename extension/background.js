@@ -111,6 +111,19 @@ async function handle(msg) {
     case 'AURA_RATE': {
       return await rateUsage();
     }
+    case 'AURA_ENGAGE_DRAFT': {
+      // Draft a comment for a post the user is already viewing. The post text is
+      // captured client-side and sent up; the backend never reads LinkedIn.
+      const r = await apiFetch('/api/extension/engagement/draft', {
+        method: 'POST',
+        body: JSON.stringify({
+          postUrl: msg.postUrl,
+          postText: msg.postText,
+          ...(msg.author ? { author: msg.author } : {}),
+        }),
+      });
+      return { ok: r.ok, status: r.status, data: r.data };
+    }
     case 'AURA_COMPLETE': {
       const gate = await checkRate();
       if (!gate.allowed) return { ok: false, rateLimited: true, error: gate.reason };
