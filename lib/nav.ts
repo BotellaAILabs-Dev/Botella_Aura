@@ -103,8 +103,8 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Analytics',
     href: '/dashboard/analytics',
     icon: BarChart3,
-    ready: false,
-    sprint: 7,
+    ready: true,
+    sprint: 6,
     description: 'Measure what your marketing is actually doing.',
   },
   {
