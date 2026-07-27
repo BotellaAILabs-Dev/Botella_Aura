@@ -184,6 +184,68 @@ curl -X POST http://localhost:3000/api/cron/discovery -H "authorization: Bearer 
 curl -X POST http://localhost:3000/api/cron/memory     -H "authorization: Bearer $CRON_SECRET"  # weekly
 ```
 
+### Sprint 6 — Campaigns · Analytics · Billing · Launch (final MVP)
+
+- **Campaign Orchestrator** (`/dashboard/campaigns`) — one goal → an AI-planned,
+  Zod-validated 30-day schedule. A daily cron **conducts** the existing pipelines
+  (content/outreach/discovery), landing everything in the normal approval queues.
+  **Nothing publishes or sends without per-item human approval** — verified.
+- **Analytics** (`/dashboard/analytics`) — top-line metrics, engagement trend,
+  outreach funnel, channel breakdown, and a copyable weekly written report — all
+  from real data, with honest empty states.
+- **Billing (Stripe)** (`/dashboard/settings/billing`) — hosted Checkout + Customer
+  Portal, **signature-verified webhooks**, plan-based entitlements, and a 14-day
+  trial that degrades to read-only (never a data-losing lockout). Set the Stripe
+  keys + price IDs to enable (see checklist below).
+- **Production hardening** — multi-tenant isolation tests, auth rate limiting,
+  `captureException` monitoring (Sentry-ready), and a marketing landing page.
+
+New scheduled jobs (same `CRON_SECRET`): `/api/cron/campaigns` (daily),
+`/api/cron/analytics` (weekly).
+
+---
+
+## Production deployment & secrets checklist
+
+The app is a single Next.js deployable (this repo ships a `netlify.toml`; Vercel
+works too). All scheduled jobs are **platform-agnostic HTTP endpoints** under
+`/api/cron/*`, protected by `CRON_SECRET` — wire them to any scheduler (Vercel
+Cron, Netlify Scheduled Functions, GitHub Actions, cron-job.org) that can `POST`
+with an `Authorization: Bearer $CRON_SECRET` header. Suggested cadence:
+
+| Endpoint | Cadence |
+|---|---|
+| `/api/cron/trends` | daily |
+| `/api/cron/publish` | every 15 min (scheduled content) |
+| `/api/cron/campaigns` | daily |
+| `/api/cron/outreach` · `/api/cron/discovery` | daily / weekly |
+| `/api/cron/competitors` · `/api/cron/memory` · `/api/cron/analytics` | weekly |
+
+### Required secrets
+
+| Secret | Purpose |
+|---|---|
+| `DATABASE_URL` / `DIRECT_URL` | Postgres (pooled runtime / direct for migrations) |
+| `NEXTAUTH_URL` / `NEXTAUTH_SECRET` | Auth base URL + JWT signing |
+| `ENCRYPTION_KEY` | AES-256-GCM key for tokens at rest (32 bytes base64) |
+| `CRON_SECRET` | Protects every `/api/cron/*` job |
+
+### Optional (features degrade honestly without them)
+
+| Secret | Enables |
+|---|---|
+| `ANTHROPIC_API_KEY` | All AI generation (fallbacks otherwise) |
+| `GOOGLE_CLIENT_ID/_SECRET` | Google sign-in |
+| `LINKEDIN_CLIENT_ID/_SECRET` | LinkedIn Connect (official OIDC) |
+| `GITHUB_TOKEN`, `CRUNCHBASE_API_KEY`, `GOOGLE_CSE_API_KEY`+`_CX`, `REDDIT_*`, `TWITTER_BEARER_TOKEN` | Trend/competitor/lead sources |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_STARTER/_GROWTH/_AGENCY` | Billing |
+| `SENTRY_DSN` | Error monitoring |
+| `EXTENSION_ALLOWED_ORIGIN` | Pin the published Chrome extension origin |
+
+**Before go-live:** run `pnpm db:migrate:deploy` (chain verified to apply on a
+fresh DB), set the Stripe webhook endpoint to `/api/webhooks/stripe` with its
+signing secret, and wire the cron endpoints to your scheduler.
+
 ---
 
 ## Scripts
