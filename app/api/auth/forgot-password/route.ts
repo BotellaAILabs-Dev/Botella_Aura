@@ -1,7 +1,8 @@
 import { forgotPasswordSchema } from '@/lib/validations/auth';
 import { createPasswordResetToken } from '@/server/services/auth-token.service';
 import { sendPasswordResetEmail } from '@/lib/email';
-import { handleRouteError, jsonOk } from '@/lib/api';
+import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
+import { rateLimit, clientIp } from '@/lib/rate-limit';
 
 /**
  * POST /api/auth/forgot-password — begin the reset flow.
@@ -12,6 +13,10 @@ import { handleRouteError, jsonOk } from '@/lib/api';
  */
 export async function POST(req: Request) {
   try {
+    const rl = rateLimit(`forgot:${clientIp(req)}`, { limit: 5, windowMs: 60_000 });
+    if (!rl.allowed) {
+      return jsonError('Too many attempts. Please wait a moment.', 429);
+    }
     const { email } = forgotPasswordSchema.parse(await req.json());
 
     const { rawToken } = await createPasswordResetToken(email);

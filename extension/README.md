@@ -67,6 +67,37 @@ distributable zip:
 cd extension && npm run zip     # → botella-aura-extension.zip
 ```
 
+## Production build & Chrome Web Store submission
+
+v1 is plain JS/CSS with no bundler, so the "production build" is just a zip of the
+loadable folder:
+
+```bash
+cd extension && npm run zip     # → botella-aura-extension.zip
+```
+
+Before submitting to the Chrome Web Store (a manual, one-time step outside this
+repo), check:
+
+- [ ] **Pin the API origin** — set `EXTENSION_ALLOWED_ORIGIN` on the backend to
+      the published extension id, and set the extension's default API base to the
+      production URL (popup → Advanced, or bake it into `background.js`).
+- [ ] **Host permissions** — `manifest.json` requests only `*.linkedin.com` and
+      the Botella Aura origin(s). Replace the `localhost` host with your
+      production domain for the store build.
+- [ ] **Icons** — add 16/48/128px PNG icons and reference them in `manifest.json`
+      (`icons` + `action.default_icon`). The store requires them.
+- [ ] **Privacy policy URL** + a clear store description of the single narrow
+      purpose ("review and send your approved Botella Aura items on LinkedIn").
+- [ ] **Permissions justification** — `storage` (token + rate state), `activeTab`,
+      and the host permissions above. No `tabs`, no broad `<all_urls>`.
+- [ ] **Data-use disclosure** — the extension reads only content already rendered
+      on the user's own screen and sends the user's approved text; it never
+      collects browsing data. State this in the store listing.
+- [ ] Screenshots of the action panel + popup.
+
+Submission itself (developer account, review) is a manual follow-up.
+
 ## Safety guarantees (do not remove)
 
 - No server-side LinkedIn access anywhere. The panel only reads what the backend

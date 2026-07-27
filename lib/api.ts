@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
 import { ForbiddenError } from '@/lib/rbac';
-import { logger } from '@/lib/logger';
+import { captureException } from '@/lib/monitoring';
 
 /**
  * Consistent JSON responses for API route handlers. Centralizes the error
@@ -43,10 +43,8 @@ export function handleRouteError(error: unknown) {
     return jsonError(e.message, e.status);
   }
 
-  logger.error('Unhandled route error', {
-    error: error instanceof Error ? error.message : String(error),
-    stack: error instanceof Error ? error.stack : undefined,
-  });
+  // Unknown, unexpected error → capture for monitoring (Sprint 6) + return 500.
+  captureException(error, { scope: 'route' });
   return jsonError('Something went wrong. Please try again.', 500);
 }
 
