@@ -151,6 +151,23 @@ enum AuditAction {
   PERFORMANCE_SNAPSHOT_CAPTURED
   OUTREACH_OUTCOME_UPDATED
   MARKETING_MEMORY_GENERATED
+  // --- Sprint 6 (Campaign Orchestrator) ---
+  CAMPAIGN_CREATED
+  CAMPAIGN_PLAN_GENERATED
+  CAMPAIGN_TASK_GENERATED
+  CAMPAIGN_TASK_FAILED
+  CAMPAIGN_PAUSED
+  CAMPAIGN_RESUMED
+  CAMPAIGN_CHECKPOINT_GENERATED
+  // --- Sprint 6 (Analytics) ---
+  ANALYTICS_REPORT_GENERATED
+  // --- Sprint 6 (Billing) ---
+  CHECKOUT_STARTED
+  TRIAL_STARTED
+  SUBSCRIPTION_CREATED
+  SUBSCRIPTION_UPDATED
+  SUBSCRIPTION_CANCELED
+  PAYMENT_FAILED
 }
 
 /// Sprint 3 — origin of an ingested knowledge chunk.
@@ -173,8 +190,45 @@ enum KnowledgeSourceStatus {
 enum CampaignStatus {
   DRAFT
   ACTIVE
+  PAUSED
   COMPLETED
   ARCHIVED
+}
+
+/// Sprint 6 — kinds of scheduled campaign work.
+enum CampaignTaskType {
+  GENERATE_CONTENT
+  RUN_OUTREACH_BATCH
+  RUN_DISCOVERY
+  REVIEW_CHECKPOINT
+}
+
+/// Sprint 6 — lifecycle of a campaign task. Output still passes the normal
+/// human approval gate — GENERATED means "a draft was produced for review".
+enum CampaignTaskStatus {
+  PENDING
+  GENERATED
+  APPROVED
+  SKIPPED
+  FAILED
+}
+
+/// Sprint 6 — subscription plan tiers. Prices live in Stripe (referenced by
+/// env price IDs); this is only the entitlement tier.
+enum Plan {
+  TRIAL
+  STARTER
+  GROWTH
+  AGENCY
+}
+
+/// Sprint 6 — subscription status (mirrors the Stripe subscription lifecycle).
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
 }
 
 /// Sprint 4 — lead lifecycle in the Outreach module.
@@ -391,6 +445,9 @@ model Company {
   discoveryRuns       DiscoveryRun[]
   performanceSnapshots PerformanceSnapshot[]
   marketingMemories   MarketingMemory[]
+  campaignTasks       CampaignTask[]
+  subscription        Subscription?
+  analyticsReports    AnalyticsReport[]
 
   @@index([slug])
 }
@@ -548,19 +605,65 @@ model KnowledgeChunk {
 
 /// Sprint 3 stub — Campaign Builder UI arrives in a later sprint. Content can
 /// already be tagged to a campaign at generation time.
+/// Sprint 6 — the Campaign Orchestrator ties every prior module into one
+/// reviewable 30-day plan. `plan` holds the Zod-validated day-by-day plan; the
+/// planner turns it into CampaignTask rows that TRIGGER the existing Sprint 3-5
+/// pipelines (it never generates or publishes directly).
 model Campaign {
-  id        String         @id @default(cuid())
-  companyId String
-  name      String
-  goal      String?        @db.Text
-  status    CampaignStatus @default(DRAFT)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id              String         @id @default(cuid())
+  companyId       String
+  name            String
+  goal            String?        @db.Text
+  status          CampaignStatus @default(DRAFT)
+  startDate       DateTime?
+  endDate         DateTime?
+  durationDays    Int            @default(30)
+  /// { content: bool, outreach: bool, engagement: bool, discovery: bool }.
+  modulesIncluded Json           @default("{}")
+  targetAudience  String?        @db.Text
+  themes          String[]       @default([])
+  /// The AI-generated day-by-day plan (validated by campaignPlanSchema).
+  plan            Json           @default("{}")
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   drafts  ContentDraft[]
+  tasks   CampaignTask[]
 
-  @@index([companyId])
+  @@index([companyId, status])
+}
+
+/// Sprint 6 — one scheduled unit of campaign work. The daily cron finds due
+/// PENDING tasks and triggers the matching existing pipeline (content generator,
+/// outreach drafting, discovery run), landing output in the normal approval
+/// queue. REVIEW_CHECKPOINT tasks hold an AI progress summary.
+model CampaignTask {
+  id                   String             @id @default(cuid())
+  campaignId           String
+  companyId            String
+  scheduledDate        DateTime
+  taskType             CampaignTaskType
+  status               CampaignTaskStatus @default(PENDING)
+  /// For GENERATE_CONTENT: which content type + the planned topic/angle.
+  contentType          ContentType?
+  topic                String?            @db.Text
+  rationale            String?            @db.Text
+  /// Drill-through to the produced item in its normal queue.
+  relatedContentDraftId String?
+  relatedDiscoveryRunId String?
+  /// For REVIEW_CHECKPOINT: the generated weekly progress summary.
+  checkpointSummary    String?            @db.Text
+  error                String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, scheduledDate])
+  @@index([campaignId, scheduledDate])
+  @@index([status, scheduledDate])
 }
 
 /// Sprint 2 — daily trend intelligence digests per company.
@@ -954,4 +1057,46 @@ model MarketingMemory {
 
   @@index([companyId, insightType])
   @@index([companyId, isActive])
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 6 — Billing (Stripe) + Analytics reports
+// ---------------------------------------------------------------------------
+
+/// One subscription per company (the tenant is billed, not the user). Stripe is
+/// the source of truth for payment state; this mirrors it via signed webhooks.
+/// `plan` drives entitlements (server/billing/entitlements.ts). Trial is tracked
+/// with trialEndsAt so access degrades gracefully (never a data-losing lockout).
+model Subscription {
+  id                   String             @id @default(cuid())
+  companyId            String             @unique
+  stripeCustomerId     String?            @unique
+  stripeSubscriptionId String?            @unique
+  plan                 Plan               @default(TRIAL)
+  status               SubscriptionStatus @default(TRIALING)
+  trialEndsAt          DateTime?
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([stripeCustomerId])
+}
+
+/// Sprint 6 — a stored, shareable weekly analytics report (Claude-written from
+/// real numbers). Idempotent per company per period.
+model AnalyticsReport {
+  id          String   @id @default(cuid())
+  companyId   String
+  periodStart DateTime
+  periodEnd   DateTime
+  summary     String   @db.Text
+  metrics     Json     @default("{}")
+  generatedAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, periodStart])
+  @@index([companyId, periodStart])
 }

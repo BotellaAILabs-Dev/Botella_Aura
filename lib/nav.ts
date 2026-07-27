@@ -10,6 +10,7 @@ import {
   Settings,
   Target,
   Brain,
+  Megaphone,
 } from 'lucide-react';
 
 /**
@@ -49,6 +50,14 @@ export const NAV_ITEMS: NavItem[] = [
     ready: true,
     sprint: 3,
     description: 'Generate on-brand posts, carousels, and threads.',
+  },
+  {
+    label: 'Campaigns',
+    href: '/dashboard/campaigns',
+    icon: Megaphone,
+    ready: true,
+    sprint: 6,
+    description: 'Orchestrate content, outreach, and discovery into one plan.',
   },
   {
     label: 'Leads',
