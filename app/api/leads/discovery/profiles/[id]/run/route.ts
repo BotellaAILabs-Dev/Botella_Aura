@@ -1,6 +1,7 @@
 import { requireActiveCompany } from '@/lib/auth-helpers';
 import { can } from '@/lib/rbac';
 import { runDiscovery } from '@/server/leads/discovery/discovery.service';
+import { requireEntitlement } from '@/server/billing/entitlements';
 import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
 // Multi-source network calls + AI scoring.
@@ -16,6 +17,7 @@ export async function POST(
     if (!can(membership.role, 'content:approve')) {
       return jsonError('You do not have permission to run discovery.', 403);
     }
+    await requireEntitlement(company.id, 'discovery');
     const result = await runDiscovery({
       companyId: company.id,
       profileId: params.id,

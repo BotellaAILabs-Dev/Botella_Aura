@@ -8,6 +8,7 @@ import {
   Puzzle,
   Send,
   MessageCircle,
+  CreditCard,
 } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
@@ -213,6 +214,23 @@ export default async function SettingsPage() {
             </CardHeader>
             <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
               Manage targets <ChevronRight className="h-4 w-4" />
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link href="/dashboard/settings/billing" className="group">
+          <Card className="h-full transition-shadow group-hover:shadow-md">
+            <CardHeader>
+              <div className="mb-1 flex items-center gap-2">
+                <CreditCard className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">Billing &amp; plan</CardTitle>
+              </div>
+              <CardDescription>
+                Your subscription, trial status, and payment.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
+              Manage billing <ChevronRight className="h-4 w-4" />
             </CardContent>
           </Card>
         </Link>
