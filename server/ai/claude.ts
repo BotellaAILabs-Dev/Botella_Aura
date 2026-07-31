@@ -14,26 +14,44 @@ import { logger } from '@/lib/logger';
  * failure; a clear typed error otherwise so callers can fall back gracefully.
  */
 export const DEFAULT_MODEL = 'claude-opus-4-8';
+const DEFAULT_GEMINI_MODEL = 'gemini-flash-latest';
 const STREAM_THRESHOLD_TOKENS = 8000;
 
 export class ClaudeNotConfiguredError extends Error {
   constructor() {
-    super('ANTHROPIC_API_KEY is not configured.');
+    super('No AI provider configured (set ANTHROPIC_API_KEY or GEMINI_API_KEY).');
     this.name = 'ClaudeNotConfiguredError';
   }
 }
 
-export function isClaudeConfigured(): boolean {
+function hasAnthropic(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY);
+}
+export function isGeminiConfigured(): boolean {
+  return Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY);
+}
+
+/**
+ * "Is an AI provider available?" — kept under the original name so every call
+ * site that gates AI-vs-fallback keeps working. True if EITHER Anthropic
+ * (preferred) or Gemini is configured.
+ */
+export function isClaudeConfigured(): boolean {
+  return hasAnthropic() || isGeminiConfigured();
 }
 
 export function getModel(): string {
-  return process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
+  if (hasAnthropic()) return process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
+  return process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+}
+
+function geminiKey(): string {
+  return (process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY)!;
 }
 
 let client: Anthropic | null = null;
 function getClient(): Anthropic {
-  if (!isClaudeConfigured()) throw new ClaudeNotConfiguredError();
+  if (!hasAnthropic()) throw new ClaudeNotConfiguredError();
   if (!client) client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
   return client;
 }
@@ -47,40 +65,92 @@ export interface CompleteOptions {
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 }
 
-/** Run one prompt and return the concatenated text output. Retries once. */
+/**
+ * Run one prompt and return the concatenated text output. Retries once.
+ * Provider-agnostic: uses Anthropic when configured, otherwise Google Gemini.
+ */
 export async function complete(options: CompleteOptions): Promise<string> {
   const { system, prompt, maxTokens = 2048, effort = 'high' } = options;
-  const model = getModel();
 
   const run = async (): Promise<string> => {
-    const c = getClient();
-    const params = {
-      model,
-      max_tokens: maxTokens,
-      thinking: { type: 'adaptive' as const },
-      output_config: { effort },
-      ...(system ? { system } : {}),
-      messages: [{ role: 'user' as const, content: prompt }],
-    };
-
-    // Stream large outputs to avoid request timeouts; otherwise plain create.
-    if (maxTokens >= STREAM_THRESHOLD_TOKENS) {
-      const stream = getClient().messages.stream(params);
-      const msg = await stream.finalMessage();
-      return extractText(msg.content);
-    }
-    const msg = await c.messages.create(params);
-    return extractText(msg.content);
+    if (hasAnthropic()) return callAnthropic(system, prompt, maxTokens, effort);
+    if (isGeminiConfigured()) return callGemini(system, prompt, maxTokens);
+    throw new ClaudeNotConfiguredError();
   };
 
   try {
     return await run();
   } catch (err) {
-    logger.warn('Claude: first attempt failed, retrying once', {
+    logger.warn('AI: first attempt failed, retrying once', {
       error: err instanceof Error ? err.message : String(err),
     });
     return run();
   }
+}
+
+async function callAnthropic(
+  system: string | undefined,
+  prompt: string,
+  maxTokens: number,
+  effort: NonNullable<CompleteOptions['effort']>,
+): Promise<string> {
+  const c = getClient();
+  const params = {
+    model: getModel(),
+    max_tokens: maxTokens,
+    thinking: { type: 'adaptive' as const },
+    output_config: { effort },
+    ...(system ? { system } : {}),
+    messages: [{ role: 'user' as const, content: prompt }],
+  };
+  if (maxTokens >= STREAM_THRESHOLD_TOKENS) {
+    const stream = c.messages.stream(params);
+    const msg = await stream.finalMessage();
+    return extractText(msg.content);
+  }
+  const msg = await c.messages.create(params);
+  return extractText(msg.content);
+}
+
+/**
+ * Google Gemini via the Generative Language REST API. No SDK — a single fetch
+ * keeps the app lean. `effort`/streaming are Anthropic-only concepts and are
+ * ignored here. For JSON-shaped calls the caller's prompt already asks for JSON;
+ * parseJson() tolerates fences.
+ */
+async function callGemini(
+  system: string | undefined,
+  prompt: string,
+  maxTokens: number,
+): Promise<string> {
+  const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-goog-api-key': geminiKey(),
+      },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+        generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
+      }),
+    },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`Gemini API error (${res.status}): ${detail.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  };
+  const parts = data.candidates?.[0]?.content?.parts ?? [];
+  return parts
+    .map((p) => p.text ?? '')
+    .join('')
+    .trim();
 }
 
 /**
