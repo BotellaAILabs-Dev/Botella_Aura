@@ -25,8 +25,11 @@ import type { ContentTypeKey } from '@/lib/validations/content';
  * manual fallback for every type. The real API call below is wired and will run
  * the moment scope + org URN are present.
  */
-const ORG_POSTING_SCOPE = 'w_organization_social';
-const LINKEDIN_API_VERSION = '202401';
+const ORG_POSTING_SCOPE = 'w_organization_social'; // Company Page (needs approval)
+const MEMBER_POSTING_SCOPE = 'w_member_social'; // personal profile (self-serve "Share on LinkedIn")
+// LinkedIn versions the /rest/posts endpoint (YYYYMM) and rejects out-of-window
+// versions with HTTP 426. Override via LINKEDIN_API_VERSION when this ages out.
+const LINKEDIN_API_VERSION = process.env.LINKEDIN_API_VERSION || '202503';
 
 export type PublishResult =
   | { mode: 'published'; url: string | null }
@@ -61,8 +64,10 @@ export async function publishDraft({
       mode: 'manual',
       text: renderForManual(draft),
       reason:
-        "This content type isn't natively publishable via LinkedIn's Company " +
-        'Page API yet. Copy the formatted text and post it manually.',
+        'Carousels, threads, and blogs can’t be auto-published through LinkedIn’s ' +
+        'API — only single LinkedIn posts can. The formatted text is copied; paste ' +
+        'it into a new LinkedIn post (or use the extension). Tip: generate a ' +
+        '“LinkedIn post” type for one-click API publishing.',
     };
   }
 
@@ -76,39 +81,48 @@ export async function publishDraft({
     };
   }
 
-  const orgUrn = process.env.LINKEDIN_ORG_URN;
-  const hasScope = (ctx.scope ?? '')
-    .split(/[\s,]+/)
-    .includes(ORG_POSTING_SCOPE);
-
-  if (!hasScope || !orgUrn) {
-    return {
-      mode: 'manual',
-      text: renderForManual(draft),
-      reason:
-        'Automatic Company Page publishing needs LinkedIn Community Management ' +
-        'API approval (w_organization_social scope + an organization URN). ' +
-        "That's pending — copy the text and post manually for now.",
-    };
-  }
-
-  // --- Real official-API publish (runs once approval + scope + org URN exist) ---
   const commentary = renderLinkedInCommentary(draft);
   if (!commentary) {
     return { mode: 'manual', text: renderForManual(draft), reason: 'Draft body was invalid.' };
   }
-  const url = await postToCompanyPage(ctx.token, orgUrn, commentary);
-  await markPublished({ companyId, userId, draftId, publishedUrl: url });
-  return { mode: 'published', url };
+  const scopes = (ctx.scope ?? '').split(/[\s,]+/);
+
+  // 1) Company Page — if Community Management approval + org URN are present.
+  const orgUrn = process.env.LINKEDIN_ORG_URN;
+  if (scopes.includes(ORG_POSTING_SCOPE) && orgUrn) {
+    const url = await postToLinkedIn(ctx.token, orgUrn, commentary);
+    await markPublished({ companyId, userId, draftId, publishedUrl: url });
+    return { mode: 'published', url };
+  }
+
+  // 2) Personal profile — the self-serve "Share on LinkedIn" (w_member_social)
+  //    path. Publishes the APPROVED post to the connected member's own feed.
+  if (scopes.includes(MEMBER_POSTING_SCOPE) && ctx.linkedInUserId) {
+    const author = `urn:li:person:${ctx.linkedInUserId}`;
+    const url = await postToLinkedIn(ctx.token, author, commentary);
+    await markPublished({ companyId, userId, draftId, publishedUrl: url });
+    return { mode: 'published', url };
+  }
+
+  // 3) No posting scope granted → manual / extension fallback.
+  return {
+    mode: 'manual',
+    text: renderForManual(draft),
+    reason:
+      "LinkedIn is connected but wasn't granted posting permission. Reconnect and " +
+      'approve "Share on LinkedIn", or post via the extension. (Company Page ' +
+      'publishing additionally needs Marketing API approval.)',
+  };
 }
 
 /**
- * POST to a LinkedIn Company Page via the official /rest/posts endpoint.
- * Throws on failure so the caller keeps the draft APPROVED for retry.
+ * POST to LinkedIn via the official /rest/posts endpoint. `authorUrn` is either
+ * an organization URN (Company Page) or a person URN (personal profile). Throws
+ * on failure so the caller keeps the draft APPROVED for retry.
  */
-async function postToCompanyPage(
+async function postToLinkedIn(
   token: string,
-  orgUrn: string,
+  authorUrn: string,
   commentary: string,
 ): Promise<string | null> {
   const res = await httpRequest('https://api.linkedin.com/rest/posts', {
@@ -120,7 +134,7 @@ async function postToCompanyPage(
       'x-restli-protocol-version': '2.0.0',
     },
     body: JSON.stringify({
-      author: orgUrn,
+      author: authorUrn,
       commentary,
       visibility: 'PUBLIC',
       distribution: {

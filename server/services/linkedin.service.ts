@@ -23,9 +23,16 @@ const TOKEN_URL = 'https://www.linkedin.com/oauth/v2/accessToken';
 const USERINFO_URL = 'https://api.linkedin.com/v2/userinfo';
 const REVOKE_URL = 'https://www.linkedin.com/oauth/v2/revoke';
 
-/** Self-serve OIDC scopes. LinkedIn posting scopes (w_member_social) are NOT
- * requested here — they require additional product approval (see Sprint 3+). */
-const SCOPES = 'openid profile email';
+/**
+ * Requested scopes. `openid profile email` (self-serve "Sign In with LinkedIn")
+ * gives basic profile. `w_member_social` (self-serve "Share on LinkedIn" product)
+ * grants posting to the connected member's OWN personal profile via the official
+ * API — that's what enables one-click publishing of APPROVED posts. It's only
+ * granted if the LinkedIn app has the "Share on LinkedIn" product added; if not,
+ * LinkedIn simply omits it from the granted scope and we fall back to the manual
+ * / extension flow. Still human-approved per post — nothing auto-posts.
+ */
+const SCOPES = 'openid profile email w_member_social';
 
 export function isLinkedInConfigured(): boolean {
   return Boolean(
