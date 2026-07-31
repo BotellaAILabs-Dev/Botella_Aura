@@ -5,7 +5,9 @@
  * cut mid-sentence.
  */
 const TARGET_CHARS = 3200; // ~800 tokens
-const MIN_CHUNK_CHARS = 200; // drop trivially short fragments
+// Lowered so genuine-but-short brand copy (e.g. a JS site's meta/OG description)
+// still becomes a usable chunk, while true noise fragments are dropped.
+const MIN_CHUNK_CHARS = 80;
 
 /** Rough token estimate (avoids a tokenizer dep for storage metadata). */
 export function estimateTokens(text: string): number {

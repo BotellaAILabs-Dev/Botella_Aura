@@ -138,11 +138,21 @@ export function KnowledgeManager({
                         {s.lastSyncedAt &&
                           ` · synced ${new Date(s.lastSyncedAt).toLocaleString()}`}
                       </p>
+                      {s.status === 'SYNCED' && s.chunkCount === 0 && (
+                        <p className="mt-0.5 text-xs [color:hsl(var(--warning))]">
+                          No readable text found — this site likely renders content
+                          with JavaScript. Try uploading a doc or adding your blog RSS.
+                        </p>
+                      )}
                     </div>
                   </div>
                   {s.status === 'ERROR' ? (
                     <Badge variant="destructive">
                       <AlertTriangle className="h-3 w-3" /> Error
+                    </Badge>
+                  ) : s.status === 'SYNCED' && s.chunkCount === 0 ? (
+                    <Badge variant="warning">
+                      <AlertTriangle className="h-3 w-3" /> No text
                     </Badge>
                   ) : s.status === 'SYNCED' ? (
                     <Badge variant="success">

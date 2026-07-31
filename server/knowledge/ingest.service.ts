@@ -95,13 +95,21 @@ export async function ingestWebsite(companyId: string, website: string) {
   const pieces: Array<{ title: string | null; content: string }> = [];
   let feed: string | null = null;
 
+  // De-dupe across an SPA's shared HTML shell (client-routed sites return the
+  // same served HTML for /about, /company, etc.).
+  const seenContent = new Set<string>();
   for (const path of WEBSITE_PATHS) {
     const url = `${rootUrl}${path}`;
     const html = await politeFetchHtml(url);
     if (!html) continue;
     if (!feed && path === '') feed = discoverFeed(html, rootUrl);
     const { title, text } = htmlToText(html);
-    if (text.length > 200) pieces.push({ title: title || url, content: text });
+    // Lowered from 200 so JS-rendered sites (meta/OG copy only) still count.
+    if (text.length <= 60) continue;
+    const key = text.slice(0, 200);
+    if (seenContent.has(key)) continue;
+    seenContent.add(key);
+    pieces.push({ title: title || url, content: text });
   }
 
   const chunks = await replaceChunks(companyId, 'WEBSITE', rootUrl, pieces);
