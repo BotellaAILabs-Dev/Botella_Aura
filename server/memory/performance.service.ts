@@ -25,13 +25,37 @@ export async function recordContentMetrics(args: {
   metrics: PerfMetrics;
   source: PerformanceSource;
   requestMeta?: Meta;
-}): Promise<{ matched: boolean; snapshotId: string }> {
+}): Promise<{ matched: boolean; attach: 'exact' | 'recent' | 'none'; snapshotId: string }> {
   const { companyId, userId, postUrl, metrics, source, requestMeta } = args;
 
-  const draft = await db.contentDraft.findFirst({
+  // 1) Exact match: a post published through Aura with this permalink.
+  let draft = await db.contentDraft.findFirst({
     where: { companyId, status: 'PUBLISHED', publishedUrl: postUrl },
     select: { id: true },
   });
+  let attach: 'exact' | 'recent' | 'none' = draft ? 'exact' : 'none';
+
+  // 2) Fallback: the URL where you POST differs from the permalink you later
+  //    VIEW, so match the most recent Aura-published post that has no metrics
+  //    yet, and adopt this permalink so future syncs match exactly.
+  if (!draft) {
+    draft = await db.contentDraft.findFirst({
+      where: {
+        companyId,
+        status: 'PUBLISHED',
+        publishedAt: { gte: new Date(Date.now() - 14 * 86_400_000) },
+        performanceSnapshots: { none: {} },
+      },
+      orderBy: { publishedAt: 'desc' },
+      select: { id: true },
+    });
+    if (draft) {
+      attach = 'recent';
+      await db.contentDraft
+        .update({ where: { id: draft.id }, data: { publishedUrl: postUrl } })
+        .catch(() => {});
+    }
+  }
 
   const snapshot = await db.performanceSnapshot.create({
     data: {
@@ -46,11 +70,11 @@ export async function recordContentMetrics(args: {
     action: 'PERFORMANCE_SNAPSHOT_CAPTURED',
     userId: userId ?? null,
     companyId,
-    metadata: { snapshotId: snapshot.id, matched: Boolean(draft), source },
+    metadata: { snapshotId: snapshot.id, attach, source },
     ...requestMeta,
   });
 
-  return { matched: Boolean(draft), snapshotId: snapshot.id };
+  return { matched: Boolean(draft), attach, snapshotId: snapshot.id };
 }
 
 /** Update the manual outreach outcome (connection accepted / reply received). */

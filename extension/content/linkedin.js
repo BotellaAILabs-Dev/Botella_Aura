@@ -169,7 +169,7 @@
       navigator.clipboard.writeText(item.text).catch(() => {});
       note(
         card,
-        'Open LinkedIn’s "Start a post" box, then click Insert again (text copied as a fallback).',
+        '✓ Text copied. Click LinkedIn’s "Start a post", click inside the box, and press Ctrl+V to paste. (Tip: to post to your OWN profile, use the Publish button in Botella Aura → Content Studio instead — it posts via the API, no copy-paste.)',
         'warn',
       );
       return;
@@ -256,13 +256,14 @@
       reposts: m.reposts,
     });
     if (res && res.ok) {
-      note(
-        wrap,
-        res.data && res.data.matched
-          ? `Synced (${m.likes ?? 0} likes, ${m.comments ?? 0} comments) to the matching post.`
-          : 'Synced — but no matching Botella Aura post was found for this URL.',
-        res.data && res.data.matched ? 'ok' : 'warn',
-      );
+      const attach = res.data && res.data.attach;
+      const msg =
+        attach === 'exact'
+          ? `Synced (${m.likes ?? 0} likes, ${m.comments ?? 0} comments) to this post.`
+          : attach === 'recent'
+            ? `Synced (${m.likes ?? 0} likes, ${m.comments ?? 0} comments) to your most recent Aura post.`
+            : 'Metrics read — but you have no Aura-published post to attach them to yet. Publish a post through Aura first, then sync.';
+      note(wrap, msg, attach === 'none' ? 'warn' : 'ok');
     } else {
       note(wrap, (res && res.data && res.data.error) || 'Sync failed.', 'error');
     }
@@ -390,50 +391,68 @@
   }
 
   /** Insert text into LinkedIn's comment editor if one is open. */
-  function insertIntoCommentBox(text) {
+  /**
+   * Fill a contenteditable editor RELIABLY. LinkedIn uses Quill, which keeps its
+   * own model and reverts raw DOM writes — so we select-all and use
+   * execCommand('insertText'), which goes through the editor's real input
+   * pipeline (the same path typing/pasting uses). Falls back to a DOM write.
+   */
+  function fillEditor(editor, text) {
+    editor.focus();
     try {
-      const editor = document.querySelector(
-        '.comments-comment-box .ql-editor, .comments-comment-texteditor .ql-editor, form.comments-comment-box__form .ql-editor',
-      );
-      if (!editor) return false;
-      editor.focus();
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      // Replaces the selection (all existing content) with our text, as if typed.
+      const ok = document.execCommand('insertText', false, String(text));
+      if (ok) {
+        editor.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
+        return true;
+      }
+    } catch {
+      /* fall through to DOM write */
+    }
+    // Fallback: manual DOM write (works on non-Quill editors).
+    try {
       editor.innerHTML = '';
-      const p = document.createElement('p');
-      p.textContent = text;
-      editor.appendChild(p);
-      editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      String(text)
+        .split('\n')
+        .forEach((line) => {
+          const p = document.createElement('p');
+          if (!line) p.appendChild(document.createElement('br'));
+          else p.textContent = line;
+          editor.appendChild(p);
+        });
+      editor.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
       return true;
     } catch {
       return false;
     }
   }
 
+  function insertIntoCommentBox(text) {
+    const editor = document.querySelector(
+      '.comments-comment-box .ql-editor, .comments-comment-texteditor .ql-editor, ' +
+        'form.comments-comment-box__form .ql-editor, .comments-comment-box-comment__text-editor .ql-editor, ' +
+        'div.ql-editor[data-placeholder*="comment" i], div[role="textbox"][contenteditable="true"]',
+    );
+    if (!editor) return false;
+    return fillEditor(editor, text);
+  }
+
   /**
-   * Insert text into LinkedIn's Quill composer if one is open on the page.
-   * Best-effort and defensive — returns false if no editor is present so the
-   * caller can fall back to clipboard. Never throws.
+   * Insert text into LinkedIn's post composer if one is open. Returns false if
+   * no editor is present so the caller can fall back to clipboard. Never throws.
    */
   function insertIntoComposer(text) {
-    try {
-      const editor = document.querySelector('div.ql-editor[contenteditable="true"]');
-      if (!editor) return false;
-      editor.focus();
-      editor.innerHTML = '';
-      const lines = String(text).split('\n');
-      for (const line of lines) {
-        const p = document.createElement('p');
-        if (line.length === 0) {
-          p.appendChild(document.createElement('br'));
-        } else {
-          p.textContent = line;
-        }
-        editor.appendChild(p);
-      }
-      // Let LinkedIn's editor react (enables the Post button).
-      editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
-      return true;
-    } catch {
-      return false;
-    }
+    const editor = document.querySelector(
+      'div.ql-editor[contenteditable="true"], .editor-content .ql-editor, ' +
+        '.share-creation-state__text-editor .ql-editor, ' +
+        'div[role="textbox"][contenteditable="true"][data-placeholder]',
+    );
+    if (!editor) return false;
+    return fillEditor(editor, text);
   }
 })();

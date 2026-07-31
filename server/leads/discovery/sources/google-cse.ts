@@ -29,6 +29,7 @@ export async function discoverViaSearch(
   const queries = [`${role} ${topic} company${geo}`, `${topic} startup ${role}${geo}`];
 
   const leads: DiscoveredLead[] = [];
+  let lastError: string | null = null;
   for (const q of queries) {
     try {
       const data = await getJson<{
@@ -48,11 +49,15 @@ export async function discoverViaSearch(
         });
       }
     } catch (err) {
-      logger.info('discovery/google-cse: query failed', {
-        q,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      // Surface a real API error (e.g. API not enabled / quota) so the run
+      // summary is honest instead of silently returning 0 results.
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.info('discovery/google-cse: query failed', { q, error: msg });
+      lastError = msg;
     }
+  }
+  if (leads.length === 0 && lastError) {
+    return { leads, skipped: `google-cse: ${lastError.slice(0, 140)}` };
   }
   return { leads };
 }
