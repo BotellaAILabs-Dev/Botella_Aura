@@ -52,7 +52,7 @@ export default async function LeadsPage() {
     <div>
       <PageHeader
         title="Leads"
-        description="Every lead — from Sprint 4 signals and proactive discovery — in one place."
+        description="Every lead — from signal detection and proactive discovery — in one place."
         actions={discoverBtn}
       />
       {rows.length === 0 ? (

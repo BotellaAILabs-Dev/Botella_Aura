@@ -72,8 +72,8 @@ export default async function SettingsPage() {
         <CardHeader>
           <CardTitle>Team members</CardTitle>
           <CardDescription>
-            People with access to {company.name}. Inviting teammates ships in a
-            later sprint.
+            People with access to {company.name}. Teammate invites are coming
+            soon.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -153,9 +153,9 @@ export function LinkedInConnectionCard({
         )}
 
         <p className="text-xs text-muted-foreground">
-          Sprint 2 uses only the official &ldquo;Sign in with LinkedIn&rdquo; API
-          for profile data. Company-page reads and publishing arrive in a later
-          sprint pending LinkedIn Marketing API approval — never scraping.
+          We use only the official &ldquo;Sign in with LinkedIn&rdquo; API for
+          profile data. Publishing happens through the companion extension (or the
+          official API where approved) — never scraping.
         </p>
       </CardContent>
     </Card>

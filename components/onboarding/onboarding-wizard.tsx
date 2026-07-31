@@ -254,17 +254,17 @@ function ConfirmationSummary() {
     {
       icon: Radar,
       title: 'Track trends',
-      body: 'Daily digests of what your market cares about (Sprint 2).',
+      body: 'Daily digests of what your market cares about.',
     },
     {
       icon: PenLine,
       title: 'Draft on-brand content',
-      body: 'Posts and carousels tuned to your voice (Sprint 3).',
+      body: 'Posts and carousels tuned to your voice.',
     },
     {
       icon: MessageSquare,
       title: 'Prepare outreach',
-      body: 'Personalized drafts you review before anything sends (Sprint 4).',
+      body: 'Personalized drafts you review before anything sends.',
     },
   ];
   return (

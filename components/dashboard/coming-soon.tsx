@@ -5,9 +5,9 @@ import { Badge } from '@/components/ui/badge';
 import { findNavItem } from '@/lib/nav';
 
 /**
- * Placeholder page for features that ship in a later sprint. Reads its copy
- * from the central nav config so a feature only needs its `ready` flag flipped
- * (and a real page dropped in) when the sprint lands.
+ * Placeholder page for a feature that isn't live yet. Reads its copy from the
+ * central nav config; a feature only needs its `ready` flag flipped (and a real
+ * page dropped in) to replace this.
  */
 export function ComingSoon({ href }: { href: string }) {
   const item = findNavItem(href);
@@ -19,20 +19,12 @@ export function ComingSoon({ href }: { href: string }) {
       <PageHeader
         title={title}
         description={item?.description}
-        actions={
-          item?.sprint ? (
-            <Badge variant="secondary">Sprint {item.sprint}</Badge>
-          ) : null
-        }
+        actions={<Badge variant="secondary">Coming soon</Badge>}
       />
       <EmptyState
         icon={Icon}
         title={`${title} is on the way`}
-        description={
-          item?.sprint
-            ? `This feature ships in Sprint ${item.sprint}. We've reserved its place in the product so your workflow won't change when it arrives.`
-            : 'This feature is coming in a future sprint.'
-        }
+        description="We've reserved its place in the product so your workflow won't change when it arrives."
       />
     </div>
   );

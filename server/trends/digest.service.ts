@@ -23,7 +23,7 @@ import type {
   TrendSourceId,
 } from '@/server/trends/types';
 
-const TOP_N = 8;
+const TOP_N = 20;
 
 /** Start of the current UTC day — the idempotency key for a company's digest. */
 function todayUtc(now: number = Date.now()): Date {

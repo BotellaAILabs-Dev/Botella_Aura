@@ -42,9 +42,9 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
               aria-hidden
             />
             <span className="flex-1 truncate">{item.label}</span>
-            {!item.ready && item.sprint && (
+            {!item.ready && (
               <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                S{item.sprint}
+                Soon
               </span>
             )}
           </Link>

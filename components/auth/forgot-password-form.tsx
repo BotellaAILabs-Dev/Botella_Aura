@@ -34,8 +34,8 @@ export function ForgotPasswordForm() {
   if (sent) {
     return (
       <p className="rounded-md border border-success/30 bg-success/10 px-3 py-3 text-sm">
-        If an account exists for that email, a reset link is on its way. In
-        Sprint 1 the link is printed to the server console (see the dev logs).
+        If an account exists for that email, a reset link is on its way. (Until
+        an email provider is configured, the link is printed to the server logs.)
       </p>
     );
   }

@@ -74,8 +74,8 @@ export function CompanyProfileForm({ companyId, canEdit, initial }: Props) {
         <CardHeader>
           <CardTitle>Company profile</CardTitle>
           <CardDescription>
-            Aura uses this to tailor trends, content, and outreach. This is the
-            data future sprints feed into AI prompts.
+            Aura uses this to tailor your trends, content, and outreach — it feeds
+            directly into the AI.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
