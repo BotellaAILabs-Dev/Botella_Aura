@@ -3,6 +3,9 @@ import { db } from '@/lib/db';
 import { recordAudit } from '@/server/services/audit.service';
 import { completeStructured } from '@/server/ai/claude';
 import { retrieve, chunksToContext } from '@/server/knowledge/retrieve';
+import { politeFetchHtml } from '@/server/knowledge/robots';
+import { htmlToText } from '@/server/knowledge/extract';
+import { logger } from '@/lib/logger';
 import {
   generateBrandVoiceProfile,
   brandVoiceToPrompt,
@@ -84,6 +87,12 @@ export async function generateDraft({
 
   const brief = await resolveBrief(company, source);
   const chunks = await retrieve(companyId, brief.query, { limit: 6 });
+  // If the brief mentions a URL ("write about our flagship product: <url>"),
+  // fetch that page LIVE and ground the post in its real content. This is what
+  // makes "look at my website" actually work — the model can't browse on its own.
+  const reference = await fetchReferenceContext(
+    `${brief.text}\n${source.brief ?? ''}\n${company.website ?? ''}`,
+  );
   const voice = await generateBrandVoiceProfile({ company, userId });
   // Sprint 5 — inject learned performance patterns ("gets smarter every week").
   // Empty string when the company has no real insights yet, so fresh accounts
@@ -110,11 +119,16 @@ export async function generateDraft({
     spec.guidance,
     '',
     `TOPIC / BRIEF:\n${brief.text}`,
+    reference
+      ? `\nREFERENCE PAGE (fetched live from a link in your brief — use these REAL facts, product names, and positioning; do not go generic):\n${reference}`
+      : '',
     '',
     `COMPANY KNOWLEDGE:\n${chunksToContext(chunks)}`,
     '',
     `Return JSON of this exact shape: ${spec.schemaText}`,
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   const body = await completeStructured({
     schema: bodySchemaFor(type),
@@ -130,6 +144,7 @@ export async function generateDraft({
     promptVersion: PROMPT_VERSION,
     knowledgeChunkIds: chunks.map((c) => c.id),
     brandVoiceApplied: true,
+    referenceUsed: reference.length > 0,
   };
 
   const draft = await db.contentDraft.create({
@@ -212,6 +227,39 @@ export async function refineDraft({
     metadata: { draftId: draft.id, hadFeedback: Boolean(feedback) },
   });
   return updated;
+}
+
+// ---- Live reference fetching ----------------------------------------------
+
+const URL_RE = /https?:\/\/[^\s)\]}"'<>]+/gi;
+
+/**
+ * Find URLs in the brief, fetch them live (robots-polite, JS not executed), and
+ * return extracted page text as extra grounding. Best-effort — returns '' on
+ * failure so generation still proceeds. Bounded to 2 pages / ~4k chars each.
+ */
+async function fetchReferenceContext(text: string): Promise<string> {
+  const urls = Array.from(
+    new Set((text.match(URL_RE) ?? []).map((u) => u.replace(/[.,;)]+$/, ''))),
+  ).slice(0, 2);
+  if (urls.length === 0) return '';
+
+  const parts: string[] = [];
+  for (const url of urls) {
+    try {
+      const html = await politeFetchHtml(url);
+      if (!html) continue;
+      const { title, text: body } = htmlToText(html);
+      const snippet = `${title}\n${body}`.trim().slice(0, 4000);
+      if (snippet.length > 40) parts.push(`Source: ${url}\n${snippet}`);
+    } catch (err) {
+      logger.info('generator: reference fetch failed (non-fatal)', {
+        url,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return parts.join('\n\n');
 }
 
 // ---- Brief resolution ------------------------------------------------------

@@ -219,16 +219,38 @@ export async function ingestUpload({
     throw Object.assign(new Error('File too large (max 10 MB).'), { status: 413 });
   }
 
+  const isPdf =
+    mime === 'application/pdf' || filename.toLowerCase().endsWith('.pdf');
   let text: string;
-  if (mime === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')) {
-    text = await pdfToText(data);
+  if (isPdf) {
+    try {
+      text = await pdfToText(data);
+    } catch (err) {
+      // unpdf can throw on encrypted/corrupt/unusual PDFs — surface a clear,
+      // actionable 422 instead of a generic 500 that reads as "upload failed".
+      logger.warn('ingestUpload: PDF parse failed', {
+        filename,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw Object.assign(
+        new Error(
+          'Could not read this PDF. If it is scanned, image-based, or password-protected, export a text-based PDF or paste the text directly instead.',
+        ),
+        { status: 422 },
+      );
+    }
   } else {
     text = new TextDecoder().decode(data);
   }
   if (text.trim().length < 20) {
-    throw Object.assign(new Error('Could not extract readable text.'), {
-      status: 422,
-    });
+    throw Object.assign(
+      new Error(
+        isPdf
+          ? 'No selectable text found in this PDF — it looks scanned or image-based. Export a text-based PDF, or paste the text directly.'
+          : 'Could not extract readable text from this file.',
+      ),
+      { status: 422 },
+    );
   }
 
   // Each upload is its own source (keyed by filename) so re-uploading replaces it.
