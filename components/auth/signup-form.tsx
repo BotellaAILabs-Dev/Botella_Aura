@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { signIn } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from '@/components/ui/toaster';
 
 import { signUpSchema, type SignUpInput } from '@/lib/validations/auth';
@@ -14,6 +14,10 @@ import { Label } from '@/components/ui/label';
 
 export function SignupForm() {
   const router = useRouter();
+  const params = useSearchParams();
+  // Invited users arrive with ?callbackUrl=/invite/… — return them there so they
+  // land on the accept screen instead of creating their own workspace.
+  const callbackUrl = params.get('callbackUrl');
   const [serverError, setServerError] = useState<string | null>(null);
 
   const {
@@ -49,7 +53,7 @@ export function SignupForm() {
       return;
     }
     toast.success('Account created!');
-    router.push('/onboarding');
+    router.push(callbackUrl || '/onboarding');
     router.refresh();
   }
 

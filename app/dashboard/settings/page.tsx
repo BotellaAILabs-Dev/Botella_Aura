@@ -15,12 +15,13 @@ import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
 import {
   getCompanyById,
-  getCompanyMembers,
   getMembership,
 } from '@/server/services/company.service';
+import { getTeam } from '@/server/services/team.service';
 import { can } from '@/lib/rbac';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { CompanyProfileForm } from '@/components/dashboard/company-profile-form';
+import { TeamManager } from '@/components/dashboard/team-manager';
 import {
   Card,
   CardContent,
@@ -28,9 +29,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { getInitials } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Settings' };
 
@@ -40,14 +38,15 @@ export default async function SettingsPage() {
   // Layout guarantees an active company, but guard for types.
   if (!active) return null;
 
-  const [company, membership, members] = await Promise.all([
+  const [company, membership, team] = await Promise.all([
     getCompanyById(active.id),
     getMembership(user.id, active.id),
-    getCompanyMembers(active.id),
+    getTeam(active.id),
   ]);
   if (!company || !membership) return null;
 
   const canEdit = can(membership.role, 'company:update');
+  const canManageTeam = can(membership.role, 'members:invite');
 
   return (
     <div className="space-y-6">
@@ -67,52 +66,25 @@ export default async function SettingsPage() {
         }}
       />
 
-      {/* Team members — view-only in Sprint 1 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Team members</CardTitle>
-          <CardDescription>
-            People with access to {company.name}. Teammate invites are coming
-            soon.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ul className="divide-y divide-border">
-            {members.map((m) => {
-              const display = m.user.name || m.user.email;
-              return (
-                <li
-                  key={m.id}
-                  className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
-                >
-                  <div className="flex items-center gap-3">
-                    <Avatar>
-                      {m.user.image && <AvatarImage src={m.user.image} alt="" />}
-                      <AvatarFallback>{getInitials(display)}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
-                        {display}
-                        {m.userId === user.id && (
-                          <span className="ml-1.5 text-xs text-muted-foreground">
-                            (you)
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {m.user.email}
-                      </p>
-                    </div>
-                  </div>
-                  <Badge variant={m.role === 'OWNER' ? 'default' : 'secondary'}>
-                    {m.role}
-                  </Badge>
-                </li>
-              );
-            })}
-          </ul>
-        </CardContent>
-      </Card>
+      {/* Team collaboration — invite members + role-based access */}
+      <TeamManager
+        currentUserId={user.id}
+        currentUserRole={membership.role}
+        canManage={canManageTeam}
+        members={team.members.map((m) => ({
+          userId: m.userId,
+          role: m.role,
+          name: m.user.name,
+          email: m.user.email,
+          image: m.user.image,
+        }))}
+        invitations={team.invitations.map((i) => ({
+          id: i.id,
+          email: i.email,
+          role: i.role,
+          expiresAt: i.expiresAt.toISOString(),
+        }))}
+      />
 
       {/* Sub-settings navigation (Sprint 2) */}
       <div className="grid gap-4 sm:grid-cols-2">

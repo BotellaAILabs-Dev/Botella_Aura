@@ -46,3 +46,22 @@ export async function sendPasswordResetEmail(
     ].join('\n'),
   });
 }
+
+/** Team invitation email (Sprint: team collaboration). */
+export async function sendInvitationEmail(
+  to: string,
+  acceptUrl: string,
+  companyName: string,
+): Promise<void> {
+  await sendEmail({
+    to,
+    subject: `You've been invited to ${companyName} on Botella Aura`,
+    text: [
+      `You've been invited to join ${companyName} on Botella Aura.`,
+      '',
+      `Accept your invitation here (valid for 7 days): ${acceptUrl}`,
+      '',
+      'If you did not expect this, you can ignore this email.',
+    ].join('\n'),
+  });
+}

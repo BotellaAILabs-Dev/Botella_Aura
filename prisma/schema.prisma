@@ -90,6 +90,9 @@ enum AuditAction {
   COMPANY_UPDATED
   COMPANY_MEMBER_ADDED
   COMPANY_MEMBER_REMOVED
+  COMPANY_MEMBER_INVITED
+  COMPANY_MEMBER_ROLE_UPDATED
+  COMPANY_INVITATION_REVOKED
   ONBOARDING_COMPLETED
   // --- Sprint 2 (Trend Intelligence + LinkedIn) ---
   LINKEDIN_CONNECTED
@@ -425,6 +428,7 @@ model Company {
   updatedAt         DateTime  @updatedAt
 
   members             CompanyMember[]
+  invitations         CompanyInvitation[]
   auditLogs           AuditLog[]
   linkedInConnections LinkedInConnection[]
   contentDrafts       ContentDraft[]
@@ -466,6 +470,36 @@ model CompanyMember {
   @@unique([userId, companyId])
   @@index([companyId])
   @@index([userId])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+/// A pending invite for someone to join a company at a given role. We store
+/// only a SHA-256 hash of the accept token (the raw token lives only in the
+/// emailed link), mirroring PasswordResetToken. Single active invite per
+/// (company, email).
+model CompanyInvitation {
+  id          String           @id @default(cuid())
+  companyId   String
+  email       String
+  role        CompanyRole      @default(MEMBER)
+  tokenHash   String           @unique
+  status      InvitationStatus @default(PENDING)
+  invitedById String?
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime         @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, email])
+  @@index([companyId])
+  @@index([email])
 }
 
 // ---------------------------------------------------------------------------
