@@ -1,4 +1,5 @@
 import { requireActiveCompany } from '@/lib/auth-helpers';
+import { can } from '@/lib/rbac';
 import { generateContentSchema } from '@/lib/validations/content';
 import { generateDraft } from '@/server/content/generator';
 import { ClaudeNotConfiguredError } from '@/server/ai/claude';
@@ -10,7 +11,10 @@ import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
  */
 export async function POST(req: Request) {
   try {
-    const { company, user } = await requireActiveCompany();
+    const { company, user, membership } = await requireActiveCompany();
+    if (!can(membership.role, 'content:create')) {
+      return jsonError('Your role is read-only and cannot create content.', 403);
+    }
     const input = generateContentSchema.parse(await req.json());
 
     const draft = await generateDraft({

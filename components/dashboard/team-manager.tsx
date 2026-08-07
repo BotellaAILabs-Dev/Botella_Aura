@@ -19,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { getInitials } from '@/lib/utils';
 
-type Role = 'OWNER' | 'ADMIN' | 'MEMBER';
+type Role = 'OWNER' | 'ADMIN' | 'MEMBER' | 'VIEWER';
 
 export interface TeamMemberView {
   userId: string;
@@ -39,9 +39,10 @@ const ROLE_LABEL: Record<Role, string> = {
   OWNER: 'Owner',
   ADMIN: 'Admin',
   MEMBER: 'Member',
+  VIEWER: 'Viewer',
 };
 const ROLE_HELP =
-  'Owner: full control + billing · Admin: manage team, settings & approvals · Member: create & draft';
+  'Owner: full control + billing · Admin: manage team, settings & approvals · Member: create & draft · Viewer: read-only';
 
 export function TeamManager({
   members,
@@ -159,6 +160,7 @@ export function TeamManager({
                 onChange={(e) => setRole(e.target.value as Role)}
                 className="h-10 rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
+                <option value="VIEWER">Viewer</option>
                 <option value="MEMBER">Member</option>
                 <option value="ADMIN">Admin</option>
                 {isOwner && <option value="OWNER">Owner</option>}
@@ -236,6 +238,7 @@ export function TeamManager({
                       onChange={(e) => changeRole(m.userId, e.target.value as Role)}
                       className="h-9 rounded-md border border-input bg-background px-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
+                      <option value="VIEWER">Viewer</option>
                       <option value="MEMBER">Member</option>
                       <option value="ADMIN">Admin</option>
                       {currentUserRole === 'OWNER' && <option value="OWNER">Owner</option>}

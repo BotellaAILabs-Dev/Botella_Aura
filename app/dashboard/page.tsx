@@ -41,7 +41,7 @@ export default async function OverviewPage() {
     },
     {
       icon: Radar,
-      title: 'Trend Intelligence',
+      title: 'AI Trend Insights',
       body: 'See what your market is talking about, with a suggested angle for each topic.',
       cta: 'Explore trends',
       href: '/dashboard/trends',

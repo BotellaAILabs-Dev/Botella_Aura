@@ -131,7 +131,7 @@ export function CreateContentDialog() {
             </select>
             <p className="text-xs text-muted-foreground">
               Tip: generate from a specific trend using &ldquo;Generate content
-              from this&rdquo; on the Trend Intelligence page.
+              from this&rdquo; on the AI Trend Insights page.
             </p>
           </div>
 

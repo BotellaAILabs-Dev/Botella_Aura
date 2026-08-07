@@ -28,7 +28,7 @@ export default async function HomePage() {
   if (user) redirect('/dashboard');
 
   const features = [
-    { icon: Radar, title: 'Trend Intelligence', body: 'A daily digest of what your market is talking about, with a suggested angle for each.' },
+    { icon: Radar, title: 'AI Trend Insights', body: 'A daily digest of what your market is talking about, with a suggested angle for each.' },
     { icon: PenLine, title: 'Content Studio', body: 'On-brand posts, carousels, and threads generated in your voice — you approve every one.' },
     { icon: Target, title: 'Lead Discovery & Outreach', body: 'Find qualified prospects from legitimate public sources and draft personalized outreach.' },
     { icon: MessageCircle, title: 'Engagement Copilot', body: 'Thoughtful, on-brand comments drafted for posts you’re already reading.' },

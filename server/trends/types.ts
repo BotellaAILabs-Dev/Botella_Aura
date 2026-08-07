@@ -39,6 +39,16 @@ export interface TrendFetchContext {
   subreddits: string[];
   rssFeeds: string[];
   competitorNames: string[];
+  // --- Geo & scope (AI Trend Insights) ---
+  /** ISO country code for news locale (e.g. "US"); null/empty = global. */
+  country?: string | null;
+  /** Region/state and city — appended to news queries as location hints. */
+  region?: string | null;
+  city?: string | null;
+  /** UI language code (e.g. "en"). Defaults to English. */
+  language?: string | null;
+  /** Only surface items newer than this many days. */
+  timeRangeDays?: number | null;
 }
 
 /** Contract every trend source implements. */

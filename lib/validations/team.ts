@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { emailSchema } from '@/lib/validations/auth';
 
 /** Roles that can be assigned via the UI (OWNER handled with extra guards). */
-export const assignableRoleSchema = z.enum(['OWNER', 'ADMIN', 'MEMBER']);
+export const assignableRoleSchema = z.enum(['OWNER', 'ADMIN', 'MEMBER', 'VIEWER']);
 
 export const inviteMemberSchema = z.object({
   email: emailSchema,

@@ -38,7 +38,7 @@ export default async function TrendSettingsPage() {
         </Link>
         <PageHeader
           title="Trend sources"
-          description="Tune what your daily Trend Intelligence digest watches."
+          description="Tune what your daily AI Trend Insights digest watches."
         />
       </div>
 
@@ -54,6 +54,11 @@ export default async function TrendSettingsPage() {
             news: boolean;
             twitter: boolean;
           },
+          geoCountry: config.geoCountry ?? '',
+          geoRegion: config.geoRegion ?? '',
+          geoCity: config.geoCity ?? '',
+          language: config.language ?? 'en',
+          timeRangeDays: config.timeRangeDays ?? 4,
         }}
       />
     </div>

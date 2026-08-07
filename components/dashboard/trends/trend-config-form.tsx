@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { TagInput } from '@/components/ui/tag-input';
 import { updateTrendConfigSchema } from '@/lib/validations/trends';
@@ -24,13 +25,46 @@ interface TrendConfigValue {
   rssFeeds: string[];
   competitorNames: string[];
   enabledSources: Record<'reddit' | 'hackernews' | 'news' | 'twitter', boolean>;
+  geoCountry: string;
+  geoRegion: string;
+  geoCity: string;
+  language: string;
+  timeRangeDays: number;
 }
 
 const SOURCES: Array<{ id: TrendSourceId; label: string; note: string }> = [
   { id: 'hackernews', label: 'Hacker News', note: 'No key needed' },
   { id: 'news', label: 'Google News (RSS)', note: 'No key needed' },
-  { id: 'reddit', label: 'Reddit', note: 'Needs Reddit API keys' },
+  { id: 'reddit', label: 'Reddit', note: 'No key needed (public RSS)' },
   { id: 'twitter', label: 'X / Twitter', note: 'Optional — needs bearer token' },
+];
+
+const COUNTRIES: Array<{ code: string; name: string }> = [
+  { code: '', name: 'Global (any country)' },
+  { code: 'US', name: 'United States' },
+  { code: 'GB', name: 'United Kingdom' },
+  { code: 'IN', name: 'India' },
+  { code: 'CA', name: 'Canada' },
+  { code: 'AU', name: 'Australia' },
+  { code: 'DE', name: 'Germany' },
+  { code: 'FR', name: 'France' },
+  { code: 'ES', name: 'Spain' },
+  { code: 'BR', name: 'Brazil' },
+  { code: 'AE', name: 'United Arab Emirates' },
+  { code: 'SG', name: 'Singapore' },
+];
+const LANGUAGES: Array<{ code: string; name: string }> = [
+  { code: 'en', name: 'English' },
+  { code: 'es', name: 'Spanish' },
+  { code: 'fr', name: 'French' },
+  { code: 'de', name: 'German' },
+  { code: 'pt', name: 'Portuguese' },
+  { code: 'hi', name: 'Hindi' },
+];
+const TIME_RANGES: Array<{ days: number; label: string }> = [
+  { days: 1, label: 'Last 24 hours' },
+  { days: 7, label: 'Last 7 days' },
+  { days: 30, label: 'Last 30 days' },
 ];
 
 export function TrendConfigForm({ initial }: { initial: TrendConfigValue }) {
@@ -136,6 +170,73 @@ export function TrendConfigForm({ initial }: { initial: TrendConfigValue }) {
             onChange={(v) => set('rssFeeds', v)}
             placeholder="https://example.com/feed.xml"
           />
+        </div>
+
+        {/* Geo & scope filters — make insights local/regional */}
+        <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
+          <Label>Location &amp; scope</Label>
+          <p className="-mt-1 text-xs text-muted-foreground">
+            Focus trends on a country, region, and time window for local marketing.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="country" className="text-xs">Country</Label>
+              <select
+                id="country"
+                value={value.geoCountry}
+                onChange={(e) => set('geoCountry', e.target.value)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c.code} value={c.code}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="language" className="text-xs">Language</Label>
+              <select
+                id="language"
+                value={value.language}
+                onChange={(e) => set('language', e.target.value)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>{l.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="region" className="text-xs">Region / State (optional)</Label>
+              <Input
+                id="region"
+                value={value.geoRegion}
+                onChange={(e) => set('geoRegion', e.target.value)}
+                placeholder="e.g. California"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="city" className="text-xs">City (optional)</Label>
+              <Input
+                id="city"
+                value={value.geoCity}
+                onChange={(e) => set('geoCity', e.target.value)}
+                placeholder="e.g. San Francisco"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="timeRange" className="text-xs">Time range</Label>
+              <select
+                id="timeRange"
+                value={value.timeRangeDays}
+                onChange={(e) => set('timeRangeDays', Number(e.target.value))}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {TIME_RANGES.map((t) => (
+                  <option key={t.days} value={t.days}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
 
         <div className="space-y-2">

@@ -13,7 +13,7 @@ import { DigestHistory } from '@/components/dashboard/trends/digest-history';
 import { TrendCard } from '@/components/dashboard/trends/trend-card';
 import type { DigestPayload } from '@/server/trends/types';
 
-export const metadata: Metadata = { title: 'Trend Intelligence' };
+export const metadata: Metadata = { title: 'AI Trend Insights' };
 
 function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -51,7 +51,7 @@ export default async function TrendsPage({
     return (
       <div>
         <PageHeader
-          title="Trend Intelligence"
+          title="AI Trend Insights"
           description={`What ${active.name}'s market is talking about.`}
           actions={configAction}
         />
@@ -80,7 +80,7 @@ export default async function TrendsPage({
   return (
     <div>
       <PageHeader
-        title="Trend Intelligence"
+        title="AI Trend Insights"
         description={`Generated ${new Date(payload.generatedAt).toLocaleString()} · ${
           payload.model === 'fallback' ? 'basic summaries' : `AI: ${payload.model}`
         }`}

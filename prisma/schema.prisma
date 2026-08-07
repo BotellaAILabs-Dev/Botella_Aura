@@ -49,6 +49,7 @@ enum CompanyRole {
   OWNER
   ADMIN
   MEMBER
+  VIEWER
 }
 
 /// Lifecycle of a LinkedIn connection (Sprint 2). Scaffolded now.
@@ -736,6 +737,16 @@ model CompanyTrendConfig {
   competitorNames String[] @default([])
   /// Which sources are enabled: { reddit, hackernews, news, twitter }.
   enabledSources  Json     @default("{\"reddit\":true,\"hackernews\":true,\"news\":true,\"twitter\":false}")
+  // --- Geo & scope filters (AI Trend Insights) ---
+  /// ISO country code for Google/Bing News locale (e.g. "US", "GB", "IN"). Null = global.
+  geoCountry      String?
+  /// Free-text region/state and city, appended to news queries as location hints.
+  geoRegion       String?
+  geoCity         String?
+  /// UI language code for news locale (e.g. "en", "es", "fr"). Default English.
+  language        String   @default("en")
+  /// Only surface items newer than this many days (24h=1, 7d=7, 30d=30).
+  timeRangeDays   Int      @default(4)
   /// True once smart defaults have been generated, so we don't overwrite edits.
   defaultsSeeded  Boolean  @default(false)
   createdAt       DateTime @default(now())

@@ -23,9 +23,47 @@ async function consoleTransport(message: EmailMessage): Promise<void> {
   });
 }
 
+/**
+ * Resend transport — used automatically when RESEND_API_KEY is set. Calls the
+ * Resend REST API directly (no SDK dependency). Set EMAIL_FROM to a verified
+ * sender, e.g. "Botella Aura <no-reply@yourdomain.com>". Falls back to the
+ * console transport on any failure so a mail outage never breaks the flow.
+ */
+async function resendTransport(message: EmailMessage): Promise<void> {
+  const from = process.env.EMAIL_FROM || 'Botella Aura <onboarding@resend.dev>';
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        from,
+        to: [message.to],
+        subject: message.subject,
+        text: message.text,
+      }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      logger.error('Resend send failed; falling back to console', {
+        status: res.status,
+        detail: detail.slice(0, 300),
+      });
+      return consoleTransport(message);
+    }
+    logger.info('Email sent via Resend', { to: message.to, subject: message.subject });
+  } catch (err) {
+    logger.error('Resend transport error; falling back to console', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return consoleTransport(message);
+  }
+}
+
 export async function sendEmail(message: EmailMessage): Promise<void> {
-  // When a provider key exists, branch to the real transport here.
-  // if (process.env.RESEND_API_KEY) return resendTransport(message);
+  if (process.env.RESEND_API_KEY) return resendTransport(message);
   return consoleTransport(message);
 }
 

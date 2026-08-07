@@ -42,6 +42,11 @@ export function toFetchContext(config: CompanyTrendConfig): TrendFetchContext {
     subreddits: config.subreddits,
     rssFeeds: config.rssFeeds,
     competitorNames: config.competitorNames,
+    country: config.geoCountry,
+    region: config.geoRegion,
+    city: config.geoCity,
+    language: config.language,
+    timeRangeDays: config.timeRangeDays,
   };
 }
 
@@ -68,6 +73,13 @@ export async function updateTrendConfig({
   input,
   requestMeta,
 }: UpdateArgs) {
+  const geo = {
+    geoCountry: input.geoCountry ?? null,
+    geoRegion: input.geoRegion ?? null,
+    geoCity: input.geoCity ?? null,
+    language: input.language,
+    timeRangeDays: input.timeRangeDays,
+  };
   const config = await db.companyTrendConfig.upsert({
     where: { companyId },
     create: {
@@ -77,6 +89,7 @@ export async function updateTrendConfig({
       rssFeeds: input.rssFeeds,
       competitorNames: input.competitorNames,
       enabledSources: input.enabledSources,
+      ...geo,
       defaultsSeeded: true, // user edited it — treat as intentional
     },
     update: {
@@ -85,6 +98,7 @@ export async function updateTrendConfig({
       rssFeeds: input.rssFeeds,
       competitorNames: input.competitorNames,
       enabledSources: input.enabledSources,
+      ...geo,
       defaultsSeeded: true,
     },
   });

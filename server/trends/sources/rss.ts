@@ -89,15 +89,38 @@ function toArray<T>(v: T | T[] | undefined): T[] {
   return Array.isArray(v) ? v : [v];
 }
 
-function googleNewsUrl(keyword: string): string {
-  // `when:Nd` restricts Google News search to the last N days → fresh results.
-  const q = encodeURIComponent(`${keyword} when:${FRESHNESS_DAYS}d`);
-  return `https://news.google.com/rss/search?q=${q}&hl=en-US&gl=US&ceid=US:en`;
+interface GeoOpts {
+  country: string; // ISO code, e.g. "US"
+  language: string; // e.g. "en"
+  location: string; // "City Region" hint appended to the query (may be empty)
+  days: number;
 }
 
-function bingNewsUrl(keyword: string, cacheBust: number): string {
-  const q = encodeURIComponent(keyword);
-  return `https://www.bing.com/news/search?q=${q}&format=rss&cc=us&_cb=${cacheBust}`;
+function googleNewsUrl(keyword: string, geo: GeoOpts): string {
+  // `when:Nd` restricts Google News search to the last N days → fresh results.
+  // Location terms narrow to a city/region; hl/gl/ceid set the country locale.
+  const query = [keyword, geo.location, `when:${geo.days}d`]
+    .filter(Boolean)
+    .join(' ');
+  const q = encodeURIComponent(query);
+  const hl = `${geo.language}-${geo.country}`;
+  return `https://news.google.com/rss/search?q=${q}&hl=${hl}&gl=${geo.country}&ceid=${geo.country}:${geo.language}`;
+}
+
+function bingNewsUrl(keyword: string, geo: GeoOpts, cacheBust: number): string {
+  const q = encodeURIComponent([keyword, geo.location].filter(Boolean).join(' '));
+  const cc = geo.country.toLowerCase();
+  return `https://www.bing.com/news/search?q=${q}&format=rss&cc=${cc}&_cb=${cacheBust}`;
+}
+
+/** Resolve geo/locale options from the company config (with safe defaults). */
+function resolveGeo(ctx: TrendFetchContext): GeoOpts {
+  const country = (ctx.country || 'US').toUpperCase().slice(0, 2);
+  const language = (ctx.language || 'en').toLowerCase().slice(0, 2);
+  const location = [ctx.city, ctx.region].filter(Boolean).join(' ').trim();
+  const days =
+    ctx.timeRangeDays && ctx.timeRangeDays > 0 ? ctx.timeRangeDays : FRESHNESS_DAYS;
+  return { country, language, location, days };
 }
 
 export class NewsSource implements TrendSource {
@@ -110,6 +133,7 @@ export class NewsSource implements TrendSource {
 
   async fetchTrendItems(ctx: TrendFetchContext): Promise<TrendItem[]> {
     const now = Date.now();
+    const geo = resolveGeo(ctx);
     const keywords = ctx.keywords.map((k) => k.toLowerCase()).filter(Boolean);
     const kws = ctx.keywords.slice(0, MAX_KEYWORDS);
 
@@ -119,9 +143,9 @@ export class NewsSource implements TrendSource {
       keyword?: string;
       requireMatch?: boolean;
     }> = [
-      // Google News per keyword (freshness-restricted) + Bing per keyword.
-      ...kws.map((k) => ({ url: googleNewsUrl(k), label: 'Google News', keyword: k.toLowerCase() })),
-      ...kws.map((k) => ({ url: bingNewsUrl(k, now), label: 'Bing News', keyword: k.toLowerCase() })),
+      // Geo/locale-aware Google News + Bing per keyword.
+      ...kws.map((k) => ({ url: googleNewsUrl(k, geo), label: 'Google News', keyword: k.toLowerCase() })),
+      ...kws.map((k) => ({ url: bingNewsUrl(k, geo, now), label: 'Bing News', keyword: k.toLowerCase() })),
       // Curated publisher feeds — on-topic only when keywords exist.
       ...CURATED_FEEDS.map((f) => ({ ...f, requireMatch: keywords.length > 0 })),
       // Company-configured feeds — always kept (the user chose them).
@@ -130,7 +154,7 @@ export class NewsSource implements TrendSource {
 
     const results = await Promise.allSettled(
       feeds.map((f) =>
-        this.readFeed(f.url, f.label, f.keyword, keywords, now, f.requireMatch ?? false),
+        this.readFeed(f.url, f.label, f.keyword, keywords, now, geo.days, f.requireMatch ?? false),
       ),
     );
 
@@ -153,6 +177,7 @@ export class NewsSource implements TrendSource {
     keyword: string | undefined,
     allKeywords: string[],
     now: number,
+    days: number,
     requireMatch: boolean,
   ): Promise<TrendItem[]> {
     let xml: string;
@@ -189,7 +214,7 @@ export class NewsSource implements TrendSource {
       ...toArray(parsed.feed?.entry),
     ].slice(0, MAX_ITEMS_PER_FEED);
 
-    const cutoff = now - FRESHNESS_DAYS * 86_400_000;
+    const cutoff = now - days * 86_400_000;
     const out: TrendItem[] = [];
     for (const raw of rawItems) {
       const title = text(raw.title).trim();

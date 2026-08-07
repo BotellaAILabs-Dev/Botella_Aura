@@ -25,6 +25,11 @@ export async function GET() {
       rssFeeds: config.rssFeeds,
       competitorNames: config.competitorNames,
       enabledSources: getEnabledFlags(config),
+      geoCountry: config.geoCountry,
+      geoRegion: config.geoRegion,
+      geoCity: config.geoCity,
+      language: config.language,
+      timeRangeDays: config.timeRangeDays,
       defaultsSeeded: config.defaultsSeeded,
     });
   } catch (error) {

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Trend Intelligence config validation. Shared by the settings/trends form,
+ * AI Trend Insights config validation. Shared by the settings/trends form,
  * the API route, and tests. Arrays are trimmed, de-duplicated, and bounded so a
  * single company can't blow through third-party rate limits.
  */
@@ -32,6 +32,9 @@ export const enabledSourcesSchema = z.object({
   twitter: z.boolean(),
 });
 
+// Geo/scope filters. Empty strings normalize to null (= global/default).
+const emptyToNull = (v: string) => (v.trim() ? v.trim() : null);
+
 export const updateTrendConfigSchema = z.object({
   keywords: stringList(25),
   subreddits: subredditList,
@@ -41,6 +44,17 @@ export const updateTrendConfigSchema = z.object({
     .transform((arr) => Array.from(new Set(arr))),
   competitorNames: stringList(25),
   enabledSources: enabledSourcesSchema,
+  geoCountry: z
+    .string()
+    .trim()
+    .max(2)
+    .transform((v) => (v ? v.toUpperCase() : null))
+    .nullable()
+    .optional(),
+  geoRegion: z.string().max(80).transform(emptyToNull).nullable().optional(),
+  geoCity: z.string().max(80).transform(emptyToNull).nullable().optional(),
+  language: z.string().trim().min(2).max(5).default('en'),
+  timeRangeDays: z.coerce.number().int().min(1).max(90).default(4),
 });
 
 export type UpdateTrendConfigInput = z.infer<typeof updateTrendConfigSchema>;

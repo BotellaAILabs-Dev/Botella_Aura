@@ -11,6 +11,7 @@ import {
   Target,
   Brain,
   Megaphone,
+  Plug,
 } from 'lucide-react';
 
 /**
@@ -36,7 +37,7 @@ export const NAV_ITEMS: NavItem[] = [
     ready: true,
   },
   {
-    label: 'Trend Intelligence',
+    label: 'AI Trend Insights',
     href: '/dashboard/trends',
     icon: Radar,
     ready: true,
@@ -106,6 +107,13 @@ export const NAV_ITEMS: NavItem[] = [
     ready: true,
     sprint: 6,
     description: 'Measure what your marketing is actually doing.',
+  },
+  {
+    label: 'Connectors',
+    href: '/dashboard/connectors',
+    icon: Plug,
+    ready: true,
+    description: 'Connect your marketing tools and data sources.',
   },
   {
     label: 'Settings',

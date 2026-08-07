@@ -56,7 +56,7 @@ export default function NewFromSourcePage() {
         href="/dashboard/trends"
         className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="h-4 w-4" /> Trend Intelligence
+        <ArrowLeft className="h-4 w-4" /> AI Trend Insights
       </Link>
       <PageHeader
         title="Generate content"
