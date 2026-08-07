@@ -29,10 +29,18 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { ACTIVE_COMPANY_COOKIE } from '@/lib/cookies';
 
 const STEPS = ['Company', 'Brand voice', 'All set'] as const;
 
-export function OnboardingWizard({ userName }: { userName: string | null }) {
+export function OnboardingWizard({
+  userName,
+  additional = false,
+}: {
+  userName: string | null;
+  /** True when creating an ADDITIONAL workspace (user already has one). */
+  additional?: boolean;
+}) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -98,7 +106,12 @@ export function OnboardingWizard({ userName }: { userName: string | null }) {
         toast.error(body.error ?? 'Could not create your workspace.');
         return;
       }
-      toast.success('Workspace created!');
+      const created = (await res.json().catch(() => ({}))) as { id?: string };
+      // Make the new workspace the active one so the app opens into it.
+      if (created.id) {
+        document.cookie = `${ACTIVE_COMPANY_COOKIE}=${created.id}; path=/; max-age=31536000; samesite=lax`;
+      }
+      toast.success(additional ? 'New workspace created!' : 'Workspace created!');
       router.push('/dashboard');
       router.refresh();
     } finally {

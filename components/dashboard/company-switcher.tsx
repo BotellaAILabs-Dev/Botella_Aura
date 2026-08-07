@@ -67,7 +67,7 @@ export function CompanySwitcher({
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => router.push('/onboarding')}>
+        <DropdownMenuItem onSelect={() => router.push('/onboarding?new=1')}>
           <Plus className="h-4 w-4" />
           <span>Create workspace</span>
         </DropdownMenuItem>

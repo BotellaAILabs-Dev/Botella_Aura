@@ -30,7 +30,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   {
-    label: 'Overview',
+    label: 'Dashboard',
     href: '/dashboard',
     icon: LayoutDashboard,
     ready: true,
