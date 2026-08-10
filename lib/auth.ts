@@ -1,15 +1,14 @@
+
 import type { NextAuthOptions } from 'next-auth';
 import { PrismaAdapter } from '@next-auth/prisma-adapter';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
 import type { Provider } from 'next-auth/providers/index';
-
 import { db } from '@/lib/db';
 import { verifyPassword } from '@/lib/password';
 import { signInSchema } from '@/lib/validations/auth';
 import { recordAudit } from '@/server/services/audit.service';
 import { logger } from '@/lib/logger';
-
 /**
  * Build the provider list conditionally so the app runs locally with only
  * credentials configured. Google is enabled when its env vars are present.

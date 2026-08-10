@@ -15,6 +15,39 @@ export class OutreachMessageNotFoundError extends Error {
   }
 }
 
+/**
+ * Outreach history — recent messages across all leads, with lead context and
+ * connection outcome, for the "Outreach History & connection status" view.
+ */
+export async function listOutreachHistory(companyId: string, take = 50) {
+  const messages = await db.outreachMessage.findMany({
+    where: { companyId },
+    orderBy: [{ sentAt: 'desc' }, { updatedAt: 'desc' }],
+    take,
+    include: {
+      lead: {
+        select: {
+          id: true,
+          name: true,
+          companyName: true,
+          title: true,
+          linkedInProfileUrl: true,
+          status: true,
+        },
+      },
+    },
+  });
+
+  // Roll-up counters for the summary strip.
+  const summary = {
+    total: messages.length,
+    sent: messages.filter((m) => m.status === 'SENT').length,
+    connected: messages.filter((m) => m.connectionAccepted).length,
+    replied: messages.filter((m) => m.replyReceived).length,
+  };
+  return { messages, summary };
+}
+
 type Action = 'submit' | 'approve' | 'reject' | 'request_changes';
 
 const ACTION_TO_STATUS: Record<Action, OutreachStatus> = {

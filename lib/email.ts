@@ -62,7 +62,50 @@ async function resendTransport(message: EmailMessage): Promise<void> {
   }
 }
 
+/**
+ * SMTP transport (nodemailer) — used when SMTP_HOST is set. Works with any
+ * provider that gives SMTP credentials (Gmail app password, SendGrid, Mailgun,
+ * Zoho, AWS SES, Office365, …). Lazily imports nodemailer so it's never bundled
+ * where it isn't used. Falls back to console on any failure.
+ *
+ * Env: SMTP_HOST, SMTP_PORT (default 587), SMTP_USER, SMTP_PASS,
+ *      SMTP_SECURE ("true" for port 465), EMAIL_FROM.
+ */
+async function smtpTransport(message: EmailMessage): Promise<void> {
+  const from = process.env.EMAIL_FROM || process.env.SMTP_USER || '';
+  try {
+    const nodemailer = (await import('nodemailer')).default;
+    const port = Number(process.env.SMTP_PORT || 587);
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port,
+      secure: process.env.SMTP_SECURE === 'true' || port === 465,
+      auth:
+        process.env.SMTP_USER && process.env.SMTP_PASS
+          ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+          : undefined,
+    });
+    await transporter.sendMail({
+      from,
+      to: message.to,
+      subject: message.subject,
+      text: message.text,
+    });
+    logger.info('Email sent via SMTP', { to: message.to, subject: message.subject });
+  } catch (err) {
+    logger.error('SMTP transport error; falling back to console', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return consoleTransport(message);
+  }
+}
+
+/**
+ * Transport selection (first configured wins):
+ *   SMTP_HOST → SMTP · RESEND_API_KEY → Resend · else → console (dev).
+ */
 export async function sendEmail(message: EmailMessage): Promise<void> {
+  if (process.env.SMTP_HOST) return smtpTransport(message);
   if (process.env.RESEND_API_KEY) return resendTransport(message);
   return consoleTransport(message);
 }

@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { recordAudit } from '@/server/services/audit.service';
 import type { CreateLeadInput, UpdateLeadInput } from '@/lib/validations/outreach';
@@ -41,6 +42,51 @@ export async function createLead(args: {
 }) {
   const { companyId, userId, input, requestMeta } = args;
   return db.$transaction(async (tx) => {
+    // Dedup for accuracy: match an existing lead by LinkedIn profile URL, or by
+    // (person name + company) case-insensitively. Prevents duplicate/conflicting
+    // profiles from repeated detection or manual re-adds.
+    const dedupConditions: Prisma.LeadWhereInput[] = [];
+    if (input.linkedInProfileUrl) {
+      dedupConditions.push({ linkedInProfileUrl: input.linkedInProfileUrl });
+    }
+    if (input.name) {
+      dedupConditions.push({
+        name: { equals: input.name, mode: 'insensitive' },
+        companyName: { equals: input.companyName, mode: 'insensitive' },
+      });
+    }
+    const existing =
+      dedupConditions.length > 0
+        ? await tx.lead.findFirst({
+            where: { companyId, OR: dedupConditions },
+          })
+        : null;
+
+    if (existing) {
+      // Enrich: fill in any fields we were missing, rather than duplicate.
+      const patch: Prisma.LeadUpdateInput = {};
+      if (!existing.name && input.name) patch.name = input.name;
+      if (!existing.title && input.title) patch.title = input.title;
+      if (!existing.linkedInProfileUrl && input.linkedInProfileUrl)
+        patch.linkedInProfileUrl = input.linkedInProfileUrl;
+      if (!existing.sourceUrl && input.sourceUrl)
+        patch.sourceUrl = input.sourceUrl;
+      const lead = Object.keys(patch).length
+        ? await tx.lead.update({ where: { id: existing.id }, data: patch })
+        : existing;
+      await recordAudit(
+        {
+          action: 'LEAD_UPDATED',
+          userId,
+          companyId,
+          metadata: { leadId: lead.id, deduped: true, enriched: Object.keys(patch) },
+          ...requestMeta,
+        },
+        tx,
+      );
+      return lead;
+    }
+
     const lead = await tx.lead.create({
       data: {
         companyId,

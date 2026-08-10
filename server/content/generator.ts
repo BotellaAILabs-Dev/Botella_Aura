@@ -86,7 +86,7 @@ export async function generateDraft({
   if (!company) throw new Error('Company not found');
 
   const brief = await resolveBrief(company, source);
-  const chunks = await retrieve(companyId, brief.query, { limit: 6 });
+  const chunks = await retrieve(companyId, brief.query, { limit: 8 });
   // If the brief mentions a URL ("write about our flagship product: <url>"),
   // fetch that page LIVE and ground the post in its real content. This is what
   // makes "look at my website" actually work — the model can't browse on its own.
@@ -135,7 +135,9 @@ export async function generateDraft({
     system,
     prompt,
     maxTokens: type === 'BLOG' ? 4000 : 2000,
-    effort: 'high',
+    // Short posts don't need max reasoning — 'medium' is markedly faster with
+    // no quality loss on hook-first posts; blogs keep 'high' for structure.
+    effort: type === 'BLOG' ? 'high' : 'medium',
   });
 
   const aiMetadata: Prisma.InputJsonValue = {

@@ -10,7 +10,6 @@ export type OutreachStatusKey =
   | 'APPROVED'
   | 'SENT'
   | 'REJECTED';
-
 export const OUTREACH_STATUS_LABELS: Record<OutreachStatusKey, string> = {
   DRAFT: 'Draft',
   PENDING_APPROVAL: 'Pending approval',
@@ -18,12 +17,10 @@ export const OUTREACH_STATUS_LABELS: Record<OutreachStatusKey, string> = {
   SENT: 'Sent',
   REJECTED: 'Rejected',
 };
-
 export const OUTREACH_TYPE_LABELS: Record<string, string> = {
   CONNECTION_NOTE: 'Connection note',
   FOLLOWUP: 'Follow-up',
 };
-
 export const SIGNAL_LABELS: Record<string, string> = {
   FUNDING: 'Funding',
   HIRING: 'Hiring',
@@ -31,7 +28,6 @@ export const SIGNAL_LABELS: Record<string, string> = {
   NEWS: 'News',
   LEADERSHIP_CHANGE: 'Leadership change',
 };
-
 /** Map an outreach status to a badge variant (same palette as content). */
 export function outreachStatusVariant(
   status: OutreachStatusKey,

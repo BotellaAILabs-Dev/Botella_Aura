@@ -7,6 +7,7 @@ import { resolveActiveCompany } from '@/lib/active-company';
 import { getMembership } from '@/server/services/company.service';
 import { can } from '@/lib/rbac';
 import { listLeads } from '@/server/outreach/lead.service';
+import { listOutreachHistory } from '@/server/outreach/outreach.service';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,7 @@ import {
   OutreachBoard,
   type LeadRow,
 } from '@/components/dashboard/outreach/outreach-board';
+import { OutreachHistory } from '@/components/dashboard/outreach/outreach-history';
 import type { OutreachStatusKey } from '@/lib/outreach-ui';
 
 export const metadata: Metadata = { title: 'Outreach' };
@@ -25,9 +27,10 @@ export default async function OutreachPage() {
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const [membership, leads] = await Promise.all([
+  const [membership, leads, history] = await Promise.all([
     getMembership(user.id, active.id),
     listLeads(active.id),
+    listOutreachHistory(active.id),
   ]);
   const canManage = membership ? can(membership.role, 'content:approve') : false;
 
@@ -100,7 +103,23 @@ export default async function OutreachPage() {
           }
         />
       ) : (
-        <OutreachBoard leads={rows} canManage={canManage} />
+        <div className="space-y-6">
+          <OutreachBoard leads={rows} canManage={canManage} />
+          <OutreachHistory
+            summary={history.summary}
+            rows={history.messages.map((m) => ({
+              id: m.id,
+              leadName: m.lead.name ?? '',
+              companyName: m.lead.companyName,
+              linkedInProfileUrl: m.lead.linkedInProfileUrl,
+              type: m.type,
+              status: m.status as OutreachStatusKey,
+              sentAt: m.sentAt ? m.sentAt.toISOString() : null,
+              connectionAccepted: m.connectionAccepted,
+              replyReceived: m.replyReceived,
+            }))}
+          />
+        </div>
       )}
     </div>
   );
