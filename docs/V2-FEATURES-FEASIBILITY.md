@@ -152,7 +152,10 @@ This is really **two very different things**, and the split matters:
 
 These analyze the **content itself before it's published** — no live metrics needed.
 
-| Tile | Status | How (no external API) | Effort |
+| Tile | Status | How (no external API) | Effort 
+
+
+|
 |------|--------|------------------------|--------|
 | AI Content Quality Score | ✅ | Claude rubric over the draft | M |
 | Hook Strength Analysis | ✅ | Claude scores the opening line | S |

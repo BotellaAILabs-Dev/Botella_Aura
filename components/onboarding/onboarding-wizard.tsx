@@ -10,6 +10,7 @@ import {
   Check,
   ArrowRight,
   ArrowLeft,
+  Sparkles,
 } from 'lucide-react';
 import { toast } from '@/components/ui/toaster';
 
@@ -33,6 +34,33 @@ import { ACTIVE_COMPANY_COOKIE } from '@/lib/cookies';
 
 const STEPS = ['Company', 'Brand voice', 'All set'] as const;
 
+const TONE_OPTIONS = [
+  'Professional',
+  'Friendly',
+  'Confident',
+  'Warm',
+  'Bold',
+  'Playful',
+  'Technical',
+  'Inspirational',
+  'Concise',
+  'No hype',
+];
+
+const INDUSTRY_OPTIONS = [
+  'B2B SaaS',
+  'E-commerce',
+  'Fintech',
+  'Healthcare',
+  'Marketing agency',
+  'Real estate',
+  'Education',
+  'Professional services',
+  'Manufacturing',
+  'Hospitality',
+  'Non-profit',
+];
+
 export function OnboardingWizard({
   userName,
   additional = false,
@@ -51,6 +79,72 @@ export function OnboardingWizard({
     industry: '',
     brandVoiceNotes: '',
   });
+  // Step 2 structure + live preview.
+  const [tones, setTones] = useState<string[]>([]);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [previewNote, setPreviewNote] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  function toggleTone(t: string) {
+    setTones((prev) =>
+      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
+    );
+    setPreview(null);
+  }
+
+  /** Compose the tone chips + free text into the brand-voice string we save. */
+  function composeNotes(): string {
+    const base = (data.brandVoiceNotes ?? '').trim();
+    if (tones.length === 0) return base;
+    const toneLine = `Tone: ${tones.join(', ')}.`;
+    return base ? `${toneLine}\n${base}` : toneLine;
+  }
+
+  function validateWebsite() {
+    const w = (data.website ?? '').trim();
+    if (w && !/^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}(\/[^\s]*)?$/i.test(w)) {
+      setErrors((e) => ({
+        ...e,
+        website: 'Enter a valid website (e.g. acme.com)',
+      }));
+    } else {
+      setErrors((e) => {
+        const { website: _drop, ...rest } = e;
+        return rest;
+      });
+    }
+  }
+
+  async function runPreview() {
+    if (!data.name.trim()) return;
+    setPreviewLoading(true);
+    setPreview(null);
+    setPreviewNote(null);
+    try {
+      const res = await fetch('/api/onboarding/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: data.name,
+          industry: data.industry ?? '',
+          brandVoiceNotes: composeNotes(),
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        sample?: string | null;
+        note?: string | null;
+        error?: string;
+      };
+      if (!res.ok) {
+        setPreviewNote(body.error ?? 'Could not generate a preview.');
+        return;
+      }
+      setPreview(body.sample ?? null);
+      setPreviewNote(body.note ?? null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
 
   function update<K extends keyof CreateCompanyInput>(
     key: K,
@@ -98,7 +192,7 @@ export function OnboardingWizard({
           name: data.name,
           website: data.website ?? '',
           industry: data.industry ?? '',
-          brandVoiceNotes: data.brandVoiceNotes ?? '',
+          brandVoiceNotes: composeNotes(),
         }),
       });
       if (!res.ok) {
@@ -160,11 +254,16 @@ export function OnboardingWizard({
                 id="website"
                 value={data.website ?? ''}
                 onChange={(e) => update('website', e.target.value)}
+                onBlur={validateWebsite}
                 aria-invalid={!!errors.website}
                 placeholder="acme.com"
               />
-              {errors.website && (
+              {errors.website ? (
                 <p className="text-xs text-destructive">{errors.website}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Aura reads your site to ground content in your real products.
+                </p>
               )}
             </div>
             <div className="space-y-1.5">
@@ -173,30 +272,99 @@ export function OnboardingWizard({
               </Label>
               <Input
                 id="industry"
+                list="industry-options"
                 value={data.industry ?? ''}
                 onChange={(e) => update('industry', e.target.value)}
-                placeholder="B2B SaaS, e-commerce, fintech…"
+                placeholder="Start typing… e.g. B2B SaaS"
               />
+              <datalist id="industry-options">
+                {INDUSTRY_OPTIONS.map((o) => (
+                  <option key={o} value={o} />
+                ))}
+              </datalist>
             </div>
           </>
         )}
 
         {step === 1 && (
-          <div className="space-y-1.5">
-            <Label htmlFor="brandVoiceNotes">
-              Brand voice notes{' '}
-              <span className="text-muted-foreground">(optional)</span>
-            </Label>
-            <Textarea
-              id="brandVoiceNotes"
-              rows={7}
-              value={data.brandVoiceNotes ?? ''}
-              onChange={(e) => update('brandVoiceNotes', e.target.value)}
-              placeholder="e.g. Confident but warm. Practical, no hype. Speak to busy founders. Prefer concrete examples over buzzwords. Never overpromise."
-            />
-            <p className="text-xs text-muted-foreground">
-              You can refine this anytime in Settings.
-            </p>
+          <div className="space-y-4">
+            {/* Quick-select tone chips give non-writers structure to start from. */}
+            <div className="space-y-1.5">
+              <Label>Pick a tone (tap any)</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {TONE_OPTIONS.map((t) => {
+                  const on = tones.includes(t);
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => toggleTone(t)}
+                      className={cn(
+                        'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                        on
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground hover:bg-muted',
+                      )}
+                    >
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="brandVoiceNotes">
+                Anything else about your voice{' '}
+                <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Textarea
+                id="brandVoiceNotes"
+                rows={5}
+                value={data.brandVoiceNotes ?? ''}
+                onChange={(e) => {
+                  update('brandVoiceNotes', e.target.value);
+                  setPreview(null);
+                }}
+                placeholder="e.g. Speak to busy founders. Prefer concrete examples over buzzwords. Never overpromise."
+              />
+              <p className="text-xs text-muted-foreground">
+                You can refine this anytime in Settings.
+              </p>
+            </div>
+
+            {/* Live preview — makes the abstract "voice" concrete before committing. */}
+            <div className="rounded-lg border border-border bg-muted/30 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                  <Sparkles className="h-4 w-4 text-primary" /> Hear your voice
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  loading={previewLoading}
+                  onClick={runPreview}
+                  disabled={!data.name.trim()}
+                >
+                  Preview a sample post
+                </Button>
+              </div>
+              {preview && (
+                <p className="mt-3 whitespace-pre-line rounded-md bg-background p-3 text-sm text-foreground shadow-xs">
+                  {preview}
+                </p>
+              )}
+              {!preview && previewNote && (
+                <p className="mt-3 text-xs text-muted-foreground">{previewNote}</p>
+              )}
+              {!preview && !previewNote && !previewLoading && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  See a real post written in this voice before you continue.
+                </p>
+              )}
+            </div>
           </div>
         )}
 
