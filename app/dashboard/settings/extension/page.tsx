@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, AlertTriangle } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
@@ -48,6 +48,24 @@ export default async function ExtensionSettingsPage() {
           </Button>
         }
       />
+
+      {/* Honest beta framing — the extension is not yet on the Chrome Web Store. */}
+      <div className="mb-6 flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/10 p-4">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning-foreground" />
+        <div className="text-sm">
+          <p className="font-medium text-foreground">
+            Internal / Beta build
+          </p>
+          <p className="mt-0.5 text-muted-foreground">
+            The companion extension is currently an <strong>internal beta</strong>{' '}
+            and is not yet published on the Chrome Web Store. It&apos;s intended for
+            your team and pilot users. A one-click store install is coming — until
+            then, pairing uses a token below. Nothing is posted or sent without your
+            explicit click.
+          </p>
+        </div>
+      </div>
+
       <ExtensionManager tokens={rows} canManage={canManage} />
     </div>
   );

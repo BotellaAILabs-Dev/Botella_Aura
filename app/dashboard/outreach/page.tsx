@@ -42,6 +42,8 @@ export default async function OutreachPage() {
     linkedInProfileUrl: l.linkedInProfileUrl,
     sourceUrl: l.sourceUrl,
     status: l.status,
+    fitScore: l.fitScore,
+    fitRationale: l.fitRationale,
     signals: l.signals.map((s) => ({
       id: s.id,
       signalType: s.signalType,

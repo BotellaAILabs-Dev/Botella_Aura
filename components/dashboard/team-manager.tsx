@@ -88,6 +88,26 @@ export function TeamManager({
     }
   }
 
+  async function resend(inv: InvitationView) {
+    setBusyId(inv.id);
+    try {
+      const res = await fetch('/api/team/invitations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: inv.email, role: inv.role }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        toast.error(body.error ?? 'Could not resend the invite.');
+        return;
+      }
+      toast.success(`Invitation re-sent to ${inv.email}.`);
+      router.refresh();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function revoke(id: string) {
     setBusyId(id);
     try {
@@ -179,25 +199,41 @@ export function TeamManager({
               Pending invitations
             </p>
             <ul className="divide-y divide-border rounded-md border border-border">
-              {invitations.map((inv) => (
-                <li key={inv.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-medium text-foreground">{inv.email}</span>
-                    <Badge variant="secondary">{ROLE_LABEL[inv.role]}</Badge>
-                  </div>
-                  {canManage && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      loading={busyId === inv.id}
-                      onClick={() => revoke(inv.id)}
-                    >
-                      <X className="h-4 w-4" /> Revoke
-                    </Button>
-                  )}
-                </li>
-              ))}
+              {invitations.map((inv) => {
+                const expired = new Date(inv.expiresAt).getTime() < Date.now();
+                return (
+                  <li key={inv.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <Mail className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium text-foreground">{inv.email}</span>
+                      <Badge variant="secondary">{ROLE_LABEL[inv.role]}</Badge>
+                      <Badge variant={expired ? 'warning' : 'muted'}>
+                        {expired ? 'Expired' : 'Pending'}
+                      </Badge>
+                    </div>
+                    {canManage && (
+                      <div className="flex shrink-0 gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          loading={busyId === inv.id}
+                          onClick={() => resend(inv)}
+                        >
+                          Resend
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          loading={busyId === inv.id}
+                          onClick={() => revoke(inv.id)}
+                        >
+                          <X className="h-4 w-4" /> Revoke
+                        </Button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

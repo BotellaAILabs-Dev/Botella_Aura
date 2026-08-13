@@ -62,8 +62,18 @@ export interface LeadRow {
   linkedInProfileUrl: string | null;
   sourceUrl: string | null;
   status: string;
+  fitScore: number | null;
+  fitRationale: string | null;
   signals: OutreachSignalRow[];
   messages: OutreachMessageRow[];
+}
+
+/** Fit score badge variant by band (0–100). */
+function fitVariant(score: number): 'success' | 'default' | 'warning' | 'muted' {
+  if (score >= 75) return 'success';
+  if (score >= 50) return 'default';
+  if (score >= 25) return 'warning';
+  return 'muted';
 }
 
 async function call(url: string, method: string, body?: unknown) {
@@ -119,14 +129,29 @@ function LeadCard({ lead, canManage }: { lead: LeadRow; canManage: boolean }) {
     <Card>
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-base">
-              {lead.name ? `${lead.name} · ` : ''}
-              {lead.companyName}
-            </CardTitle>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              {lead.title && <span>{lead.title}</span>}
+          <div className="min-w-0">
+            {/* Company is always known; Contact is a separate, clearly-labeled line. */}
+            <CardTitle className="text-base">{lead.companyName}</CardTitle>
+            <div className="mt-1 grid gap-0.5 text-xs">
+              <span className="text-muted-foreground">
+                <span className="font-medium text-foreground">Contact:</span>{' '}
+                {lead.name ? (
+                  <>
+                    {lead.name}
+                    {lead.title ? ` · ${lead.title}` : ''}
+                  </>
+                ) : (
+                  <span className="italic">Company-only lead — no contact yet</span>
+                )}
+              </span>
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <Badge variant="secondary">{lead.status}</Badge>
+              {typeof lead.fitScore === 'number' && (
+                <Badge variant={fitVariant(lead.fitScore)} title="AI fit score (0–100)">
+                  Fit {lead.fitScore}/100
+                </Badge>
+              )}
               {lead.linkedInProfileUrl && (
                 <a
                   href={lead.linkedInProfileUrl}
@@ -138,6 +163,13 @@ function LeadCard({ lead, canManage }: { lead: LeadRow; canManage: boolean }) {
                 </a>
               )}
             </div>
+            {/* "Why this score?" — grounded in the lead's real signals/criteria. */}
+            {typeof lead.fitScore === 'number' && lead.fitRationale && (
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Why {lead.fitScore}/100:</span>{' '}
+                {lead.fitRationale}
+              </p>
+            )}
           </div>
           {canManage && (
             <div className="flex shrink-0 gap-1">

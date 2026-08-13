@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Plus, Sparkles } from 'lucide-react';
 import {
@@ -39,19 +40,33 @@ export function CreateContentDialog() {
   const [brief, setBrief] = useState('');
   const [campaignId, setCampaignId] = useState('');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [campaignsLoaded, setCampaignsLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     fetch('/api/campaigns')
       .then((r) => (r.ok ? r.json() : { campaigns: [] }))
-      .then((d) => setCampaigns(d.campaigns ?? []))
-      .catch(() => setCampaigns([]));
+      .then((d) => {
+        const list: Campaign[] = d.campaigns ?? [];
+        setCampaigns(list);
+        // Default to the first campaign so there's never a dead "— none —".
+        if (list.length > 0) setCampaignId((prev) => prev || list[0]!.id);
+      })
+      .catch(() => setCampaigns([]))
+      .finally(() => setCampaignsLoaded(true));
   }, [open]);
+
+  const noCampaigns = campaignsLoaded && campaigns.length === 0;
+  const campaignMissing = sourceKind === 'CAMPAIGN' && !campaignId;
 
   async function generate() {
     if (sourceKind === 'BRIEF' && brief.trim().length < 3) {
       toast.error('Write a short brief first.');
+      return;
+    }
+    if (sourceKind === 'CAMPAIGN' && !campaignId) {
+      toast.error('Pick a campaign (or create one first).');
       return;
     }
     setLoading(true);
@@ -127,7 +142,9 @@ export function CreateContentDialog() {
               onChange={(e) => setSourceKind(e.target.value as 'BRIEF' | 'CAMPAIGN')}
             >
               <option value="BRIEF">A brief I write</option>
-              <option value="CAMPAIGN">A campaign</option>
+              <option value="CAMPAIGN" disabled={noCampaigns}>
+                A campaign{noCampaigns ? ' (none yet)' : ''}
+              </option>
             </select>
             <p className="text-xs text-muted-foreground">
               Tip: generate from a specific trend using &ldquo;Generate content
@@ -135,24 +152,34 @@ export function CreateContentDialog() {
             </p>
           </div>
 
-          {sourceKind === 'CAMPAIGN' && (
-            <div className="space-y-1.5">
-              <Label htmlFor="campaign">Campaign</Label>
-              <select
-                id="campaign"
-                className={selectCls}
-                value={campaignId}
-                onChange={(e) => setCampaignId(e.target.value)}
-              >
-                <option value="">— none —</option>
-                {campaigns.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          {sourceKind === 'CAMPAIGN' &&
+            (noCampaigns ? (
+              <div className="rounded-md border border-dashed border-border bg-muted/30 p-3 text-sm">
+                <p className="text-foreground">You don&apos;t have any campaigns yet.</p>
+                <p className="mt-0.5 text-muted-foreground">
+                  Create a campaign to plan and tag content, or use a brief instead.
+                </p>
+                <Button asChild variant="outline" size="sm" className="mt-2">
+                  <Link href="/dashboard/campaigns">Go to Campaigns</Link>
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label htmlFor="campaign">Campaign</Label>
+                <select
+                  id="campaign"
+                  className={selectCls}
+                  value={campaignId}
+                  onChange={(e) => setCampaignId(e.target.value)}
+                >
+                  {campaigns.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
 
           <div className="space-y-1.5">
             <Label htmlFor="brief">
@@ -169,7 +196,7 @@ export function CreateContentDialog() {
         </div>
 
         <DialogFooter>
-          <Button onClick={generate} loading={loading}>
+          <Button onClick={generate} loading={loading} disabled={campaignMissing}>
             <Sparkles className="h-4 w-4" /> Generate draft
           </Button>
         </DialogFooter>

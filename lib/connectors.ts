@@ -7,10 +7,14 @@
  */
 export type ConnectorCategory =
   | 'Analytics'
+  | 'SEO & Content'
   | 'Advertising'
   | 'Social & Publishing'
   | 'CRM & Email'
   | 'Commerce'
+  | 'Design'
+  | 'Productivity'
+  | 'Automation'
   | 'Storage';
 
 export type ConnectorStatus = 'available' | 'coming_soon';
@@ -29,10 +33,14 @@ export interface Connector {
 
 export const CONNECTOR_CATEGORIES: ConnectorCategory[] = [
   'Analytics',
+  'SEO & Content',
   'Advertising',
   'Social & Publishing',
   'CRM & Email',
   'Commerce',
+  'Design',
+  'Productivity',
+  'Automation',
   'Storage',
 ];
 
@@ -107,6 +115,14 @@ export const CONNECTORS: Connector[] = [
     color: '#FF7A59',
   },
   {
+    id: 'klaviyo',
+    name: 'Klaviyo',
+    category: 'CRM & Email',
+    description: 'Email/SMS audiences and campaign performance.',
+    status: 'coming_soon',
+    color: '#232426',
+  },
+  {
     id: 'salesforce',
     name: 'Salesforce',
     category: 'CRM & Email',
@@ -130,6 +146,82 @@ export const CONNECTORS: Connector[] = [
     description: 'Products and sales data to ground product content.',
     status: 'coming_soon',
     color: '#95BF47',
+  },
+  // --- SEO & Content ---
+  {
+    id: 'semrush',
+    name: 'Semrush',
+    category: 'SEO & Content',
+    description: 'Keyword, ranking, and competitive SEO data.',
+    status: 'coming_soon',
+    color: '#FF642D',
+  },
+  {
+    id: 'ahrefs',
+    name: 'Ahrefs',
+    category: 'SEO & Content',
+    description: 'Backlinks, keywords, and content-gap insights.',
+    status: 'coming_soon',
+    color: '#054ADA',
+  },
+  {
+    id: 'wordpress',
+    name: 'WordPress',
+    category: 'Social & Publishing',
+    description: 'Publish approved blog drafts to your site.',
+    status: 'coming_soon',
+    color: '#21759B',
+  },
+  // --- Design ---
+  {
+    id: 'canva',
+    name: 'Canva',
+    category: 'Design',
+    description: 'Turn content into on-brand graphics.',
+    status: 'coming_soon',
+    color: '#00C4CC',
+  },
+  {
+    id: 'figma',
+    name: 'Figma',
+    category: 'Design',
+    description: 'Pull brand assets and design tokens.',
+    status: 'coming_soon',
+    color: '#F24E1E',
+  },
+  // --- Productivity ---
+  {
+    id: 'notion',
+    name: 'Notion',
+    category: 'Productivity',
+    description: 'Sync briefs, plans, and content into Notion.',
+    status: 'coming_soon',
+    color: '#111111',
+  },
+  {
+    id: 'slack',
+    name: 'Slack',
+    category: 'Productivity',
+    description: 'Approvals and alerts where your team works.',
+    status: 'coming_soon',
+    color: '#4A154B',
+  },
+  // --- Automation ---
+  {
+    id: 'zapier',
+    name: 'Zapier',
+    category: 'Automation',
+    description: 'Connect Aura to 6,000+ apps via Zaps.',
+    status: 'coming_soon',
+    color: '#FF4A00',
+  },
+  {
+    id: 'make',
+    name: 'Make (Integromat)',
+    category: 'Automation',
+    description: 'Build custom automations and scenarios.',
+    status: 'coming_soon',
+    color: '#6D00CC',
   },
   // --- Storage ---
   {

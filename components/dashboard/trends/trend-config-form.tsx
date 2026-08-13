@@ -158,7 +158,7 @@ export function TrendConfigForm({ initial }: { initial: TrendConfigValue }) {
             id="competitors"
             value={value.competitorNames}
             onChange={(v) => set('competitorNames', v)}
-            placeholder="Competitor names (also used in Sprint 5)"
+            placeholder="Competitor names (also used for competitor tracking)"
           />
         </div>
 
