@@ -10,10 +10,13 @@ import {
   ArrowRight,
   ShieldCheck,
   Sparkles,
+  CheckCircle2,
+  Inbox,
 } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
+import { getDashboardSnapshot } from '@/server/services/dashboard.service';
 import { PageHeader } from '@/components/dashboard/page-header';
 import {
   Card,
@@ -22,14 +25,18 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
-export const metadata: Metadata = { title: 'Overview' };
+export const metadata: Metadata = { title: 'Dashboard' };
 
 export default async function OverviewPage() {
   const user = await requireUser();
   const { active } = await resolveActiveCompany(user.id);
   const firstName = user.name?.split(' ')[0] ?? null;
+
+  const snapshot = active ? await getDashboardSnapshot(active.id) : null;
+  const openActions = snapshot?.actions.filter((a) => a.count > 0) ?? [];
 
   const cards = [
     {
@@ -81,38 +88,101 @@ export default async function OverviewPage() {
       <PageHeader
         title={`Welcome${firstName ? `, ${firstName}` : ''} 👋`}
         description={
-          active ? `Here's what's next for ${active.name}.` : "Here's what's next."
+          active
+            ? snapshot && snapshot.totalPending > 0
+              ? `You have ${snapshot.totalPending} ${snapshot.totalPending === 1 ? 'item' : 'items'} that need you at ${active.name}.`
+              : `Here's what's next for ${active.name}.`
+            : "Here's what's next."
         }
       />
 
-      {/* Hero / value banner */}
-      <Card className="mb-6 overflow-hidden border-primary/20">
-        <div className="aura-gradient">
-          <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
-                <Sparkles className="h-5 w-5" />
+      {/* Action needed — the "what needs you now" panel, always first. */}
+      {snapshot && (
+        <Card className="mb-6 overflow-hidden border-primary/20">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Inbox className="h-4 w-4" />
               </div>
               <div>
-                <h2 className="text-base font-semibold text-foreground">
-                  Your workspace is ready
-                </h2>
-                <p className="mt-0.5 max-w-xl text-sm text-muted-foreground">
-                  Everything below is ready to use — always behind a human approval
-                  step. Start by connecting LinkedIn or drafting your first content.
-                </p>
+                <CardTitle className="text-base">Action needed</CardTitle>
+                <CardDescription>
+                  Everything Aura drafted, waiting on your review. Nothing sends
+                  without you.
+                </CardDescription>
               </div>
             </div>
-            <Button asChild variant="outline">
-              <Link href="/dashboard/settings">
-                Company profile <ArrowRight className="h-4 w-4" />
+          </CardHeader>
+          <CardContent>
+            {openActions.length > 0 ? (
+              <ul className="divide-y divide-border rounded-md border border-border">
+                {openActions.map((a) => (
+                  <li key={a.key}>
+                    <Link
+                      href={a.href}
+                      className="group flex items-center justify-between gap-3 px-3 py-3 transition-colors hover:bg-accent/50"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Badge variant="default" className="min-w-7 justify-center">
+                          {a.count}
+                        </Badge>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">
+                            {a.label}
+                          </p>
+                          <p className="text-xs text-muted-foreground">{a.detail}</p>
+                        </div>
+                      </div>
+                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="flex items-start gap-3 rounded-md border border-dashed border-border bg-muted/30 p-4">
+                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                <div className="text-sm">
+                  <p className="font-medium text-foreground">
+                    You&apos;re all caught up.
+                  </p>
+                  <p className="mt-0.5 text-muted-foreground">
+                    No drafts, outreach, or leads are waiting on you right now. Start
+                    something new below — explore trends, draft content, or discover
+                    leads.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {snapshot.trend && (
+              <Link
+                href="/dashboard/trends"
+                className="group mt-3 flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5 text-sm transition-colors hover:bg-accent/50"
+              >
+                <span className="flex items-center gap-2 text-muted-foreground">
+                  <Radar className="h-4 w-4 text-primary" />
+                  <span>
+                    <span className="font-medium text-foreground">Latest trend:</span>{' '}
+                    {snapshot.trend.title}
+                    {snapshot.trend.count > 1 && (
+                      <span className="text-muted-foreground">
+                        {' '}
+                        · {snapshot.trend.count - 1} more
+                      </span>
+                    )}
+                  </span>
+                </span>
+                <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
               </Link>
-            </Button>
+            )}
           </CardContent>
-        </div>
-      </Card>
+        </Card>
+      )}
 
       {/* Feature quick-links */}
+      <p className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+        <Sparkles className="h-4 w-4 text-primary" /> Jump into a workflow
+      </p>
       <div className="grid gap-4 md:grid-cols-3">
         {cards.map((card) => (
           <Link key={card.title} href={card.href} className="group">
