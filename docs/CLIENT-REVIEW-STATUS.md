@@ -14,6 +14,23 @@
 
 ---
 
+## 📌 Latest update (this batch)
+
+Shipped and deployed since the last review — moving many items from ⬜/🟡 to ✅:
+
+- **Dashboard — actionable items first** ✅ (live "Action needed" panel).
+- **Demo data** ✅ (connected, labeled sample story; `pnpm db:seed:demo`).
+- **Outreach status progression** ✅ (visible Draft→Pending→Approved→Queued→Sent stepper).
+- **Outreach sequence labels** ✅ (connection note first, numbered follow-ups, order shown).
+- **Marketing Memory correction** ✅ (edit wording or dismiss any insight).
+- **Content CTA/hashtags** ✅ (hashtags shown as a separate labeled block; publishing note present).
+- **Trend enhancements** ✅ AI summary + weekly recommendations, trending hashtags, seasonal/event moments, competitor mentions. (Forecasting still data-gated; save/monitor optional.)
+- **P2/P3 polish** ✅ LinkedIn URL validation (person vs company), discovery "what to expect" + next auto-run date, "Signals · Msgs" clarified, Crunchbase key guidance, engagement-target examples, role tooltips, trend refresh/zero-result copy.
+
+**Still open:** trend forecasting (needs accumulated history), save & monitor trends (optional, no-migration path available), real connector OAuth, and the three external blockers below (Chrome Web Store, LinkedIn API approval, live analytics/Crunchbase key).
+
+---
+
 ## 1. ✅ Already shipped (live on the deploy)
 
 | Area | Item | Notes |
