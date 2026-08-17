@@ -131,7 +131,33 @@ async function main() {
       payload: {
         generatedAt: daysAgo(0).toISOString(),
         model: 'claude-opus-4-8',
-        sources: { news: 6, hackernews: 3, reddit: 4 },
+        sourceCounts: { news: 6, hackernews: 3, reddit: 4 },
+        skippedSources: [],
+        summary:
+          'Sample: The dominant theme this week is AI moving from novelty to expectation inside B2B tools — buyers now assume an embedded assistant. A secondary thread is PLG teams reallocating budget toward retention and honest measurement of AI-assisted content.',
+        recommendations: [
+          'Sample: Publish a founder POV on what you deliberately keep human vs. automate.',
+          'Sample: Ship the onboarding-email teardown with a real before/after metric.',
+          'Sample: Offer a simple, honest framework for measuring AI content ROI.',
+        ],
+        hashtags: ['B2BSaaS', 'AICopilots', 'ProductLedGrowth', 'Retention', 'MarketingAnalytics'],
+        seasonal: [
+          {
+            date: daysFromNow(12).toISOString().slice(0, 10),
+            name: 'Sample: Customer Success Week',
+            daysUntil: 12,
+            angle: 'Spotlight a customer win and the team behind it.',
+          },
+        ],
+        competitorMentions: [
+          {
+            competitor: 'HubSpot',
+            itemId: 'sample-trend-1',
+            title: 'Sample: Buyers now expect AI copilots inside every SaaS tool',
+            url: 'https://example.com/ai-copilots-saas',
+            sourceLabel: 'Google News',
+          },
+        ],
         items: [
           {
             id: 'sample-trend-1',

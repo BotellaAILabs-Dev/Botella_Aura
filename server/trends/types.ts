@@ -90,6 +90,27 @@ export interface DigestItem {
   suggestedAngle: string;
 }
 
+/** A relevant upcoming seasonal / event-based marketing moment. */
+export interface SeasonalEvent {
+  /** ISO date (YYYY-MM-DD) of the event this year. */
+  date: string;
+  /** Human label, e.g. "Black Friday", "World Environment Day". */
+  name: string;
+  /** Days from "now" until the event (>= 0). */
+  daysUntil: number;
+  /** A short, brand-neutral content angle for the moment. */
+  angle: string;
+}
+
+/** A trend item that references one of the company's tracked competitors. */
+export interface CompetitorMention {
+  competitor: string;
+  itemId: string;
+  title: string;
+  url: string;
+  sourceLabel: string;
+}
+
 /** Full digest payload persisted to TrendDigest.payload (JSON). */
 export interface DigestPayload {
   items: DigestItem[];
@@ -100,4 +121,15 @@ export interface DigestPayload {
   sourceCounts: Partial<Record<TrendSourceId, number>>;
   /** Sources that were skipped because they weren't configured. */
   skippedSources: TrendSourceId[];
+  // --- AI Trend Insights enhancements (all optional; older digests omit them) ---
+  /** One-paragraph AI synthesis of today's themes ("what to pay attention to"). */
+  summary?: string;
+  /** A few concrete, prioritized recommendations for the week. */
+  recommendations?: string[];
+  /** Trending hashtags distilled from the items (without the leading #). */
+  hashtags?: string[];
+  /** Upcoming seasonal/event moments relevant to the company. */
+  seasonal?: SeasonalEvent[];
+  /** Trend items that mention a tracked competitor (lightweight comparison). */
+  competitorMentions?: CompetitorMention[];
 }

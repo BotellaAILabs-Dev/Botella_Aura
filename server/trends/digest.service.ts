@@ -9,6 +9,7 @@ import {
 } from '@/server/ai/claude';
 import { ALL_SOURCES, getEnabledSources } from '@/server/trends/sources';
 import { scoreAndRank } from '@/server/trends/scoring';
+import { upcomingSeasonalEvents } from '@/server/trends/seasonal';
 import {
   ensureTrendConfig,
   getEnabledFlags,
@@ -16,6 +17,7 @@ import {
   toFetchContext,
 } from '@/server/services/trend-config.service';
 import type {
+  CompetitorMention,
   DigestItem,
   DigestPayload,
   ScoredTrendItem,
@@ -93,12 +95,26 @@ export async function generateDigestForCompany({
   const ranked = scoreAndRank(all, ctx, { limit: TOP_N });
   const items = await enrichItems(company, ranked);
 
+  // Top-level synthesis + trending hashtags (one Claude call, graceful fallback).
+  const synthesis = await synthesizeDigest(company, items);
+  // Seasonal moments (curated, no API) + competitor mentions (from config).
+  const seasonal = upcomingSeasonalEvents(new Date(), [
+    ...config.keywords,
+    ...(company.industry ? [company.industry] : []),
+  ]);
+  const competitorMentions = findCompetitorMentions(items, config.competitorNames);
+
   const payload: DigestPayload = {
     items,
     generatedAt: new Date().toISOString(),
     model: isClaudeConfigured() ? getModel() : 'fallback',
     sourceCounts,
     skippedSources,
+    summary: synthesis.summary,
+    recommendations: synthesis.recommendations,
+    hashtags: synthesis.hashtags,
+    seasonal,
+    competitorMentions,
   };
 
   const date = todayUtc();
@@ -201,6 +217,118 @@ function buildEnrichmentPrompt(
     '',
     'Return: [{ "id": "<id>", "aiSummary": "...", "suggestedAngle": "..." }]',
   ].join('\n');
+}
+
+/**
+ * A digest-level synthesis: one paragraph on today's themes, a few prioritized
+ * recommendations, and trending hashtags distilled from the items. One Claude
+ * call; falls back to deterministic output so the digest always has a summary.
+ */
+async function synthesizeDigest(
+  company: Pick<Company, 'name' | 'industry' | 'brandVoiceNotes'>,
+  items: DigestItem[],
+): Promise<{ summary: string; recommendations: string[]; hashtags: string[] }> {
+  if (items.length === 0) {
+    return {
+      summary: 'No trends crossed the relevance bar today. Try adding keywords or sources.',
+      recommendations: [],
+      hashtags: [],
+    };
+  }
+
+  const fallback = () => ({
+    summary: `${items.length} topics are active in ${company.industry ?? 'your market'} today. The top theme: “${items[0]?.title ?? ''}”.`,
+    recommendations: items
+      .slice(0, 3)
+      .map((it) => `Post your take on “${it.title.slice(0, 70)}”.`),
+    hashtags: deriveFallbackHashtags(items),
+  });
+
+  if (!isClaudeConfigured()) return fallback();
+
+  try {
+    const out = await completeJson<{
+      summary: string;
+      recommendations: string[];
+      hashtags: string[];
+    }>({
+      system:
+        `You are the trend analyst for ${company.name} (${company.industry ?? 'B2B'}). ` +
+        `Brand voice: ${company.brandVoiceNotes || 'professional, practical, no hype'}. ` +
+        'From the trend items, produce: (1) "summary" — one tight paragraph on the ' +
+        'themes worth paying attention to this week; (2) "recommendations" — 3 concrete, ' +
+        'prioritized actions (each one sentence); (3) "hashtags" — 5-8 relevant hashtags ' +
+        'WITHOUT the leading # . Respond with ONLY a JSON object.',
+      prompt: items
+        .slice(0, 12)
+        .map((it, i) => `#${i + 1} ${it.title} (${it.sourceLabel})`)
+        .join('\n'),
+      maxTokens: 1024,
+      effort: 'medium',
+    });
+    return {
+      summary: out.summary?.trim() || fallback().summary,
+      recommendations: Array.isArray(out.recommendations)
+        ? out.recommendations.slice(0, 4).map((r) => String(r).trim()).filter(Boolean)
+        : [],
+      hashtags: Array.isArray(out.hashtags)
+        ? out.hashtags
+            .slice(0, 8)
+            .map((h) => String(h).replace(/^#/, '').trim())
+            .filter(Boolean)
+        : deriveFallbackHashtags(items),
+    };
+  } catch (err) {
+    logger.warn('digest: synthesis failed, using fallback', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return fallback();
+  }
+}
+
+/** Deterministic hashtags: CamelCase the most common meaningful title words. */
+function deriveFallbackHashtags(items: DigestItem[]): string[] {
+  const stop = new Set([
+    'the', 'and', 'for', 'with', 'that', 'this', 'from', 'your', 'you', 'are',
+    'how', 'why', 'what', 'new', 'now', 'has', 'have', 'will', 'can', 'about',
+    'into', 'out', 'its', 'their', 'a', 'an', 'to', 'of', 'in', 'on', 'is',
+  ]);
+  const counts = new Map<string, number>();
+  for (const it of items) {
+    for (const raw of it.title.toLowerCase().split(/[^a-z0-9]+/)) {
+      if (raw.length < 4 || stop.has(raw)) continue;
+      counts.set(raw, (counts.get(raw) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([w]) => w.charAt(0).toUpperCase() + w.slice(1));
+}
+
+/** Which trend items mention a tracked competitor (lightweight comparison). */
+function findCompetitorMentions(
+  items: DigestItem[],
+  competitorNames: string[],
+): CompetitorMention[] {
+  const names = competitorNames.map((n) => n.trim()).filter((n) => n.length >= 2);
+  if (names.length === 0) return [];
+  const mentions: CompetitorMention[] = [];
+  for (const it of items) {
+    const hay = it.title.toLowerCase();
+    for (const name of names) {
+      if (hay.includes(name.toLowerCase())) {
+        mentions.push({
+          competitor: name,
+          itemId: it.id,
+          title: it.title,
+          url: it.url,
+          sourceLabel: it.sourceLabel,
+        });
+      }
+    }
+  }
+  return mentions;
 }
 
 function fallbackSummary(

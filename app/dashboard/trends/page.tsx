@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { RefreshDigestButton } from '@/components/dashboard/trends/refresh-button';
 import { DigestHistory } from '@/components/dashboard/trends/digest-history';
 import { TrendCard } from '@/components/dashboard/trends/trend-card';
+import { TrendSummary } from '@/components/dashboard/trends/trend-summary';
 import type { DigestPayload } from '@/server/trends/types';
 
 export const metadata: Metadata = { title: 'AI Trend Insights' };
@@ -111,11 +112,20 @@ export default async function TrendsPage({
         </div>
       )}
 
+      {/* AI synthesis: summary + recommendations + hashtags + seasonal + competitors */}
+      <TrendSummary
+        summary={payload.summary}
+        recommendations={payload.recommendations}
+        hashtags={payload.hashtags}
+        seasonal={payload.seasonal}
+        competitorMentions={payload.competitorMentions}
+      />
+
       {items.length === 0 ? (
         <EmptyState
           icon={Radar}
           title="No trends matched today"
-          description="We ran your sources but nothing crossed the relevance bar. Try adding more keywords or subreddits, then refresh."
+          description="We ran your sources but nothing crossed the relevance bar today. That's normal on quiet days — it doesn't mean anything is broken. Try adding more keywords or subreddits, then refresh."
           action={
             <Button asChild variant="outline">
               <Link href="/dashboard/settings/trends">Adjust keywords</Link>
@@ -129,6 +139,15 @@ export default async function TrendsPage({
           ))}
         </div>
       )}
+
+      {/* Refresh-frequency explainer (P2). */}
+      <p className="mt-6 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Info className="h-3.5 w-3.5 shrink-0" />
+        Insights refresh automatically once a day. Use{' '}
+        <span className="font-medium text-foreground">Refresh</span> any time to
+        regenerate today&apos;s digest on demand — it replaces today&apos;s, never
+        duplicates it.
+      </p>
     </div>
   );
 }
