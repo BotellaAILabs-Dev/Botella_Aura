@@ -35,10 +35,13 @@ import {
 import {
   OUTREACH_STATUS_LABELS,
   OUTREACH_TYPE_LABELS,
+  OUTREACH_STEPS,
   SIGNAL_LABELS,
   outreachStatusVariant,
+  outreachStepState,
   type OutreachStatusKey,
 } from '@/lib/outreach-ui';
+import { cn } from '@/lib/utils';
 
 export interface OutreachMessageRow {
   id: string;
@@ -74,6 +77,88 @@ function fitVariant(score: number): 'success' | 'default' | 'warning' | 'muted' 
   if (score >= 50) return 'default';
   if (score >= 25) return 'warning';
   return 'muted';
+}
+
+/**
+ * Put the sequence in send order — connection note(s) first, then follow-ups —
+ * and give each a human label ("Connection note", "Follow-up #1", …) so the
+ * order and role of every message is explicit.
+ */
+function orderMessages(
+  messages: OutreachMessageRow[],
+): { message: OutreachMessageRow; sequenceLabel: string }[] {
+  const connectionNotes = messages.filter((m) => m.type === 'CONNECTION_NOTE');
+  const followups = messages.filter((m) => m.type === 'FOLLOWUP');
+  const other = messages.filter(
+    (m) => m.type !== 'CONNECTION_NOTE' && m.type !== 'FOLLOWUP',
+  );
+  return [
+    ...connectionNotes.map((message) => ({
+      message,
+      sequenceLabel: OUTREACH_TYPE_LABELS.CONNECTION_NOTE ?? 'Connection note',
+    })),
+    ...followups.map((message, i) => ({
+      message,
+      sequenceLabel: `${OUTREACH_TYPE_LABELS.FOLLOWUP ?? 'Follow-up'} #${i + 1}`,
+    })),
+    ...other.map((message) => ({
+      message,
+      sequenceLabel: OUTREACH_TYPE_LABELS[message.type] ?? message.type,
+    })),
+  ];
+}
+
+/** Compact horizontal progression: Draft → Pending → Approved → Queued → Sent. */
+function OutreachStepper({ status }: { status: OutreachStatusKey }) {
+  const { reached, rejected } = outreachStepState(status);
+  if (rejected) {
+    return (
+      <div className="mt-2 text-xs font-medium text-destructive">
+        Rejected — reopen as a draft to revise.
+      </div>
+    );
+  }
+  return (
+    <ol className="mt-2 flex flex-wrap items-center gap-1 text-[11px]">
+      {OUTREACH_STEPS.map((label, i) => {
+        const done = i <= reached;
+        const current = i === reached;
+        return (
+          <li key={label} className="flex items-center gap-1">
+            <span
+              className={cn(
+                'flex h-4 w-4 items-center justify-center rounded-full border text-[9px] font-semibold',
+                done
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-background text-muted-foreground',
+              )}
+            >
+              {i + 1}
+            </span>
+            <span
+              className={cn(
+                current
+                  ? 'font-semibold text-foreground'
+                  : done
+                    ? 'text-foreground'
+                    : 'text-muted-foreground',
+              )}
+            >
+              {label}
+            </span>
+            {i < OUTREACH_STEPS.length - 1 && (
+              <span
+                className={cn(
+                  'mx-0.5 h-px w-3',
+                  i < reached ? 'bg-primary' : 'bg-border',
+                )}
+              />
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
 }
 
 async function call(url: string, method: string, body?: unknown) {
@@ -208,7 +293,9 @@ function LeadCard({ lead, canManage }: { lead: LeadRow; canManage: boolean }) {
           </div>
         )}
 
-        {/* Messages / drafts */}
+        {/* Messages / drafts — the outreach sequence, in send order:
+            the connection note first, then follow-ups (only sent after the
+            connection is accepted). */}
         {lead.messages.length === 0 ? (
           canManage && (
             <Button size="sm" onClick={draft} loading={busy}>
@@ -217,8 +304,18 @@ function LeadCard({ lead, canManage }: { lead: LeadRow; canManage: boolean }) {
           )
         ) : (
           <div className="space-y-3">
-            {lead.messages.map((m) => (
-              <MessageBlock key={m.id} message={m} canManage={canManage} />
+            <p className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Sequence:</span> the
+              connection note goes first — follow-ups are only sent once the
+              connection is accepted.
+            </p>
+            {orderMessages(lead.messages).map(({ message, sequenceLabel }) => (
+              <MessageBlock
+                key={message.id}
+                message={message}
+                sequenceLabel={sequenceLabel}
+                canManage={canManage}
+              />
             ))}
           </div>
         )}
@@ -229,9 +326,11 @@ function LeadCard({ lead, canManage }: { lead: LeadRow; canManage: boolean }) {
 
 function MessageBlock({
   message,
+  sequenceLabel,
   canManage,
 }: {
   message: OutreachMessageRow;
+  sequenceLabel: string;
   canManage: boolean;
 }) {
   const router = useRouter();
@@ -258,14 +357,20 @@ function MessageBlock({
 
   return (
     <div className="rounded-lg border border-border p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-sm font-medium">
-          {OUTREACH_TYPE_LABELS[message.type] ?? message.type}
-        </span>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-sm font-medium">{sequenceLabel}</span>
         <Badge variant={outreachStatusVariant(message.status)}>
-          {OUTREACH_STATUS_LABELS[message.status]}
+          {message.status === 'APPROVED'
+            ? 'Approved · queued'
+            : OUTREACH_STATUS_LABELS[message.status]}
         </Badge>
       </div>
+
+      {/* Visible progression so the send workflow is legible at a glance. */}
+      <OutreachStepper status={message.status} />
+
+      <div className="mt-2" />
+
 
       {editing ? (
         <div className="space-y-2">

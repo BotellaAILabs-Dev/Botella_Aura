@@ -1,14 +1,5 @@
 import type { Metadata } from 'next';
-import {
-  Brain,
-  TrendingUp,
-  TrendingDown,
-  LayoutTemplate,
-  Clock,
-  Hash,
-  MessageSquare,
-  Info,
-} from 'lucide-react';
+import { Brain, TrendingUp, TrendingDown, Info } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
@@ -22,29 +13,13 @@ import {
 } from '@/server/memory/performance.service';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AnalyzeButton } from '@/components/dashboard/memory/analyze-button';
+import { InsightCard } from '@/components/dashboard/memory/insight-card';
 import { TrendChart } from '@/components/dashboard/memory/trend-chart';
-import type { MarketingMemory } from '@prisma/client';
 
 export const metadata: Metadata = { title: 'Marketing Memory' };
-
-const CATEGORY_ICON: Record<string, typeof Brain> = {
-  CONTENT_FORMAT: LayoutTemplate,
-  CONTENT_LENGTH: MessageSquare,
-  TIMING: Clock,
-  TOPIC: Hash,
-  HASHTAG: Hash,
-  OUTREACH_APPROACH: MessageSquare,
-  OTHER: Info,
-};
-
-function confidenceVariant(c: string): BadgeProps['variant'] {
-  if (c === 'HIGH') return 'success';
-  if (c === 'MEDIUM') return 'warning';
-  return 'muted';
-}
 
 export default async function MemoryPage() {
   const user = await requireUser();
@@ -91,9 +66,26 @@ export default async function MemoryPage() {
       {/* Insight cards grouped by category */}
       {realInsights.length > 0 && (
         <div className="mb-8 grid gap-4 md:grid-cols-2">
-          {realInsights.map((m) => (
-            <InsightCard key={m.id} memory={m} />
-          ))}
+          {realInsights.map((m) => {
+            const summary = (m.supportingDataSummary ?? {}) as {
+              basis?: string;
+              editedByUser?: boolean;
+            };
+            return (
+              <InsightCard
+                key={m.id}
+                memory={{
+                  id: m.id,
+                  insightType: m.insightType,
+                  insight: m.insight,
+                  confidence: m.confidence,
+                  sampleSize: m.sampleSize,
+                  basis: summary.basis,
+                  editedByUser: summary.editedByUser,
+                }}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -119,31 +111,6 @@ export default async function MemoryPage() {
         </div>
       )}
     </div>
-  );
-}
-
-function InsightCard({ memory }: { memory: MarketingMemory }) {
-  const Icon = CATEGORY_ICON[memory.insightType] ?? Brain;
-  const basis = (memory.supportingDataSummary ?? {}) as { basis?: string };
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Icon className="h-4 w-4" /> {memory.insightType.replace(/_/g, ' ')}
-          </CardTitle>
-          <Badge variant={confidenceVariant(memory.confidence)}>
-            {memory.confidence} confidence
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-1.5">
-        <p className="text-sm font-medium text-foreground">{memory.insight}</p>
-        <p className="text-xs text-muted-foreground">
-          Based on {memory.sampleSize} posts{basis.basis ? ` · ${basis.basis}` : ''}
-        </p>
-      </CardContent>
-    </Card>
   );
 }
 

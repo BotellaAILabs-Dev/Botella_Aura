@@ -30,6 +30,49 @@ export function isInsufficient(m: MarketingMemory): boolean {
 }
 
 /**
+ * Correct an individual learned insight. Users own their Marketing Memory — if a
+ * pattern is wrong or worded poorly they can fix the text. We stamp the summary
+ * so we know it was human-edited (and never silently overwrite it on re-analysis).
+ * Scoped to the company so one workspace can't touch another's memory.
+ */
+export async function updateMemoryInsight(
+  companyId: string,
+  memoryId: string,
+  insight: string,
+): Promise<MarketingMemory> {
+  const existing = await db.marketingMemory.findFirst({
+    where: { id: memoryId, companyId },
+  });
+  if (!existing) throw new Error('Insight not found.');
+  const summary = (existing.supportingDataSummary ?? {}) as Record<string, unknown>;
+  return db.marketingMemory.update({
+    where: { id: memoryId },
+    data: {
+      insight: insight.trim(),
+      supportingDataSummary: { ...summary, editedByUser: true },
+    },
+  });
+}
+
+/**
+ * Dismiss an insight the user disagrees with. We soft-delete (isActive=false) so
+ * it stops feeding generation prompts but stays auditable — never a hard delete.
+ */
+export async function dismissMemory(
+  companyId: string,
+  memoryId: string,
+): Promise<void> {
+  const existing = await db.marketingMemory.findFirst({
+    where: { id: memoryId, companyId },
+  });
+  if (!existing) throw new Error('Insight not found.');
+  await db.marketingMemory.update({
+    where: { id: memoryId },
+    data: { isActive: false },
+  });
+}
+
+/**
  * Render active insights into the instruction block injected into generation
  * prompts. Returns '' when there are no real insights yet — so a fresh company's
  * output is unchanged (no fabricated guidance). Optionally filter by relevance.

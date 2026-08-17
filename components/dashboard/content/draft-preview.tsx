@@ -41,12 +41,22 @@ export function DraftPreview({
   }
 }
 
+/**
+ * Hashtags shown as their own labelled block, separate from the post copy — so
+ * it's obvious what's the message vs. the tags, and either can be copied on its
+ * own. (Hashtags are appended to the copy in "Copy for manual posting".)
+ */
 function Hashtags({ tags }: { tags: string[] }) {
   if (!tags.length) return null;
   return (
-    <p className="mt-3 text-sm text-primary">
-      {tags.map((t) => `#${t.replace(/^#/, '')}`).join(' ')}
-    </p>
+    <div className="mt-3 border-t border-border pt-3">
+      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        Hashtags
+      </p>
+      <p className="text-sm text-primary">
+        {tags.map((t) => `#${t.replace(/^#/, '')}`).join(' ')}
+      </p>
+    </div>
   );
 }
 

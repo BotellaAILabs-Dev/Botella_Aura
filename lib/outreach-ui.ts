@@ -45,3 +45,37 @@ export function outreachStatusVariant(
       return 'destructive';
   }
 }
+
+/**
+ * The visible progression a message moves through, surfaced as a stepper so the
+ * workflow is legible at a glance. "Queued" is not a stored status — approving a
+ * message immediately places it in the extension's send queue, so APPROVED lights
+ * both the Approved and Queued steps. A human still sends each one manually.
+ */
+export const OUTREACH_STEPS = [
+  'Draft',
+  'Pending',
+  'Approved',
+  'Queued',
+  'Sent',
+] as const;
+
+/** How far along the stepper a status has reached (and whether it was rejected). */
+export function outreachStepState(status: OutreachStatusKey): {
+  reached: number;
+  rejected: boolean;
+} {
+  switch (status) {
+    case 'DRAFT':
+      return { reached: 0, rejected: false };
+    case 'PENDING_APPROVAL':
+      return { reached: 1, rejected: false };
+    case 'APPROVED':
+      // Approved messages are immediately queued in the extension.
+      return { reached: 3, rejected: false };
+    case 'SENT':
+      return { reached: 4, rejected: false };
+    case 'REJECTED':
+      return { reached: 0, rejected: true };
+  }
+}
