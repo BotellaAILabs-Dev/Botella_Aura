@@ -7,6 +7,7 @@ import { toast } from '@/components/ui/toaster';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { classifyLinkedInUrl } from '@/lib/linkedin-url';
 import {
   Dialog,
   DialogContent,
@@ -28,9 +29,17 @@ export function CreateLeadDialog() {
     linkedInProfileUrl: '',
   });
 
+  const urlInfo = form.linkedInProfileUrl.trim()
+    ? classifyLinkedInUrl(form.linkedInProfileUrl)
+    : null;
+
   async function save() {
     if (form.companyName.trim().length < 1) {
       toast.error('Company name is required.');
+      return;
+    }
+    if (form.linkedInProfileUrl.trim() && !classifyLinkedInUrl(form.linkedInProfileUrl).valid) {
+      toast.error('Enter a valid LinkedIn /in/ profile or /company/ page URL, or leave it blank.');
       return;
     }
     setSaving(true);
@@ -93,6 +102,20 @@ export function CreateLeadDialog() {
               onChange={(e) => setForm({ ...form, linkedInProfileUrl: e.target.value })}
               placeholder="linkedin.com/in/…"
             />
+            {urlInfo && (
+              <p className="text-xs text-muted-foreground">
+                {urlInfo.valid ? (
+                  <span className="text-primary">
+                    ✓ {urlInfo.kind === 'person' ? 'Personal profile' : 'Company page'}
+                    {urlInfo.kind === 'company'
+                      ? ' — tip: a person profile (/in/) personalizes outreach best.'
+                      : ''}
+                  </span>
+                ) : (
+                  <span>Not a valid LinkedIn profile/company URL.</span>
+                )}
+              </p>
+            )}
           </div>
         </div>
         <DialogFooter>

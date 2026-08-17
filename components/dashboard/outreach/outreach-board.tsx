@@ -42,6 +42,7 @@ import {
   type OutreachStatusKey,
 } from '@/lib/outreach-ui';
 import { cn } from '@/lib/utils';
+import { classifyLinkedInUrl } from '@/lib/linkedin-url';
 
 export interface OutreachMessageRow {
   id: string;
@@ -493,7 +494,13 @@ function EditLeadDialog({ lead }: { lead: LeadRow }) {
   const [title, setTitle] = useState(lead.title ?? '');
   const [url, setUrl] = useState(lead.linkedInProfileUrl ?? '');
 
+  const urlInfo = url.trim() ? classifyLinkedInUrl(url) : null;
+
   async function save() {
+    if (url.trim() && !classifyLinkedInUrl(url).valid) {
+      toast.error('Enter a valid LinkedIn /in/ profile or /company/ page URL, or leave it blank.');
+      return;
+    }
     if (
       await call(`/api/outreach/leads/${lead.id}`, 'PATCH', {
         name,
@@ -527,6 +534,19 @@ function EditLeadDialog({ lead }: { lead: LeadRow }) {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
           />
+          {urlInfo && (
+            <p className="text-xs">
+              {urlInfo.valid ? (
+                <span className="text-primary">
+                  ✓ {urlInfo.kind === 'person' ? 'Personal profile' : 'Company page'}
+                </span>
+              ) : (
+                <span className="text-destructive">
+                  Not a valid LinkedIn profile/company URL.
+                </span>
+              )}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">
             Add the person and their public profile URL — we never scrape it.
           </p>

@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { classifyLinkedInUrl } from '@/lib/linkedin-url';
 
 export interface TargetRow {
   id: string;
@@ -33,9 +34,18 @@ export function TargetManager({
   const [url, setUrl] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const info = url.trim() ? classifyLinkedInUrl(url) : null;
+
   async function add() {
     if (!label.trim() || !url.trim()) {
       toast.error('Add a label and a profile URL.');
+      return;
+    }
+    const check = classifyLinkedInUrl(url);
+    if (!check.valid) {
+      toast.error(
+        'Enter a valid LinkedIn profile (linkedin.com/in/…) or company page (linkedin.com/company/…).',
+      );
       return;
     }
     setSaving(true);
@@ -97,11 +107,32 @@ export function TargetManager({
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
               />
+              {info && (
+                <p className="text-xs text-muted-foreground">
+                  {info.valid ? (
+                    <span className="text-primary">
+                      ✓ {info.kind === 'person' ? 'Personal profile' : 'Company / organization page'}
+                    </span>
+                  ) : (
+                    <span>Enter a LinkedIn /in/ profile or /company/ page URL.</span>
+                  )}
+                </p>
+              )}
             </div>
             <Button onClick={add} loading={saving}>
               <Plus className="h-4 w-4" /> Add
             </Button>
           </div>
+        )}
+
+        {/* Examples of good engagement targets. */}
+        {canManage && (
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Good targets:</span>{' '}
+            industry thought leaders, prospective customers, partners, or a
+            competitor&apos;s company page — people/pages whose posts your audience
+            already reads.
+          </p>
         )}
 
         {targets.length === 0 ? (

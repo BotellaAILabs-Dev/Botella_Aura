@@ -35,6 +35,17 @@ export interface DiscoveryProfileRow {
 
 const toList = (t: string) => t.split(',').map((s) => s.trim()).filter(Boolean);
 
+/** Next weekly auto-run: last run + 7 days, or "after the first run" if never run. */
+function nextRunLabel(lastRunAt: string | null): string {
+  if (!lastRunAt) return 'after the first run';
+  const next = new Date(new Date(lastRunAt).getTime() + 7 * 24 * 60 * 60 * 1000);
+  return next.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 const EMPTY = {
   name: '',
   industries: '',
@@ -201,7 +212,18 @@ export function DiscoveryManager({
                 className="h-4 w-4 accent-[hsl(var(--primary))]"
               />
               Auto-run weekly
+              <span className="text-xs text-muted-foreground">
+                (runs every 7 days; you review each result before any outreach)
+              </span>
             </label>
+            {/* Set expectations before the first run. */}
+            <p className="rounded-md border border-border bg-muted/30 p-2.5 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">What to expect:</span> a
+              run typically takes ~20–60 seconds and surfaces a handful of
+              candidates (often 3–15), depending on how specific your criteria are
+              and which sources have keys. Broader criteria = more results. Nothing
+              is contacted automatically.
+            </p>
             <div>
               <Button onClick={create} loading={saving}>
                 <Plus className="h-4 w-4" /> Save profile
@@ -236,6 +258,11 @@ export function DiscoveryManager({
                       : 'Never run'}{' '}
                     · {p.leadCount} leads · {p.runCount} runs
                   </p>
+                  {p.autoRun && (
+                    <p className="mt-0.5 text-xs text-primary">
+                      Next auto-run: {nextRunLabel(p.lastRunAt)}
+                    </p>
+                  )}
                 </div>
                 {canManage && (
                   <div className="flex items-center gap-2">

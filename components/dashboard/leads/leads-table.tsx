@@ -112,7 +112,12 @@ export function LeadsTable({
               <th className="px-3 py-2">Source</th>
               <th className="px-3 py-2">Fit</th>
               <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Signals</th>
+              <th
+                className="px-3 py-2"
+                title="Public buying signals detected · outreach messages drafted"
+              >
+                Signals · Msgs
+              </th>
               <th className="px-3 py-2"></th>
             </tr>
           </thead>
@@ -147,8 +152,16 @@ export function LeadsTable({
                 <td className="px-3 py-2">
                   <Badge variant="secondary">{l.status}</Badge>
                 </td>
-                <td className="px-3 py-2 text-muted-foreground">
-                  {l.signalCount} · {l.messageCount} msg
+                <td
+                  className="px-3 py-2 text-muted-foreground"
+                  title={
+                    l.signalCount === 0
+                      ? 'No public signals detected yet — this is normal, not an error.'
+                      : `${l.signalCount} public signal(s) detected`
+                  }
+                >
+                  {l.signalCount} signal{l.signalCount === 1 ? '' : 's'} ·{' '}
+                  {l.messageCount} msg
                 </td>
                 <td className="px-3 py-2 text-right">
                   {canManage &&

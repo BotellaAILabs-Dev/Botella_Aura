@@ -43,6 +43,12 @@ const ROLE_LABEL: Record<Role, string> = {
 };
 const ROLE_HELP =
   'Owner: full control + billing · Admin: manage team, settings & approvals · Member: create & draft · Viewer: read-only';
+const ROLE_TOOLTIP: Record<Role, string> = {
+  OWNER: 'Full control, including billing and deleting the workspace.',
+  ADMIN: 'Manage team, settings, and approve content/outreach. No billing.',
+  MEMBER: 'Create and draft content, leads, and outreach. Cannot approve or manage team.',
+  VIEWER: 'Read-only access. Cannot create, approve, or change anything.',
+};
 
 export function TeamManager({
   members,
@@ -290,7 +296,10 @@ export function TeamManager({
                     </Button>
                   </div>
                 ) : (
-                  <Badge variant={m.role === 'OWNER' ? 'default' : 'secondary'}>
+                  <Badge
+                    variant={m.role === 'OWNER' ? 'default' : 'secondary'}
+                    title={ROLE_TOOLTIP[m.role]}
+                  >
                     {ROLE_LABEL[m.role]}
                   </Badge>
                 )}

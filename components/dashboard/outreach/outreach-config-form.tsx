@@ -137,6 +137,15 @@ export function OutreachConfigForm({
               </label>
             ))}
           </div>
+          {sources.crunchbase && (
+            <p className="rounded-md border border-warning/30 bg-warning/10 p-2.5 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Crunchbase needs an API key.</span>{' '}
+              Get one from crunchbase.com/api, then add{' '}
+              <code className="rounded bg-muted px-1">CRUNCHBASE_API_KEY</code> to your
+              environment (or ask your admin). Until it&apos;s set, Crunchbase is
+              skipped — the keyless sources still run.
+            </p>
+          )}
         </div>
       </CardContent>
       {canEdit && (
