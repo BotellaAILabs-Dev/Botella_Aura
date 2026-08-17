@@ -36,6 +36,7 @@ export default async function LeadsPage() {
     source: l.source,
     status: l.status,
     fitScore: l.fitScore,
+    fitRationale: l.fitRationale,
     signalCount: l.signals.length,
     messageCount: l.messages.length,
   }));

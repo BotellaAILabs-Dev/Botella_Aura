@@ -16,6 +16,7 @@ export interface LeadTableRow {
   source: string;
   status: string;
   fitScore: number | null;
+  fitRationale: string | null;
   signalCount: number;
   messageCount: number;
 }
@@ -108,9 +109,10 @@ export function LeadsTable({
         <table className="w-full text-sm">
           <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
             <tr>
-              <th className="px-3 py-2">Lead</th>
+              <th className="px-3 py-2">Company</th>
+              <th className="px-3 py-2">Contact</th>
               <th className="px-3 py-2">Source</th>
-              <th className="px-3 py-2">Fit</th>
+              <th className="px-3 py-2" title="AI fit score out of 100">Fit /100</th>
               <th className="px-3 py-2">Status</th>
               <th
                 className="px-3 py-2"
@@ -124,27 +126,50 @@ export function LeadsTable({
           <tbody className="divide-y divide-border">
             {filtered.map((l) => (
               <tr key={l.id} className="hover:bg-muted/20">
+                {/* Company — always known. */}
                 <td className="px-3 py-2">
-                  <Link href={`/dashboard/leads/${l.id}`} className="hover:underline">
-                    <span className="font-medium">
-                      {l.name ? `${l.name} · ` : ''}
-                      {l.companyName}
-                    </span>
-                    {l.title && (
-                      <span className="block text-xs text-muted-foreground">
-                        {l.title}
-                      </span>
-                    )}
+                  <Link
+                    href={`/dashboard/leads/${l.id}`}
+                    className="font-medium hover:underline"
+                  >
+                    {l.companyName}
                   </Link>
+                </td>
+                {/* Contact — separate; company-only leads clearly marked. */}
+                <td className="px-3 py-2">
+                  {l.name ? (
+                    <span>
+                      {l.name}
+                      {l.title && (
+                        <span className="block text-xs text-muted-foreground">
+                          {l.title}
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-xs italic text-muted-foreground">
+                      Company-only — no contact yet
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-2">
                   <Badge variant={sourceVariant(l.source)}>
                     {SOURCE_LABEL[l.source] ?? l.source}
                   </Badge>
                 </td>
+                {/* Fit score with scale + "why" on hover. */}
                 <td className="px-3 py-2">
                   {l.fitScore != null ? (
-                    <Badge variant={scoreVariant(l.fitScore)}>{l.fitScore}</Badge>
+                    <Badge
+                      variant={scoreVariant(l.fitScore)}
+                      title={
+                        l.fitRationale
+                          ? `Why ${l.fitScore}/100: ${l.fitRationale}`
+                          : `AI fit score: ${l.fitScore}/100`
+                      }
+                    >
+                      {l.fitScore}/100
+                    </Badge>
                   ) : (
                     <span className="text-muted-foreground">—</span>
                   )}
