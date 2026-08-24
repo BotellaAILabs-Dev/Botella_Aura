@@ -8,20 +8,32 @@ import { PageHeader } from '@/components/dashboard/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toaster';
 import { CONTENT_TYPES, type ContentTypeKey } from '@/lib/validations/content';
 import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
 
 /**
- * Trend hand-off from Sprint 2 ("Generate content from this"). Reads ?trendId,
- * lets the user pick a content type, then generates a draft grounded in that
- * trend and opens the editor.
+ * Single hand-off point into Content Studio.
+ *
+ * `?trendId=` comes from AI Trend Insights; `?brief=` comes from the AI
+ * Marketing Advisor and the Marketing Planner calendar, so a suggested idea can
+ * be turned into a real draft without retyping it. The brief stays editable —
+ * the suggestion is a starting point, not a instruction.
  */
 export default function NewFromSourcePage() {
   const router = useRouter();
   const params = useSearchParams();
   const trendId = params.get('trendId') ?? undefined;
-  const [type, setType] = useState<ContentTypeKey>('LINKEDIN_POST');
+  const initialBrief = params.get('brief') ?? '';
+  const initialType = params.get('type') as ContentTypeKey | null;
+  const campaignId = params.get('campaignId') ?? undefined;
+  const [type, setType] = useState<ContentTypeKey>(
+    initialType && CONTENT_TYPES.includes(initialType)
+      ? initialType
+      : 'LINKEDIN_POST',
+  );
+  const [brief, setBrief] = useState(initialBrief);
   const [loading, setLoading] = useState(false);
 
   async function generate() {
@@ -33,8 +45,12 @@ export default function NewFromSourcePage() {
         body: JSON.stringify({
           type,
           source: trendId
-            ? { kind: 'TREND', ref: trendId }
-            : { kind: 'BRIEF', brief: 'Timely content for our audience.' },
+            ? { kind: 'TREND', ref: trendId, ...(brief.trim() ? { brief: brief.trim() } : {}) }
+            : {
+                kind: 'BRIEF',
+                brief: brief.trim() || 'Timely content for our audience.',
+              },
+          ...(campaignId ? { campaignId } : {}),
         }),
       });
       if (!res.ok) {
@@ -43,7 +59,7 @@ export default function NewFromSourcePage() {
         return;
       }
       const data = (await res.json()) as { id: string };
-      toast.success('Draft generated from the trend.');
+      toast.success('Draft generated.');
       router.push(`/dashboard/content/${data.id}`);
     } finally {
       setLoading(false);
@@ -53,14 +69,21 @@ export default function NewFromSourcePage() {
   return (
     <div className="mx-auto max-w-xl">
       <Link
-        href="/dashboard/trends"
+        href={trendId ? '/dashboard/trends' : '/dashboard/content'}
         className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="h-4 w-4" /> AI Trend Insights
+        <ArrowLeft className="h-4 w-4" />{' '}
+        {trendId ? 'AI Trend Insights' : 'Content Studio'}
       </Link>
       <PageHeader
         title="Generate content"
-        description={trendId ? 'From the selected trend, in your brand voice.' : 'Pick a type to generate.'}
+        description={
+          trendId
+            ? 'From the selected trend, in your brand voice.'
+            : initialBrief
+              ? 'From the suggested brief below — edit it before generating.'
+              : 'Pick a type to generate.'
+        }
       />
       <Card>
         <CardHeader>
@@ -88,7 +111,18 @@ export default function NewFromSourcePage() {
               </button>
             ))}
           </div>
-          <Label className="sr-only">Generate</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="brief">
+              Brief {trendId && <span className="text-muted-foreground">(optional)</span>}
+            </Label>
+            <Textarea
+              id="brief"
+              rows={4}
+              value={brief}
+              onChange={(e) => setBrief(e.target.value)}
+              placeholder="What should this piece say? Edit freely — this is your instruction to the writer."
+            />
+          </div>
           <Button onClick={generate} loading={loading} className="w-full">
             <Sparkles className="h-4 w-4" /> Generate draft
           </Button>

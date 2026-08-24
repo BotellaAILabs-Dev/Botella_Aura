@@ -17,6 +17,15 @@ export type ConnectorCategory =
   | 'Automation'
   | 'Storage';
 
+/**
+ * `available`   - has a working integration in this codebase.
+ * `coming_soon` - listed for roadmap visibility; no integration yet.
+ *
+ * An `available` connector may still need one-time app credentials on the
+ * deployment before it can be connected; the Connectors page asks the server
+ * (server/connectors/providers.ts) and says exactly what is missing, instead of
+ * showing an indefinite "Coming soon".
+ */
 export type ConnectorStatus = 'available' | 'coming_soon';
 
 export interface Connector {
@@ -27,7 +36,7 @@ export interface Connector {
   status: ConnectorStatus;
   /** Badge accent colour (brand-ish). */
   color: string;
-  /** Where "Connect" routes for `available` connectors. */
+  /** Where "Connect" routes for connectors with a bespoke flow (LinkedIn). */
   connectHref?: string;
 }
 
@@ -51,7 +60,7 @@ export const CONNECTORS: Connector[] = [
     name: 'Google Analytics (GA4)',
     category: 'Analytics',
     description: 'Pull traffic, conversions, and audience data to inform content.',
-    status: 'coming_soon',
+    status: 'available',
     color: '#E8710A',
   },
   {
@@ -59,7 +68,7 @@ export const CONNECTORS: Connector[] = [
     name: 'Google Search Console',
     category: 'Analytics',
     description: 'Understand search queries and rankings driving your site.',
-    status: 'coming_soon',
+    status: 'available',
     color: '#458CF5',
   },
   // --- Advertising ---
@@ -111,7 +120,7 @@ export const CONNECTORS: Connector[] = [
     name: 'HubSpot',
     category: 'CRM & Email',
     description: 'Sync contacts, deals, and marketing activity.',
-    status: 'coming_soon',
+    status: 'available',
     color: '#FF7A59',
   },
   {
@@ -135,7 +144,7 @@ export const CONNECTORS: Connector[] = [
     name: 'Mailchimp',
     category: 'CRM & Email',
     description: 'Audiences and campaign performance for email.',
-    status: 'coming_soon',
+    status: 'available',
     color: '#FFE01B',
   },
   // --- Commerce ---
@@ -146,6 +155,15 @@ export const CONNECTORS: Connector[] = [
     description: 'Products and sales data to ground product content.',
     status: 'coming_soon',
     color: '#95BF47',
+  },
+  {
+    id: 'google-cse',
+    name: 'Google Custom Search',
+    category: 'Analytics',
+    description:
+      'Official web search for lead discovery — role-title lookups across the open web.',
+    status: 'available',
+    color: '#34A853',
   },
   // --- SEO & Content ---
   {
@@ -203,8 +221,26 @@ export const CONNECTORS: Connector[] = [
     name: 'Slack',
     category: 'Productivity',
     description: 'Approvals and alerts where your team works.',
-    status: 'coming_soon',
+    status: 'available',
     color: '#4A154B',
+  },
+  {
+    id: 'crunchbase',
+    name: 'Crunchbase',
+    category: 'CRM & Email',
+    description:
+      'Funding, stage, and investor data for lead discovery and outreach signals.',
+    status: 'available',
+    color: '#146AFF',
+  },
+  {
+    id: 'github',
+    name: 'GitHub',
+    category: 'Productivity',
+    description:
+      'Higher API limits for competitor product-movement tracking and lead discovery.',
+    status: 'available',
+    color: '#181717',
   },
   // --- Automation ---
   {

@@ -4,7 +4,10 @@ import { Radar, Settings2, Info } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
-import { getRecentDigests } from '@/server/trends/digest.service';
+import {
+  getRecentDigests,
+  normalizeDigestPayload,
+} from '@/server/trends/digest.service';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
@@ -12,7 +15,7 @@ import { RefreshDigestButton } from '@/components/dashboard/trends/refresh-butto
 import { DigestHistory } from '@/components/dashboard/trends/digest-history';
 import { TrendCard } from '@/components/dashboard/trends/trend-card';
 import { TrendSummary } from '@/components/dashboard/trends/trend-summary';
-import type { DigestPayload } from '@/server/trends/types';
+
 
 export const metadata: Metadata = { title: 'AI Trend Insights' };
 
@@ -69,13 +72,15 @@ export default async function TrendsPage({
   // Pick the selected digest (by ?date=) or the most recent.
   const selected =
     digests.find((d) => isoDay(d.date) === searchParams.date) ?? digests[0]!;
-  const payload = selected.payload as unknown as DigestPayload;
-  const items = payload.items ?? [];
+  // Normalized so a digest written by an older build renders instead of
+  // throwing (the "Something went wrong" screen reported in review).
+  const payload = normalizeDigestPayload(selected.payload);
+  const items = payload.items;
 
   const history = digests.map((d) => ({
     date: isoDay(d.date),
     label: dayLabel(d.date),
-    count: ((d.payload as unknown as DigestPayload).items ?? []).length,
+    count: normalizeDigestPayload(d.payload).items.length,
   }));
 
   return (

@@ -7,6 +7,7 @@ import { githubSignals } from '@/server/outreach/sources/github';
 import { newsSignals } from '@/server/outreach/sources/news';
 import { jobSignals } from '@/server/outreach/sources/jobs';
 import { crunchbaseSignals } from '@/server/outreach/sources/crunchbase';
+import { resolveCredential } from '@/server/connectors/connection.service';
 import type { RawSignal } from '@/server/outreach/types';
 
 /**
@@ -38,7 +39,9 @@ export async function detectForCompany(args: {
     tasks.push(jobSignals(criteria.roleTitles));
 
   if (criteria.enabledSources.crunchbase) {
-    const cb = await crunchbaseSignals(terms);
+    // Workspace Crunchbase connector, falling back to the deployment env var.
+    const cred = await resolveCredential(companyId, 'crunchbase');
+    const cb = await crunchbaseSignals(terms, cred?.apiKey);
     if (!cb.available && cb.reason) skipped.push(`crunchbase: ${cb.reason}`);
     tasks.push(Promise.resolve(cb.signals));
   } else {

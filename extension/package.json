@@ -1,9 +1,9 @@
 {
   "name": "botella-aura-extension",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Botella Aura companion Chrome extension (MV3) — the human action layer.",
+  "description": "Botella Aura companion Chrome extension (MV3) \u2014 the human action layer.",
   "scripts": {
-    "zip": "powershell -NoProfile -Command \"Compress-Archive -Path manifest.json,background.js,popup.html,popup.js,popup.css,content -DestinationPath botella-aura-extension.zip -Force\""
+    "zip": "node ../scripts/package-extension.mjs"
   }
 }

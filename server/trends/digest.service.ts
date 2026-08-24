@@ -344,6 +344,34 @@ function fallbackAngle(item: ScoredTrendItem): string {
   return `Share your team's take on "${item.title.slice(0, 80)}" and what it means for your customers.`;
 }
 
+/**
+ * Coerce a stored digest payload into a shape the UI can always render.
+ *
+ * Digests are persisted as JSON, so rows written by older builds are missing
+ * fields the current page reads. Reading `payload.skippedSources.length` on one
+ * of those threw during render and took the whole AI Trend Insights page down
+ * with a bare error screen. Normalizing here means an old digest degrades to
+ * "fewer sections", never to a crash.
+ */
+export function normalizeDigestPayload(raw: unknown): DigestPayload {
+  const p = (raw ?? {}) as Partial<DigestPayload>;
+  const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+  return {
+    items: arr<DigestItem>(p.items),
+    generatedAt:
+      typeof p.generatedAt === 'string' ? p.generatedAt : new Date(0).toISOString(),
+    model: typeof p.model === 'string' ? p.model : 'fallback',
+    sourceCounts:
+      p.sourceCounts && typeof p.sourceCounts === 'object' ? p.sourceCounts : {},
+    skippedSources: arr<TrendSourceId>(p.skippedSources),
+    summary: typeof p.summary === 'string' ? p.summary : undefined,
+    recommendations: arr<string>(p.recommendations),
+    hashtags: arr<string>(p.hashtags),
+    seasonal: arr(p.seasonal),
+    competitorMentions: arr(p.competitorMentions),
+  };
+}
+
 /** Fetch stored digests for a company, newest first (dashboard history). */
 export async function getRecentDigests(companyId: string, days = 7) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);

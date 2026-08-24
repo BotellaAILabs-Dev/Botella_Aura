@@ -10,6 +10,60 @@
 
 const DEFAULT_API_BASE = 'http://localhost:3000';
 
+/**
+ * Origin permission helpers.
+ *
+ * The manifest declares the common deploy hosts, but a self-hosted or
+ * custom-domain install is not covered by any static pattern. Rather than ship
+ * an extension that silently fails to reach a production URL, we ask Chrome for
+ * the origin at pair time via optional_host_permissions.
+ */
+function originPattern(apiBase) {
+  try {
+    return `${new URL(apiBase).origin}/*`;
+  } catch {
+    return null;
+  }
+}
+
+async function hasOriginPermission(apiBase) {
+  const origins = originPattern(apiBase);
+  if (!origins) return false;
+  try {
+    return await chrome.permissions.contains({ origins: [origins] });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Register the pairing content script for an origin the manifest does not
+ * already cover, so "Send to extension" works on custom domains too.
+ */
+async function ensurePairingScript(apiBase) {
+  const origins = originPattern(apiBase);
+  if (!origins || !chrome.scripting?.registerContentScripts) return;
+  const id = `aura-pairing-${origins}`;
+  try {
+    const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [id] });
+    if (existing.length > 0) return;
+  } catch {
+    // getRegisteredContentScripts throws when the id is unknown on some builds.
+  }
+  try {
+    await chrome.scripting.registerContentScripts([
+      {
+        id,
+        matches: [origins],
+        js: ['content/pairing.js'],
+        runAt: 'document_idle',
+      },
+    ]);
+  } catch {
+    // Already registered, or the origin is covered by the manifest. Harmless.
+  }
+}
+
 // Client-side rate caps. Mirror lib/extension-constants.ts on the server.
 const HOURLY_CAP = 8;
 const DAILY_CAP = 25;
@@ -36,7 +90,21 @@ async function apiFetch(path, options = {}) {
       },
     });
   } catch (err) {
-    return { ok: false, status: 0, data: { error: 'Network error — is Botella Aura running?' } };
+    // Distinguish "the app is unreachable" from "Chrome blocked this origin",
+    // which look identical from a failed fetch but need opposite fixes.
+    const permitted = await hasOriginPermission(apiBase);
+    return {
+      ok: false,
+      status: 0,
+      needsPermission: !permitted,
+      data: {
+        error: permitted
+          ? 'Network error — is Botella Aura reachable at ' + apiBase + '?'
+          : 'This browser has not granted the extension access to ' +
+            apiBase +
+            '. Open the popup and press "Grant access".',
+      },
+    };
   }
   const data = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, data };
@@ -82,7 +150,28 @@ async function handle(msg) {
   switch (msg.type) {
     case 'AURA_GET_STATE': {
       const { token, apiBase } = await getState();
-      return { hasToken: Boolean(token), apiBase };
+      return {
+        hasToken: Boolean(token),
+        apiBase,
+        hasPermission: await hasOriginPermission(apiBase),
+      };
+    }
+    case 'AURA_REQUEST_PERMISSION': {
+      // Must be called from a user gesture (the popup button).
+      const apiBase = msg.apiBase || (await getState()).apiBase;
+      const origins = originPattern(apiBase);
+      if (!origins) return { ok: false, error: 'That is not a valid URL.' };
+      let granted = false;
+      try {
+        granted = await chrome.permissions.request({ origins: [origins] });
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+      if (granted) {
+        await chrome.storage.local.set({ apiBase });
+        await ensurePairingScript(apiBase);
+      }
+      return { ok: granted, granted, apiBase };
     }
     case 'AURA_SET_TOKEN': {
       if (!msg.token || !String(msg.token).startsWith('aura_ext_')) {
@@ -92,8 +181,13 @@ async function handle(msg) {
       return { ok: true };
     }
     case 'AURA_SET_CONFIG': {
-      await chrome.storage.local.set({ apiBase: msg.apiBase || DEFAULT_API_BASE });
-      return { ok: true };
+      const apiBase = msg.apiBase || DEFAULT_API_BASE;
+      await chrome.storage.local.set({ apiBase });
+      const permitted = await hasOriginPermission(apiBase);
+      if (permitted) await ensurePairingScript(apiBase);
+      // Report the permission state so the popup can offer "Grant access"
+      // instead of letting every later request fail opaquely.
+      return { ok: true, apiBase, hasPermission: permitted };
     }
     case 'AURA_DISCONNECT': {
       await chrome.storage.local.remove(['token', 'actionLog']);

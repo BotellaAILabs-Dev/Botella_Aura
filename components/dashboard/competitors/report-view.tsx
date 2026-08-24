@@ -1,4 +1,11 @@
-import { Lightbulb, Rocket, DollarSign, Activity } from 'lucide-react';
+import {
+  Lightbulb,
+  Rocket,
+  DollarSign,
+  Activity,
+  SearchCheck,
+  Clock3,
+} from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -6,7 +13,10 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import type { CompetitorReportPayload } from '@/server/competitors/types';
+import type {
+  CompetitorCoverage,
+  CompetitorReportPayload,
+} from '@/server/competitors/types';
 
 /** Presentational weekly-report digest. Server-rendered (no client state). */
 export function ReportView({ payload }: { payload: CompetitorReportPayload }) {
@@ -45,9 +55,10 @@ export function ReportView({ payload }: { payload: CompetitorReportPayload }) {
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
               {empty ? (
-                <p className="text-muted-foreground">
-                  No material public activity detected this week.
-                </p>
+                /* An empty section must explain itself. "No activity" alone is
+                   indistinguishable from a broken pipeline - which is exactly
+                   how it was read in review. */
+                <EmptyExplainer coverage={c.coverage} />
               ) : (
                 <>
                   <Section icon={Rocket} title="New launches" items={c.newLaunches} />
@@ -73,6 +84,61 @@ export function ReportView({ payload }: { payload: CompetitorReportPayload }) {
           </Card>
         );
       })}
+    </div>
+  );
+}
+
+/** Says what was actually checked, so an empty week reads as a real result. */
+function EmptyExplainer({ coverage }: { coverage?: CompetitorCoverage }) {
+  if (!coverage || coverage.snapshots === 0) {
+    return (
+      <div className="space-y-1.5 text-muted-foreground">
+        <p className="flex items-center gap-1.5">
+          <Clock3 className="h-4 w-4 shrink-0" />
+          Not captured yet this week.
+        </p>
+        <p className="text-xs">
+          Press <span className="font-medium text-foreground">Generate now</span> to
+          take a snapshot immediately, or wait for the weekly job. Nothing here is
+          broken — there is simply no capture in this window yet.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5 text-muted-foreground">
+      <p className="flex items-center gap-1.5">
+        <SearchCheck className="h-4 w-4 shrink-0" />
+        {coverage.baselineOnly
+          ? 'First snapshot captured — this is the baseline.'
+          : 'Checked, nothing material changed.'}
+      </p>
+      <p className="text-xs">
+        {coverage.checked.length > 0 ? (
+          <>
+            Sources read:{' '}
+            <span className="font-medium text-foreground">
+              {coverage.checked.join(', ')}
+            </span>
+            .{' '}
+          </>
+        ) : null}
+        {coverage.snapshots} snapshot{coverage.snapshots === 1 ? '' : 's'} in this
+        week
+        {coverage.lastCapturedAt
+          ? `, most recent ${new Date(coverage.lastCapturedAt).toLocaleString()}`
+          : ''}
+        .{' '}
+        {coverage.baselineOnly &&
+          'Changes are reported from the next capture onward.'}
+      </p>
+      {coverage.skipped.length > 0 && (
+        <p className="text-xs">
+          Unavailable this run:{' '}
+          <span className="text-foreground">{coverage.skipped.join('; ')}</span>
+        </p>
+      )}
     </div>
   );
 }

@@ -31,6 +31,7 @@ export async function POST(req: Request) {
       companyId: company.id,
       companyName: company.name,
       inviterId: user.id,
+      inviterName: user.name ?? null,
       inviterRole: membership.role,
       email,
       role,

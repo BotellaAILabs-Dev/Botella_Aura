@@ -172,6 +172,20 @@ enum AuditAction {
   SUBSCRIPTION_UPDATED
   SUBSCRIPTION_CANCELED
   PAYMENT_FAILED
+  // --- Client review (Phase 1) — email delivery truth + lead routing ---
+  INVITATION_EMAIL_SENT
+  INVITATION_EMAIL_FAILED
+  EMAIL_TEST_SENT
+  LEAD_SENT_TO_OUTREACH
+  // --- Client review (Phase 2) — connectors, advisor, planner ---
+  CONNECTOR_CONNECTED
+  CONNECTOR_DISCONNECTED
+  CONNECTOR_CREDENTIALS_SAVED
+  CONNECTOR_SYNCED
+  ADVISOR_REPORT_GENERATED
+  MARKETING_PLAN_GENERATED
+  // --- Client review (Phase 3) — AI Marketing Intelligence dashboard ---
+  INTELLIGENCE_SNAPSHOT_GENERATED
 }
 
 /// Sprint 3 — origin of an ingested knowledge chunk.
@@ -428,31 +442,35 @@ model Company {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  members             CompanyMember[]
-  invitations         CompanyInvitation[]
-  auditLogs           AuditLog[]
-  linkedInConnections LinkedInConnection[]
-  contentDrafts       ContentDraft[]
-  trendDigests        TrendDigest[]
-  competitorProfiles  CompetitorProfile[]
-  competitorReports   CompetitorReport[]
-  trendConfig         CompanyTrendConfig?
-  knowledgeSources    KnowledgeSource[]
-  knowledgeChunks     KnowledgeChunk[]
-  campaigns           Campaign[]
-  extensionTokens     ExtensionToken[]
-  leads               Lead[]
-  outreachMessages    OutreachMessage[]
-  outreachConfig      OutreachConfig?
-  engagementTargets   EngagementTarget[]
-  engagementComments  EngagementComment[]
-  discoveryProfiles   DiscoveryProfile[]
-  discoveryRuns       DiscoveryRun[]
-  performanceSnapshots PerformanceSnapshot[]
-  marketingMemories   MarketingMemory[]
-  campaignTasks       CampaignTask[]
-  subscription        Subscription?
-  analyticsReports    AnalyticsReport[]
+  members               CompanyMember[]
+  invitations           CompanyInvitation[]
+  auditLogs             AuditLog[]
+  linkedInConnections   LinkedInConnection[]
+  contentDrafts         ContentDraft[]
+  trendDigests          TrendDigest[]
+  competitorProfiles    CompetitorProfile[]
+  competitorReports     CompetitorReport[]
+  trendConfig           CompanyTrendConfig?
+  knowledgeSources      KnowledgeSource[]
+  knowledgeChunks       KnowledgeChunk[]
+  campaigns             Campaign[]
+  extensionTokens       ExtensionToken[]
+  leads                 Lead[]
+  outreachMessages      OutreachMessage[]
+  outreachConfig        OutreachConfig?
+  engagementTargets     EngagementTarget[]
+  engagementComments    EngagementComment[]
+  discoveryProfiles     DiscoveryProfile[]
+  discoveryRuns         DiscoveryRun[]
+  performanceSnapshots  PerformanceSnapshot[]
+  marketingMemories     MarketingMemory[]
+  campaignTasks         CampaignTask[]
+  subscription          Subscription?
+  analyticsReports      AnalyticsReport[]
+  connections           Connection[]
+  advisorReports        AdvisorReport[]
+  marketingPlans        MarketingPlan[]
+  intelligenceSnapshots IntelligenceSnapshot[]
 
   @@index([slug])
 }
@@ -480,21 +498,42 @@ enum InvitationStatus {
   EXPIRED
 }
 
+/// Truthful outcome of an outbound transactional email. The UI must never show
+/// "sent" when the transport only logged to the console — that was the whole
+/// bug behind "invitation shows Mail Sent but nothing arrives".
+enum EmailDeliveryStatus {
+  /// Queued but not attempted yet.
+  PENDING
+  /// A real provider accepted the message.
+  SENT
+  /// A real provider was configured but rejected/errored.
+  FAILED
+  /// No provider configured — the message was only logged locally.
+  NOT_CONFIGURED
+}
+
 /// A pending invite for someone to join a company at a given role. We store
 /// only a SHA-256 hash of the accept token (the raw token lives only in the
 /// emailed link), mirroring PasswordResetToken. Single active invite per
 /// (company, email).
 model CompanyInvitation {
-  id          String           @id @default(cuid())
-  companyId   String
-  email       String
-  role        CompanyRole      @default(MEMBER)
-  tokenHash   String           @unique
-  status      InvitationStatus @default(PENDING)
-  invitedById String?
-  expiresAt   DateTime
-  acceptedAt  DateTime?
-  createdAt   DateTime         @default(now())
+  id             String              @id @default(cuid())
+  companyId      String
+  email          String
+  role           CompanyRole         @default(MEMBER)
+  tokenHash      String              @unique
+  status         InvitationStatus    @default(PENDING)
+  invitedById    String?
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime            @default(now())
+  /// --- Real email-delivery outcome (never optimistic) ---
+  emailStatus    EmailDeliveryStatus @default(PENDING)
+  /// Which transport actually handled it: "smtp" | "resend" | "console".
+  emailTransport String?
+  /// Provider error detail when emailStatus = FAILED (surfaced to admins).
+  emailError     String?             @db.Text
+  emailSentAt    DateTime?
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
@@ -588,9 +627,9 @@ model ContentDraft {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdBy User?     @relation("ContentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  campaign  Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  company              Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy            User?                 @relation("ContentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  campaign             Campaign?             @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   performanceSnapshots PerformanceSnapshot[]
 
   @@index([companyId, status])
@@ -674,24 +713,24 @@ model Campaign {
 /// outreach drafting, discovery run), landing output in the normal approval
 /// queue. REVIEW_CHECKPOINT tasks hold an AI progress summary.
 model CampaignTask {
-  id                   String             @id @default(cuid())
-  campaignId           String
-  companyId            String
-  scheduledDate        DateTime
-  taskType             CampaignTaskType
-  status               CampaignTaskStatus @default(PENDING)
+  id                    String             @id @default(cuid())
+  campaignId            String
+  companyId             String
+  scheduledDate         DateTime
+  taskType              CampaignTaskType
+  status                CampaignTaskStatus @default(PENDING)
   /// For GENERATE_CONTENT: which content type + the planned topic/angle.
-  contentType          ContentType?
-  topic                String?            @db.Text
-  rationale            String?            @db.Text
+  contentType           ContentType?
+  topic                 String?            @db.Text
+  rationale             String?            @db.Text
   /// Drill-through to the produced item in its normal queue.
   relatedContentDraftId String?
   relatedDiscoveryRunId String?
   /// For REVIEW_CHECKPOINT: the generated weekly progress summary.
-  checkpointSummary    String?            @db.Text
-  error                String?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
+  checkpointSummary     String?            @db.Text
+  error                 String?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -886,27 +925,32 @@ model OutreachConfig {
 /// granularity; a person's name/title/LinkedIn URL are added/confirmed by the
 /// user (never scraped from LinkedIn).
 model Lead {
-  id                String     @id @default(cuid())
-  companyId         String
+  id                 String     @id @default(cuid())
+  companyId          String
   /// Person name — optional until the user confirms it.
-  name              String?
-  title             String?
+  name               String?
+  title              String?
   /// The target organization the signal is about.
-  companyName       String
-  sourceUrl         String?
+  companyName        String
+  sourceUrl          String?
   /// Publicly-discoverable profile URL, manually confirmed by the user.
   linkedInProfileUrl String?
-  status            LeadStatus @default(NEW)
+  status             LeadStatus @default(NEW)
   /// Sprint 5 — how this lead entered the system.
-  source            LeadSource @default(SIGNAL)
+  source             LeadSource @default(SIGNAL)
   /// Sprint 5 — the DiscoveryProfile that found this lead (if discovered).
   discoveryProfileId String?
   /// Sprint 5 — AI fit score 0-100 against the discovery profile's criteria.
-  fitScore          Int?
+  fitScore           Int?
   /// Sprint 5 — short "why this lead" rationale (traceable, human-readable).
-  fitRationale      String?    @db.Text
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  fitRationale       String?    @db.Text
+  /// The requirement/category this lead came from, snapshotted at creation
+  /// (e.g. "Distillery", "Liquor Store", "Head of Marketing"). Denormalized on
+  /// purpose: leads must keep their origin even if the profile is renamed or
+  /// deleted, so different requirements never get mixed together.
+  category           String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
   company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   discoveryProfile DiscoveryProfile? @relation(fields: [discoveryProfileId], references: [id], onDelete: SetNull)
@@ -915,6 +959,8 @@ model Lead {
 
   @@index([companyId, status])
   @@index([companyId, source])
+  @@index([companyId, category])
+  @@index([discoveryProfileId])
 }
 
 /// A detected public signal attached to a lead (funding, hiring, etc.).
@@ -935,25 +981,25 @@ model LeadSignal {
 /// An AI-drafted outreach message pending human approval, then a human send via
 /// the extension. Nothing reaches SENT without both.
 model OutreachMessage {
-  id        String         @id @default(cuid())
-  leadId    String
-  companyId String
-  type      OutreachType
-  status    OutreachStatus @default(DRAFT)
-  draftText String         @db.Text
+  id                 String         @id @default(cuid())
+  leadId             String
+  companyId          String
+  type               OutreachType
+  status             OutreachStatus @default(DRAFT)
+  draftText          String         @db.Text
   /// Generation context: { model, promptVersion, signalId, brandVoiceApplied }.
-  aiMetadata Json          @default("{}")
-  rejectionReason String?
-  sentAt    DateTime?
+  aiMetadata         Json           @default("{}")
+  rejectionReason    String?
+  sentAt             DateTime?
   /// Sprint 5 — the "did it work" outcome signals, manually confirmed by the
   /// user (no API exposes these). Feed the Marketing Memory learning loop.
-  connectionAccepted Boolean @default(false)
-  replyReceived      Boolean @default(false)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  connectionAccepted Boolean        @default(false)
+  replyReceived      Boolean        @default(false)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
 
-  lead    Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lead                 Lead                  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  company              Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
   performanceSnapshots PerformanceSnapshot[]
 
   @@index([companyId, status])
@@ -969,15 +1015,19 @@ model OutreachMessage {
 /// keywords) validated by lib/validations/discovery.ts. A profile can auto-run
 /// weekly (autoRun) via the discovery cron.
 model DiscoveryProfile {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   companyId String
   name      String
-  criteria  Json     @default("{}")
-  isActive  Boolean  @default(true)
-  autoRun   Boolean  @default(false)
+  /// Human category this requirement produces leads for (e.g. "Distillery",
+  /// "Liquor Store", "Role: Head of Marketing"). Stamped onto every lead the
+  /// profile discovers so leads stay grouped by where they came from.
+  category  String?
+  criteria  Json      @default("{}")
+  isActive  Boolean   @default(true)
+  autoRun   Boolean   @default(false)
   lastRunAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   runs    DiscoveryRun[]
@@ -1046,7 +1096,7 @@ model EngagementComment {
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company              Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
   performanceSnapshots PerformanceSnapshot[]
 
   @@index([companyId, status])
@@ -1062,15 +1112,15 @@ model EngagementComment {
 /// source (LinkedIn API, the extension's DOM read of the user's own post, or a
 /// manual entry) provided numbers.
 model PerformanceSnapshot {
-  id                 String            @id @default(cuid())
-  companyId          String
-  contentDraftId     String?
-  outreachMessageId  String?
+  id                  String            @id @default(cuid())
+  companyId           String
+  contentDraftId      String?
+  outreachMessageId   String?
   engagementCommentId String?
-  source             PerformanceSource
-  metrics            Json              @default("{}")
-  capturedAt         DateTime          @default(now())
-  createdAt          DateTime          @default(now())
+  source              PerformanceSource
+  metrics             Json              @default("{}")
+  capturedAt          DateTime          @default(now())
+  createdAt           DateTime          @default(now())
 
   company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
   contentDraft      ContentDraft?      @relation(fields: [contentDraftId], references: [id], onDelete: Cascade)
@@ -1086,17 +1136,17 @@ model PerformanceSnapshot {
 /// `supportingDataSummary`, and `confidence`/`sampleSize` are derived from how
 /// much real data exists — never confident-sounding output from thin data.
 model MarketingMemory {
-  id                   String           @id @default(cuid())
-  companyId            String
-  insightType          InsightType
-  insight              String           @db.Text
-  confidence           MemoryConfidence @default(LOW)
-  sampleSize           Int              @default(0)
+  id                    String           @id @default(cuid())
+  companyId             String
+  insightType           InsightType
+  insight               String           @db.Text
+  confidence            MemoryConfidence @default(LOW)
+  sampleSize            Int              @default(0)
   /// { basis: string, metric: string, itemIds: string[], ... } — traceable.
-  supportingDataSummary Json            @default("{}")
-  isActive             Boolean          @default(true)
-  generatedAt          DateTime         @default(now())
-  createdAt            DateTime         @default(now())
+  supportingDataSummary Json             @default("{}")
+  isActive              Boolean          @default(true)
+  generatedAt           DateTime         @default(now())
+  createdAt             DateTime         @default(now())
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
@@ -1144,4 +1194,124 @@ model AnalyticsReport {
 
   @@unique([companyId, periodStart])
   @@index([companyId, periodStart])
+}
+
+// ---------------------------------------------------------------------------
+// Client review Phase 2 — Connectors (real credential storage)
+// ---------------------------------------------------------------------------
+
+/// How a connector authenticates. OAUTH = three-legged flow (tokens stored
+/// encrypted); API_KEY = the customer pastes a key we store encrypted.
+enum ConnectionKind {
+  OAUTH
+  API_KEY
+}
+
+/// Lifecycle of a live connector connection.
+enum ConnectionStatus {
+  CONNECTED
+  ERROR
+  EXPIRED
+  DISCONNECTED
+}
+
+/// A live connection between a company and an external tool. One row per
+/// (company, connector). Secrets are ALWAYS stored encrypted at rest via
+/// lib/crypto.ts — never in plaintext, never returned to the client.
+model Connection {
+  id              String           @id @default(cuid())
+  companyId       String
+  /// Registry id from lib/connectors.ts (e.g. "ga4", "hubspot", "crunchbase").
+  connectorId     String
+  kind            ConnectionKind
+  status          ConnectionStatus @default(CONNECTED)
+  /// Safe, non-secret display label (account email, property name, org).
+  accountLabel    String?
+  scope           String?
+  accessTokenEnc  String?          @db.Text
+  refreshTokenEnc String?          @db.Text
+  apiKeyEnc       String?          @db.Text
+  expiresAt       DateTime?
+  /// Non-secret connector-specific settings (e.g. GA4 propertyId).
+  metadata        Json             @default("{}")
+  lastSyncedAt    DateTime?
+  /// Populated when status = ERROR/EXPIRED so the UI can prompt a reconnect.
+  errorMessage    String?          @db.Text
+  connectedById   String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, connectorId])
+  @@index([companyId])
+}
+
+// ---------------------------------------------------------------------------
+// Client review Phase 2 — AI Marketing Advisor + AI Marketing Planner
+// ---------------------------------------------------------------------------
+
+/// A generated set of campaign opportunities, synthesized from real competitor
+/// activity + trend signal + the company's own performance. Idempotent per day.
+model AdvisorReport {
+  id          String   @id @default(cuid())
+  companyId   String
+  /// Start of the UTC day this report belongs to (idempotency key).
+  date        DateTime
+  payload     Json     @default("{}")
+  model       String   @default("none")
+  generatedAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, date])
+  @@index([companyId, date])
+}
+
+/// A monthly content calendar generated from an explicit brief (business goals,
+/// campaign objectives, topics, brand guidelines). Idempotent per company/month
+/// so regenerating replaces rather than duplicates.
+model MarketingPlan {
+  id          String   @id @default(cuid())
+  companyId   String
+  /// First day (UTC) of the plan month.
+  month       DateTime
+  /// The human brief this plan was generated from (goals/objectives/topics/…).
+  inputs      Json     @default("{}")
+  /// The generated calendar: { weeks[], items[], themes[], cadence, … }.
+  payload     Json     @default("{}")
+  model       String   @default("none")
+  createdById String?
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, month])
+  @@index([companyId, month])
+}
+
+// ---------------------------------------------------------------------------
+// Client review Phase 3 — AI Marketing Intelligence dashboard
+// ---------------------------------------------------------------------------
+
+/// A point-in-time computation of the unified marketing intelligence scores.
+/// Stored so the dashboard loads instantly and can show movement over time;
+/// every number is derived from real rows (never fabricated).
+model IntelligenceSnapshot {
+  id           String   @id @default(cuid())
+  companyId    String
+  /// Start of the UTC day (idempotency key — recompute replaces the day).
+  date         DateTime
+  /// Full computed payload (see server/intelligence/types.ts).
+  payload      Json     @default("{}")
+  /// Headline 0-100 score, denormalized for cheap trend queries.
+  overallScore Int      @default(0)
+  model        String   @default("none")
+  generatedAt  DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, date])
+  @@index([companyId, date])
 }

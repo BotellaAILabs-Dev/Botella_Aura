@@ -24,10 +24,16 @@
         <input id="token" class="input" type="password" placeholder="aura_ext_…" />
         <button id="save" class="btn btn-primary">Pair extension</button>
         <details class="advanced">
-          <summary>Advanced</summary>
+          <summary>Advanced — connect to a different Botella Aura URL</summary>
           <label class="label" for="apiBase">Botella Aura URL</label>
-          <input id="apiBase" class="input" type="text" placeholder="http://localhost:3000" />
+          <input id="apiBase" class="input" type="text" placeholder="https://your-aura-url" />
           <button id="saveApi" class="btn">Save URL</button>
+          <button id="grant" class="btn">Grant access to this URL</button>
+          <p class="muted small">
+            Chrome must grant the extension access to your Botella Aura URL before
+            it can talk to it. Common hosts are pre-approved; press
+            <strong>Grant access</strong> for a custom domain.
+          </p>
         </details>
         <p id="pairMsg" class="msg"></p>
       </section>

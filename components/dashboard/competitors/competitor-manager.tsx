@@ -38,6 +38,7 @@ import {
 import { EmptyState } from '@/components/ui/empty-state';
 import { Users } from 'lucide-react';
 import type { ChangesSummary } from '@/server/competitors/types';
+import { classifyLinkedInUrl } from '@/lib/linkedin-url';
 
 export interface CompetitorRow {
   id: string;
@@ -101,9 +102,19 @@ export function CompetitorManager({
     setDialogOpen(true);
   }
 
+  const linkedInInfo = form.linkedInUrl.trim()
+    ? classifyLinkedInUrl(form.linkedInUrl)
+    : null;
+
   async function save() {
     if (form.name.trim().length < 2) {
       toast.error('Competitor name is required.');
+      return;
+    }
+    if (form.linkedInUrl.trim() && !classifyLinkedInUrl(form.linkedInUrl).valid) {
+      toast.error(
+        'Enter a valid LinkedIn company page URL (linkedin.com/company/…), or leave it blank.',
+      );
       return;
     }
     setSaving(true);
@@ -212,6 +223,27 @@ export function CompetitorManager({
                       }
                       placeholder="linkedin.com/company/rival"
                     />
+                    {/* A competitor is an organization: a personal /in/ profile
+                        here is almost always a mistake, so say so. */}
+                    {linkedInInfo && (
+                      <p className="text-xs">
+                        {!linkedInInfo.valid ? (
+                          <span className="text-destructive">
+                            Not a valid LinkedIn URL — use
+                            linkedin.com/company/…
+                          </span>
+                        ) : linkedInInfo.kind === 'company' ? (
+                          <span className="text-primary">
+                            ✓ Company / organization page
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">
+                            That is a personal profile (/in/). A competitor
+                            should be a company page (/company/).
+                          </span>
+                        )}
+                      </p>
+                    )}
                   </Field>
                   <Field label="GitHub org">
                     <Input
@@ -339,14 +371,33 @@ function LatestSnapshot({ row }: { row: CompetitorRow }) {
   const captured = new Date(row.latest.capturedAt).toLocaleString();
   return (
     <div className="space-y-2 text-sm">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>Last checked {captured}</span>
-        {s.hasChanges ? (
+        {s.isBaseline ? (
+          <Badge variant="default">Baseline captured</Badge>
+        ) : s.hasChanges ? (
           <Badge variant="warning">Changes detected</Badge>
         ) : (
           <Badge variant="muted">No website change</Badge>
         )}
       </div>
+
+      {/* The first capture has nothing to diff against, so show what the pages
+          say today rather than an empty "no changes" result. */}
+      {s.isBaseline && s.baseline && (
+        <div className="rounded-md border border-border bg-muted/30 p-2.5">
+          <p className="text-xs font-medium text-foreground">
+            First capture — this is the reference point. Changes are reported
+            from the next run onward.
+          </p>
+          {s.baseline.homepage && (
+            <p className="mt-1 text-muted-foreground">{s.baseline.homepage}</p>
+          )}
+          {s.baseline.pricing && (
+            <p className="mt-1 text-muted-foreground">{s.baseline.pricing}</p>
+          )}
+        </div>
+      )}
       {s.homepage && (
         <p>
           <span className="font-medium">Homepage:</span> {s.homepage}

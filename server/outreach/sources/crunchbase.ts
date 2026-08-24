@@ -20,13 +20,16 @@ export interface CrunchbaseResult {
 
 export async function crunchbaseSignals(
   terms: string[],
+  apiKey?: string | null,
 ): Promise<CrunchbaseResult> {
-  const key = process.env.CRUNCHBASE_API_KEY;
+  // Workspace connector first, deployment env second.
+  const key = apiKey || process.env.CRUNCHBASE_API_KEY;
   if (!key) {
     return {
       available: false,
       signals: [],
-      reason: 'CRUNCHBASE_API_KEY not set — funding signals from Crunchbase are off.',
+      reason:
+        'no API key — connect Crunchbase in Connectors to turn on funding signals.',
     };
   }
 

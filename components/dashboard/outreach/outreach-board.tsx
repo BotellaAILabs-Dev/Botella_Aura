@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Sparkles,
@@ -66,11 +66,29 @@ export interface LeadRow {
   linkedInProfileUrl: string | null;
   sourceUrl: string | null;
   status: string;
+  /** LeadSource — SIGNAL | DISCOVERY_ENGINE | MANUAL. */
+  source: string;
+  /** The requirement this lead was discovered for, e.g. "Distillery". */
+  category: string | null;
   fitScore: number | null;
   fitRationale: string | null;
   signals: OutreachSignalRow[];
   messages: OutreachMessageRow[];
 }
+
+export interface LeadCategoryOption {
+  category: string | null;
+  label: string;
+  count: number;
+}
+
+const UNCATEGORISED = '__none__';
+
+const SOURCE_LABEL: Record<string, string> = {
+  SIGNAL: 'Signal',
+  DISCOVERY_ENGINE: 'Discovery',
+  MANUAL: 'Manual',
+};
 
 /** Fit score badge variant by band (0–100). */
 function fitVariant(score: number): 'success' | 'default' | 'warning' | 'muted' {
@@ -178,16 +196,86 @@ async function call(url: string, method: string, body?: unknown) {
 
 export function OutreachBoard({
   leads,
+  categories,
+  initialCategory = null,
   canManage,
 }: {
   leads: LeadRow[];
+  categories: LeadCategoryOption[];
+  /** Pre-selected requirement, e.g. arriving from "Send to Outreach". */
+  initialCategory?: string | null;
   canManage: boolean;
 }) {
+  const [category, setCategory] = useState<string>(initialCategory ?? 'ALL');
+  const [status, setStatus] = useState<string>('ALL');
+
+  const filtered = useMemo(
+    () =>
+      leads.filter(
+        (l) =>
+          (category === 'ALL' ||
+            (category === UNCATEGORISED ? !l.category : l.category === category)) &&
+          (status === 'ALL' || l.status === status),
+      ),
+    [leads, category, status],
+  );
+
+  const selectCls = 'rounded-md border border-input bg-background px-2 py-1';
+
   return (
     <div className="space-y-4">
-      {leads.map((lead) => (
-        <LeadCard key={lead.id} lead={lead} canManage={canManage} />
-      ))}
+      {/* Same requirement filter as the Leads page, so the two screens agree. */}
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        {categories.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">Requirement</span>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className={selectCls}
+            >
+              <option value="ALL">All requirements</option>
+              {categories.map((c) => (
+                <option
+                  key={c.category ?? UNCATEGORISED}
+                  value={c.category ?? UNCATEGORISED}
+                >
+                  {c.label} ({c.count})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div className="flex items-center gap-1.5">
+          <span className="text-muted-foreground">Status</span>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className={selectCls}
+          >
+            <option value="ALL">All</option>
+            <option value="NEW">New</option>
+            <option value="QUALIFIED">Qualified</option>
+            <option value="DRAFTED">Drafted</option>
+            <option value="CONTACTED">Contacted</option>
+            <option value="ARCHIVED">Archived</option>
+          </select>
+        </div>
+        <span className="text-muted-foreground">
+          {filtered.length} of {leads.length}
+        </span>
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+          No leads match these filters. Every lead from the Leads page is on this
+          board — widen the requirement or status filter to see them.
+        </p>
+      ) : (
+        filtered.map((lead) => (
+          <LeadCard key={lead.id} lead={lead} canManage={canManage} />
+        ))
+      )}
     </div>
   );
 }
@@ -233,6 +321,17 @@ function LeadCard({ lead, canManage }: { lead: LeadRow; canManage: boolean }) {
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <Badge variant="secondary">{lead.status}</Badge>
+              {lead.category && (
+                <Badge
+                  variant="outline"
+                  title="The requirement this lead was discovered for"
+                >
+                  {lead.category}
+                </Badge>
+              )}
+              <Badge variant="muted">
+                {SOURCE_LABEL[lead.source] ?? lead.source}
+              </Badge>
               {typeof lead.fitScore === 'number' && (
                 <Badge variant={fitVariant(lead.fitScore)} title="AI fit score (0–100)">
                   Fit {lead.fitScore}/100

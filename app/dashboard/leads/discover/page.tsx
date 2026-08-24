@@ -17,6 +17,7 @@ import {
 } from '@/components/dashboard/leads/discovery-manager';
 
 export const metadata: Metadata = { title: 'Discover leads' };
+export const dynamic = 'force-dynamic';
 
 export default async function DiscoverPage() {
   const user = await requireUser();
@@ -33,6 +34,7 @@ export default async function DiscoverPage() {
   const rows: DiscoveryProfileRow[] = profiles.map((p) => ({
     id: p.id,
     name: p.name,
+    category: p.category,
     criteria: p.criteria as DiscoveryProfileRow['criteria'],
     autoRun: p.autoRun,
     isActive: p.isActive,
@@ -68,6 +70,9 @@ export default async function DiscoverPage() {
                 <CardContent className="flex items-center justify-between p-3 text-sm">
                   <div>
                     <span className="font-medium">{r.profile.name}</span>
+                    <Badge variant="outline" className="ml-2">
+                      {r.profile.category ?? r.profile.name}
+                    </Badge>
                     <span className="ml-2 text-xs text-muted-foreground">
                       {new Date(r.startedAt).toLocaleString()}
                     </span>

@@ -9,6 +9,7 @@ import {
 } from '@/server/ai/claude';
 import type {
   ChangesSummary,
+  CompetitorCoverage,
   CompetitorReportEntry,
   CompetitorReportPayload,
 } from '@/server/competitors/types';
@@ -58,6 +59,20 @@ interface CompetitorSignal {
   pricingChanges: string[];
   news: { title: string; url: string }[];
   github: string[];
+  /** First-capture positioning summaries — real content for the first report. */
+  baseline: string[];
+  coverage: CompetitorCoverage;
+}
+
+/** Does this competitor have anything at all worth putting in a section? */
+function hasSignal(s: CompetitorSignal): boolean {
+  return Boolean(
+    s.homepageChanges.length ||
+      s.pricingChanges.length ||
+      s.news.length ||
+      s.github.length ||
+      s.baseline.length,
+  );
 }
 
 /** Collapse a week of snapshots per competitor into a compact signal bundle. */
@@ -73,26 +88,97 @@ function collectSignal(
     const pricingChanges: string[] = [];
     const news: { title: string; url: string }[] = [];
     const github: string[] = [];
+    const baseline: string[] = [];
     const seenNews = new Set<string>();
+    const checked = new Set<string>();
+    const skipped = new Set<string>();
+    let baselineOnly = c.snapshots.length > 0;
+    let lastCapturedAt: string | undefined;
 
     for (const snap of c.snapshots) {
       const s = snap.changesSummary as ChangesSummary;
-      if (s?.homepage) homepageChanges.push(s.homepage);
-      if (s?.pricing) pricingChanges.push(s.pricing);
-      for (const n of s?.news ?? []) {
+      if (!s) continue;
+      if (s.capturedAt) lastCapturedAt = s.capturedAt;
+      if (!s.isBaseline) baselineOnly = false;
+
+      if (s.homepage) {
+        homepageChanges.push(s.homepage);
+        checked.add('homepage');
+      }
+      if (s.pricing) {
+        pricingChanges.push(s.pricing);
+        checked.add('pricing page');
+      }
+      if (s.baseline?.homepage) {
+        baseline.push(s.baseline.homepage);
+        checked.add('homepage');
+      }
+      if (s.baseline?.pricing) {
+        baseline.push(s.baseline.pricing);
+        checked.add('pricing page');
+      }
+      for (const n of s.news ?? []) {
+        checked.add('news');
         if (!seenNews.has(n.url)) {
           seenNews.add(n.url);
           news.push({ title: n.title, url: n.url });
         }
       }
-      if (s?.github?.latestRelease) {
-        github.push(
-          `Release ${s.github.latestRelease.name} in ${s.github.latestRelease.repo}`,
-        );
+      // GitHub is a real product-movement signal — surface releases AND recent
+      // pushes, not just tagged releases (most orgs ship without tagging).
+      if (s.github) {
+        checked.add('github');
+        if (s.github.latestRelease) {
+          github.push(
+            `Release ${s.github.latestRelease.name} in ${s.github.latestRelease.repo}`,
+          );
+        }
+        for (const repo of (s.github.recentlyPushed ?? []).slice(0, 3)) {
+          github.push(
+            `Active development in ${repo.repo} (last push ${new Date(
+              repo.pushedAt,
+            ).toLocaleDateString()})`,
+          );
+        }
       }
+      for (const reason of s.skipped ?? []) skipped.add(reason);
     }
-    return { id: c.id, name: c.name, homepageChanges, pricingChanges, news, github };
+
+    return {
+      id: c.id,
+      name: c.name,
+      homepageChanges,
+      pricingChanges,
+      news,
+      github: [...new Set(github)],
+      baseline: [...new Set(baseline)],
+      coverage: {
+        snapshots: c.snapshots.length,
+        checked: [...checked],
+        skipped: [...skipped],
+        baselineOnly,
+        ...(lastCapturedAt ? { lastCapturedAt } : {}),
+      },
+    };
   });
+}
+
+/**
+ * The honest explanation for an empty section. "No material public activity"
+ * on its own reads like a failure; these say what was actually checked and why
+ * there is nothing yet.
+ */
+function emptyTakeaway(s: CompetitorSignal): string {
+  if (s.coverage.snapshots === 0) {
+    return 'Not tracked yet this week - run "Generate now" (or wait for the weekly job) to capture a first snapshot.';
+  }
+  if (s.coverage.baselineOnly) {
+    return 'First snapshot captured - this is the baseline we will compare against, so changes start appearing from the next run.';
+  }
+  if (s.coverage.skipped.length) {
+    return `We checked ${s.coverage.checked.join(', ') || 'the configured sources'} and found no changes. Some sources were unavailable: ${s.coverage.skipped.join('; ')}.`;
+  }
+  return `We checked ${s.coverage.checked.join(', ') || 'the configured sources'} and nothing material changed this week.`;
 }
 
 /** Deterministic report used when Claude is unavailable. */
@@ -105,20 +191,24 @@ function deterministicReport(signal: CompetitorSignal[]): {
     competitor: s.name,
     newLaunches: [...s.github, ...s.news.slice(0, 3).map((n) => n.title)],
     pricingChanges: s.pricingChanges,
-    notableActivity: [...s.homepageChanges, ...s.news.slice(3, 6).map((n) => n.title)],
-    strategicTakeaway:
-      s.homepageChanges.length || s.pricingChanges.length || s.news.length
-        ? 'Review the detected changes and consider whether your positioning or pricing needs a response.'
-        : 'No material public activity detected this week.',
+    notableActivity: [
+      ...s.homepageChanges,
+      ...s.baseline,
+      ...s.news.slice(3, 6).map((n) => n.title),
+    ],
+    strategicTakeaway: hasSignal(s)
+      ? 'Review the detected changes and consider whether your positioning or pricing needs a response.'
+      : emptyTakeaway(s),
+    coverage: s.coverage,
   }));
-  const active = signal.filter(
-    (s) => s.homepageChanges.length || s.pricingChanges.length || s.news.length,
-  );
+  const active = signal.filter(hasSignal);
   const synthesis = active.length
     ? `${active.length} of ${signal.length} tracked competitors showed public activity this week: ${active
         .map((s) => s.name)
         .join(', ')}. Review the details and decide where to respond.`
-    : 'No material competitor activity detected this week across your tracked list.';
+    : signal.length === 0
+      ? 'No competitors are being tracked yet. Add a competitor to start building a weekly picture of their public moves.'
+      : `We checked all ${signal.length} tracked competitor(s) and nothing material changed this week. That is a real result, not an error - each section below says exactly what was checked.`;
   return { entries, synthesis };
 }
 
@@ -135,7 +225,13 @@ async function buildPayload(
 
   if (!isClaudeConfigured() || signal.length === 0) {
     const { entries, synthesis } = deterministicReport(signal);
-    return { competitors: entries, synthesis, model: 'none', ...base };
+    return {
+      competitors: entries,
+      synthesis,
+      model: 'none',
+      ...(signal.length === 0 ? { noCompetitors: true } : {}),
+      ...base,
+    };
   }
 
   try {
@@ -153,6 +249,9 @@ async function buildPayload(
             ? `  News: ${s.news.map((n) => n.title).join(' | ')}`
             : '',
           s.github.length ? `  GitHub: ${s.github.join(' | ')}` : '',
+          s.baseline.length
+            ? `  Current positioning (first capture): ${s.baseline.join(' | ')}`
+            : '',
         ]
           .filter(Boolean)
           .join('\n'),
@@ -180,14 +279,28 @@ async function buildPayload(
     );
     const entries: CompetitorReportEntry[] = signal.map((s) => {
       const match = byName.get(s.name.toLowerCase().trim());
+      const notableActivity = match?.notableActivity ?? [];
+      // Never let the model's omission hide a real baseline we captured.
+      for (const b of s.baseline) {
+        if (!notableActivity.some((a) => a.includes(b.slice(0, 40)))) {
+          notableActivity.push(b);
+        }
+      }
+      const empty =
+        !(match?.newLaunches ?? []).length &&
+        !(match?.pricingChanges ?? []).length &&
+        !notableActivity.length;
       return {
         competitorId: s.id,
         competitor: s.name,
         newLaunches: match?.newLaunches ?? [],
         pricingChanges: match?.pricingChanges ?? [],
-        notableActivity: match?.notableActivity ?? [],
-        strategicTakeaway:
-          match?.strategicTakeaway ?? 'No material activity detected this week.',
+        notableActivity,
+        strategicTakeaway: empty
+          ? emptyTakeaway(s)
+          : (match?.strategicTakeaway ??
+            'Review the detected changes and decide whether to respond.'),
+        coverage: s.coverage,
       };
     });
     return { competitors: entries, synthesis: ai.synthesis, model: DEFAULT_MODEL, ...base };

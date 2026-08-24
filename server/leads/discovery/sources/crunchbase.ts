@@ -4,19 +4,23 @@ import type { DiscoveryCriteria } from '@/server/leads/discovery/types';
 import type { DiscoveredCompany } from '@/server/leads/discovery/sources/github';
 
 /**
- * Crunchbase company discovery (Sprint 5) — STUBBED behind CRUNCHBASE_API_KEY.
- * Paid/gated; when no key is set the source is skipped (surfaced in the run
- * summary) and contributes nothing. No fabricated companies. The official v4
- * organization search is wired for when a key exists.
+ * Crunchbase company discovery via the official v4 organization search.
+ *
+ * The key comes from the workspace's Crunchbase connector when one is
+ * connected, falling back to CRUNCHBASE_API_KEY on the deployment. With no key
+ * the source reports itself skipped and contributes nothing — never fabricated
+ * companies.
  */
 export async function discoverCrunchbaseCompanies(
   criteria: DiscoveryCriteria,
+  apiKey?: string | null,
 ): Promise<{ companies: DiscoveredCompany[]; skipped?: string }> {
-  const key = process.env.CRUNCHBASE_API_KEY;
+  const key = apiKey || process.env.CRUNCHBASE_API_KEY;
   if (!key) {
     return {
       companies: [],
-      skipped: 'crunchbase: CRUNCHBASE_API_KEY not set — funding/stage search off.',
+      skipped:
+        'crunchbase: no API key — connect Crunchbase in Connectors to turn on funding/stage search.',
     };
   }
 

@@ -1,13 +1,18 @@
 {
   "manifest_version": 3,
   "name": "Botella Aura — Action Layer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Review and send your approved Botella Aura items on LinkedIn — one human click per action. No automation.",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "http://localhost:3000/*",
+    "https://*.vercel.app/*",
+    "https://*.netlify.app/*",
+    "https://*.up.railway.app/*",
+    "https://*.botella.ai/*",
     "https://*.linkedin.com/*"
   ],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -18,7 +23,14 @@
   },
   "content_scripts": [
     {
-      "matches": ["http://localhost:3000/*", "https://localhost:3000/*"],
+      "matches": [
+        "http://localhost:3000/*",
+        "https://localhost:3000/*",
+        "https://*.vercel.app/*",
+        "https://*.netlify.app/*",
+        "https://*.up.railway.app/*",
+        "https://*.botella.ai/*"
+      ],
       "js": ["content/pairing.js"],
       "run_at": "document_idle"
     },

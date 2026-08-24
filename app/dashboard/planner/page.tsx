@@ -1,0 +1,116 @@
+import Link from 'next/link';
+import type { Metadata } from 'next';
+import { PenLine } from 'lucide-react';
+
+import { requireUser } from '@/lib/auth-helpers';
+import { resolveActiveCompany } from '@/lib/active-company';
+import { getMembership } from '@/server/services/company.service';
+import { can } from '@/lib/rbac';
+import { listPlans } from '@/server/planner/plan.service';
+import type { MarketingPlanPayload } from '@/server/planner/plan.service';
+import { PageHeader } from '@/components/dashboard/page-header';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  PlannerView,
+  type PlanView,
+  type PlannerInputsView,
+} from '@/components/dashboard/planner/planner-view';
+
+export const metadata: Metadata = { title: 'AI Marketing Planner' };
+export const dynamic = 'force-dynamic';
+
+function monthKey(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+export default async function PlannerPage({
+  searchParams,
+}: {
+  searchParams: { month?: string };
+}) {
+  const user = await requireUser();
+  const { active } = await resolveActiveCompany(user.id);
+  if (!active) return null;
+
+  const [membership, plans] = await Promise.all([
+    getMembership(user.id, active.id),
+    listPlans(active.id),
+  ]);
+  const canGenerate = membership ? can(membership.role, 'content:create') : false;
+
+  const selected =
+    plans.find((p) => monthKey(p.month) === searchParams.month) ?? plans[0] ?? null;
+
+  const payload = selected
+    ? (selected.payload as unknown as MarketingPlanPayload)
+    : null;
+
+  const plan: PlanView | null = payload
+    ? {
+        month: payload.month ?? monthKey(selected!.month),
+        generatedAt: payload.generatedAt ?? selected!.generatedAt.toISOString(),
+        model: payload.model ?? selected!.model,
+        summary: payload.summary ?? '',
+        weeks: payload.weeks ?? [],
+        items: payload.items ?? [],
+        groundedOn: payload.groundedOn ?? [],
+      }
+    : null;
+
+  const savedInputs = selected
+    ? (selected.inputs as unknown as PlannerInputsView)
+    : null;
+
+  return (
+    <div>
+      <PageHeader
+        title="AI Marketing Planner"
+        description="State your goals, objectives, topics, and brand rules — Aura turns them into a dated monthly content calendar you can draft straight from."
+        actions={
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/dashboard/content">
+              <PenLine className="h-4 w-4" /> Content Studio
+            </Link>
+          </Button>
+        }
+      />
+
+      {plans.length > 1 && (
+        <div className="mb-5 flex flex-wrap gap-2">
+          {plans.map((p) => {
+            const key = monthKey(p.month);
+            const isSelected = p.id === selected?.id;
+            return (
+              <Button
+                key={p.id}
+                asChild
+                variant={isSelected ? 'default' : 'outline'}
+                size="sm"
+              >
+                <Link href={`/dashboard/planner?month=${key}`}>
+                  {p.month.toLocaleDateString(undefined, {
+                    month: 'short',
+                    year: 'numeric',
+                    timeZone: 'UTC',
+                  })}
+                  {isSelected && (
+                    <Badge variant="secondary" className="ml-1">
+                      showing
+                    </Badge>
+                  )}
+                </Link>
+              </Button>
+            );
+          })}
+        </div>
+      )}
+
+      <PlannerView
+        plan={plan}
+        savedInputs={savedInputs}
+        canGenerate={canGenerate}
+      />
+    </div>
+  );
+}

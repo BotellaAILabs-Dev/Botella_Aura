@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { ArrowLeft, AlertTriangle } from 'lucide-react';
@@ -13,17 +15,47 @@ import {
   ExtensionManager,
   type ExtensionTokenRow,
 } from '@/components/dashboard/extension/extension-manager';
+import {
+  ExtensionInstallCard,
+  type ExtensionBuildInfo,
+} from '@/components/dashboard/extension/extension-install-card';
+import { getAppUrl } from '@/lib/app-url';
 
 export const metadata: Metadata = { title: 'Browser extension' };
+export const dynamic = 'force-dynamic';
+
+/**
+ * Metadata for the packaged build, written by scripts/package-extension.mjs
+ * during `pnpm build`. Absent in a dev checkout that has not packaged yet, in
+ * which case the install card explains how to produce it.
+ */
+async function readBuildInfo(): Promise<ExtensionBuildInfo | null> {
+  try {
+    const raw = await readFile(
+      join(process.cwd(), 'public', 'downloads', 'botella-aura-extension.json'),
+      'utf8',
+    );
+    const parsed = JSON.parse(raw) as Partial<ExtensionBuildInfo>;
+    if (!parsed.version) return null;
+    return {
+      version: parsed.version,
+      bytes: Number(parsed.bytes ?? 0),
+      sha256Prefix: String(parsed.sha256Prefix ?? ''),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export default async function ExtensionSettingsPage() {
   const user = await requireUser();
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const [membership, tokens] = await Promise.all([
+  const [membership, tokens, build] = await Promise.all([
     getMembership(user.id, active.id),
     listExtensionTokens(user.id, active.id),
+    readBuildInfo(),
   ]);
   const canManage = membership ? can(membership.role, 'linkedin:connect') : false;
 
@@ -57,14 +89,17 @@ export default async function ExtensionSettingsPage() {
             Internal / Beta build
           </p>
           <p className="mt-0.5 text-muted-foreground">
-            The companion extension is currently an <strong>internal beta</strong>{' '}
-            and is not yet published on the Chrome Web Store. It&apos;s intended for
-            your team and pilot users. A one-click store install is coming — until
-            then, pairing uses a token below. Nothing is posted or sent without your
-            explicit click.
+            The companion extension is an <strong>internal beta</strong> and is not
+            yet on the Chrome Web Store — that needs your own Google developer
+            account and Google&apos;s review. It is fully testable today: download
+            the packaged build below and load it unpacked. Nothing is posted or
+            sent without your explicit click.
           </p>
         </div>
       </div>
+
+      {/* Download + sideload — what makes end-to-end testing possible now. */}
+      <ExtensionInstallCard build={build} appUrl={getAppUrl()} />
 
       <ExtensionManager tokens={rows} canManage={canManage} />
     </div>

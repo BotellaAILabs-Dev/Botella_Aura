@@ -15,6 +15,7 @@ import {
 } from '@/components/dashboard/engagement/target-manager';
 
 export const metadata: Metadata = { title: 'Engagement targets' };
+export const dynamic = 'force-dynamic';
 
 export default async function EngagementSettingsPage() {
   const user = await requireUser();
@@ -31,6 +32,7 @@ export default async function EngagementSettingsPage() {
     id: t.id,
     label: t.label,
     profileUrl: t.profileUrl,
+    addedAt: t.createdAt.toISOString(),
   }));
 
   return (

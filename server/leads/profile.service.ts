@@ -43,7 +43,7 @@ export async function listRuns(companyId: string) {
     where: { companyId },
     orderBy: { startedAt: 'desc' },
     take: 20,
-    include: { profile: { select: { name: true } } },
+    include: { profile: { select: { name: true, category: true } } },
   });
 }
 
@@ -59,6 +59,9 @@ export async function createProfile(args: {
       data: {
         companyId,
         name: input.name,
+        // Falling back to the name guarantees every discovered lead carries a
+        // requirement label, so results from different requirements never mix.
+        category: input.category?.trim() || input.name,
         criteria: input.criteria,
         autoRun: input.autoRun,
       },
@@ -89,6 +92,7 @@ export async function updateProfile(args: {
 
   const data: Record<string, unknown> = {};
   if (input.name !== undefined) data.name = input.name;
+  if (input.category !== undefined) data.category = input.category.trim() || null;
   if (input.criteria !== undefined) data.criteria = input.criteria;
   if (input.isActive !== undefined) data.isActive = input.isActive;
   if (input.autoRun !== undefined) data.autoRun = input.autoRun;

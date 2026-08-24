@@ -8,9 +8,9 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
-    "vercel-build": "prisma generate && DIRECT_URL=\"${DIRECT_URL:-$DATABASE_URL}\" prisma migrate deploy && next build",
-    "netlify:build": "prisma generate && prisma migrate deploy && next build",
+    "build": "node scripts/package-extension.mjs && prisma generate && next build",
+    "vercel-build": "node scripts/package-extension.mjs && prisma generate && DIRECT_URL=\"${DIRECT_URL:-$DATABASE_URL}\" prisma migrate deploy && next build",
+    "netlify:build": "node scripts/package-extension.mjs && prisma generate && prisma migrate deploy && next build",
     "start": "next start",
     "start:prod": "prisma migrate deploy && next start",
     "lint": "next lint",
@@ -26,6 +26,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:demo": "tsx prisma/seed.ts && tsx prisma/seed-demo.ts",
     "db:studio": "prisma studio",
+    "ext:package": "node scripts/package-extension.mjs",
     "postinstall": "prisma generate"
   },
   "prisma": {

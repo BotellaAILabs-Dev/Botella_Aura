@@ -16,16 +16,122 @@ interface Meta {
   userAgent?: string | null;
 }
 
-/** Leads with their signals + drafted messages, newest activity first. */
-export async function listLeads(companyId: string) {
+export interface LeadListFilters {
+  /** Requirement/category label, e.g. "Distillery". */
+  category?: string | null;
+  /** LeadSource value: SIGNAL | DISCOVERY_ENGINE | MANUAL. */
+  source?: string | null;
+  /** LeadStatus value. */
+  status?: string | null;
+}
+
+/**
+ * Leads with their signals + drafted messages, newest activity first.
+ *
+ * Both the Leads page and the Outreach board read through this single function,
+ * so a lead that exists in one is guaranteed to exist in the other — the
+ * "leads don't show up in Outreach" report is impossible by construction, and
+ * the same filters apply on both screens.
+ */
+export async function listLeads(companyId: string, filters: LeadListFilters = {}) {
+  const where: Prisma.LeadWhereInput = { companyId };
+  if (filters.category) where.category = filters.category;
+  if (filters.source) where.source = filters.source as Prisma.LeadWhereInput['source'];
+  if (filters.status) where.status = filters.status as Prisma.LeadWhereInput['status'];
+
   return db.lead.findMany({
-    where: { companyId },
+    where,
     orderBy: { updatedAt: 'desc' },
     include: {
       signals: { orderBy: { detectedAt: 'desc' }, take: 5 },
       messages: { orderBy: { createdAt: 'desc' } },
+      discoveryProfile: { select: { id: true, name: true, category: true } },
     },
   });
+}
+
+export interface LeadCategoryCount {
+  /** Null means "leads with no requirement" (signal/manual leads). */
+  category: string | null;
+  label: string;
+  count: number;
+}
+
+/**
+ * The requirement buckets a company's leads fall into, with counts — the data
+ * behind the "group leads by where they came from" filters.
+ */
+export async function listLeadCategories(
+  companyId: string,
+): Promise<LeadCategoryCount[]> {
+  const grouped = await db.lead.groupBy({
+    by: ['category'],
+    where: { companyId },
+    _count: { _all: true },
+  });
+  return grouped
+    .map((g) => ({
+      category: g.category,
+      label: g.category ?? 'Uncategorised',
+      count: g._count._all,
+    }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+/**
+ * Move leads into the outreach workflow explicitly.
+ *
+ * Leads have always been visible on the Outreach board, but nothing in the UI
+ * said so, and a discovered lead sat at NEW with no obvious next step — which
+ * is what "leads are not appearing in Outreach" actually described. This is the
+ * explicit hand-off: it qualifies the leads and reports where they went.
+ */
+export async function sendLeadsToOutreach(args: {
+  companyId: string;
+  userId: string;
+  leadIds: string[];
+  requestMeta?: Meta;
+}): Promise<{ moved: number; categories: string[] }> {
+  const { companyId, userId, leadIds, requestMeta } = args;
+  if (leadIds.length === 0) return { moved: 0, categories: [] };
+
+  const leads = await db.lead.findMany({
+    where: { id: { in: leadIds }, companyId },
+    select: { id: true, category: true, status: true },
+  });
+  if (leads.length === 0) throw new LeadNotFoundError();
+
+  // Already-contacted leads keep their further-along status.
+  const promotable = leads.filter(
+    (l) => l.status === 'NEW' || l.status === 'ARCHIVED',
+  );
+
+  await db.$transaction(async (tx) => {
+    if (promotable.length > 0) {
+      await tx.lead.updateMany({
+        where: { id: { in: promotable.map((l) => l.id) }, companyId },
+        data: { status: 'QUALIFIED' },
+      });
+    }
+    await recordAudit(
+      {
+        action: 'LEAD_SENT_TO_OUTREACH',
+        userId,
+        companyId,
+        metadata: {
+          leadIds: leads.map((l) => l.id),
+          promoted: promotable.length,
+        },
+        ...requestMeta,
+      },
+      tx,
+    );
+  });
+
+  const categories = [
+    ...new Set(leads.map((l) => l.category).filter((c): c is string => Boolean(c))),
+  ];
+  return { moved: leads.length, categories };
 }
 
 export async function getLeadOrThrow(companyId: string, leadId: string) {
@@ -95,6 +201,8 @@ export async function createLead(args: {
         title: input.title || null,
         linkedInProfileUrl: input.linkedInProfileUrl ?? null,
         sourceUrl: input.sourceUrl ?? null,
+        category: input.category?.trim() || null,
+        source: 'MANUAL',
         status: 'QUALIFIED',
       },
     });
@@ -128,6 +236,7 @@ export async function updateLead(args: {
   if (input.companyName !== undefined) data.companyName = input.companyName;
   if (input.linkedInProfileUrl !== undefined)
     data.linkedInProfileUrl = input.linkedInProfileUrl ?? null;
+  if (input.category !== undefined) data.category = input.category?.trim() || null;
   if (input.status !== undefined) data.status = input.status;
 
   return db.$transaction(async (tx) => {

@@ -12,6 +12,9 @@ import {
   Sparkles,
   CheckCircle2,
   Inbox,
+  Gauge,
+  Lightbulb,
+  CalendarRange,
 } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
@@ -39,6 +42,27 @@ export default async function OverviewPage() {
   const openActions = snapshot?.actions.filter((a) => a.count > 0) ?? [];
 
   const cards = [
+    {
+      icon: Gauge,
+      title: 'Marketing Intelligence',
+      body: 'One score for overall marketing health, plus the specific issues behind it and what to fix first.',
+      cta: 'Open the dashboard',
+      href: '/dashboard/intelligence',
+    },
+    {
+      icon: Lightbulb,
+      title: 'Marketing Advisor',
+      body: 'Campaign opportunities drawn from what your competitors actually did and what your market is discussing.',
+      cta: 'See opportunities',
+      href: '/dashboard/advisor',
+    },
+    {
+      icon: CalendarRange,
+      title: 'Marketing Planner',
+      body: 'Turn your goals, objectives, and brand rules into a dated monthly content calendar.',
+      cta: 'Build a plan',
+      href: '/dashboard/planner',
+    },
     {
       icon: Linkedin,
       title: 'Connect LinkedIn',
@@ -153,6 +177,13 @@ export default async function OverviewPage() {
                 </div>
               </div>
             )}
+
+            {/* The unified health view is the natural next click from here. */}
+            <Button asChild variant="outline" size="sm" className="mt-3">
+              <Link href="/dashboard/intelligence">
+                <Gauge className="h-4 w-4" /> See your marketing health score
+              </Link>
+            </Button>
 
             {snapshot.trend && (
               <Link

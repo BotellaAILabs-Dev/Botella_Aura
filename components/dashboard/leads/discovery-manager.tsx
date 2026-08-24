@@ -2,7 +2,15 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Play, Trash2, Radar, Clock } from 'lucide-react';
+import {
+  Plus,
+  Play,
+  Trash2,
+  Radar,
+  Clock,
+  Gauge,
+  AlertTriangle,
+} from 'lucide-react';
 import { toast } from '@/components/ui/toaster';
 import {
   Card,
@@ -19,6 +27,8 @@ import { Badge } from '@/components/ui/badge';
 export interface DiscoveryProfileRow {
   id: string;
   name: string;
+  /** Requirement label stamped on every lead this profile discovers. */
+  category: string | null;
   criteria: {
     industries?: string[];
     companyStages?: string[];
@@ -46,8 +56,39 @@ function nextRunLabel(lastRunAt: string | null): string {
   });
 }
 
+interface EstimatedSource {
+  id: string;
+  label: string;
+  willRun: boolean;
+  reason?: string;
+}
+
+interface DiscoveryEstimate {
+  profileName: string;
+  category: string;
+  sources: EstimatedSource[];
+  expectedResults: { min: number; max: number };
+  expectedNewLeads: { min: number; max: number };
+  estimatedSeconds: { min: number; max: number };
+  usage: {
+    aiEnabled: boolean;
+    model: string;
+    estimatedAiCalls: { min: number; max: number };
+    estimatedTokens: { min: number; max: number };
+    note: string;
+  };
+  existingLeads: number;
+  basedOnHistory: boolean;
+  warnings: string[];
+}
+
+function seconds(n: number): string {
+  return n >= 90 ? `${Math.round(n / 60)} min` : `${n}s`;
+}
+
 const EMPTY = {
   name: '',
+  category: '',
   industries: '',
   companyStages: '',
   roleTitles: '',
@@ -67,6 +108,9 @@ export function DiscoveryManager({
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [runningId, setRunningId] = useState<string | null>(null);
+  /** Pre-run estimates, keyed by profile id. */
+  const [estimates, setEstimates] = useState<Record<string, DiscoveryEstimate>>({});
+  const [estimatingId, setEstimatingId] = useState<string | null>(null);
 
   async function create() {
     if (form.name.trim().length < 2) {
@@ -80,6 +124,7 @@ export function DiscoveryManager({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: form.name,
+          category: form.category.trim() || undefined,
           autoRun: form.autoRun,
           criteria: {
             industries: toList(form.industries),
@@ -103,6 +148,26 @@ export function DiscoveryManager({
     }
   }
 
+  /**
+   * Fetch what a run would actually produce before spending time and tokens on
+   * it. Nothing runs here - this is read-only.
+   */
+  async function estimate(id: string) {
+    setEstimatingId(id);
+    try {
+      const res = await fetch(`/api/leads/discovery/profiles/${id}/estimate`);
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(b.error ?? 'Could not estimate this run.');
+        return;
+      }
+      const data = (await res.json()) as DiscoveryEstimate;
+      setEstimates((prev) => ({ ...prev, [id]: data }));
+    } finally {
+      setEstimatingId(null);
+    }
+  }
+
   async function run(id: string) {
     setRunningId(id);
     try {
@@ -114,13 +179,16 @@ export function DiscoveryManager({
         leadsCreated?: number;
         leadsFound?: number;
         skipped?: string[];
+        category?: string;
       };
       if (!res.ok) {
         toast.error(data.error ?? 'Discovery run failed.');
         return;
       }
       toast.success(
-        `Found ${data.leadsFound ?? 0} candidate(s), added ${data.leadsCreated ?? 0} new lead(s).`,
+        `Found ${data.leadsFound ?? 0} candidate(s), added ${data.leadsCreated ?? 0} new lead(s)` +
+          (data.category ? ` under “${data.category}”.` : '.') +
+          ' They are on the Leads page and the Outreach board.',
       );
       if (data.skipped?.length) {
         toast.message?.('Some sources were skipped', {
@@ -159,13 +227,28 @@ export function DiscoveryManager({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>Profile name</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="AI devtool founders, seed–Series A"
-              />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Requirement name</Label>
+                <Input
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="AI devtool founders, seed–Series A"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Lead category</Label>
+                <Input
+                  value={form.category}
+                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  placeholder="e.g. Distillery, Liquor Store, Head of Marketing"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Every lead this requirement finds is filed under this label, so
+                  results from different requirements never get mixed together.
+                  Defaults to the requirement name.
+                </p>
+              </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Industries / keywords topics">
@@ -216,13 +299,15 @@ export function DiscoveryManager({
                 (runs every 7 days; you review each result before any outreach)
               </span>
             </label>
-            {/* Set expectations before the first run. */}
+            {/* Saved profiles get a precise, per-profile estimate below. */}
             <p className="rounded-md border border-border bg-muted/30 p-2.5 text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">What to expect:</span> a
-              run typically takes ~20–60 seconds and surfaces a handful of
-              candidates (often 3–15), depending on how specific your criteria are
-              and which sources have keys. Broader criteria = more results. Nothing
-              is contacted automatically.
+              <span className="font-medium text-foreground">Before you run:</span>{' '}
+              once saved, press{' '}
+              <span className="font-medium text-foreground">Estimate</span> on the
+              profile to see the expected number of results, how long the run will
+              take, and what it will cost in AI usage — computed from your criteria,
+              the sources you have connected, and this profile’s own run history.
+              Nothing is contacted automatically.
             </p>
             <div>
               <Button onClick={create} loading={saving}>
@@ -241,9 +326,15 @@ export function DiscoveryManager({
             <Card key={p.id}>
               <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Radar className="h-4 w-4 text-primary" />
                     <span className="font-medium">{p.name}</span>
+                    <Badge
+                      variant="outline"
+                      title="Leads from this requirement are filed under this label"
+                    >
+                      {p.category ?? p.name}
+                    </Badge>
                     {p.autoRun && <Badge variant="secondary">Weekly</Badge>}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -268,6 +359,14 @@ export function DiscoveryManager({
                   <div className="flex items-center gap-2">
                     <Button
                       size="sm"
+                      variant="outline"
+                      onClick={() => estimate(p.id)}
+                      loading={estimatingId === p.id}
+                    >
+                      <Gauge className="h-4 w-4" /> Estimate
+                    </Button>
+                    <Button
+                      size="sm"
                       onClick={() => run(p.id)}
                       loading={runningId === p.id}
                     >
@@ -279,10 +378,121 @@ export function DiscoveryManager({
                   </div>
                 )}
               </CardContent>
+
+              {/* What this run will actually produce, before you spend on it. */}
+              {estimates[p.id] && (
+                <div className="border-t border-border px-4 pb-4 pt-3">
+                  <EstimatePanel estimate={estimates[p.id]!} />
+                </div>
+              )}
             </Card>
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+/** Expected results, run time, and AI usage for one discovery profile. */
+function EstimatePanel({ estimate }: { estimate: DiscoveryEstimate }) {
+  const running = estimate.sources.filter((s) => s.willRun);
+  const off = estimate.sources.filter((s) => !s.willRun);
+
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Stat
+          label="Expected results"
+          value={
+            estimate.expectedResults.min === estimate.expectedResults.max
+              ? `${estimate.expectedResults.max}`
+              : `${estimate.expectedResults.min}–${estimate.expectedResults.max}`
+          }
+          hint={`${estimate.expectedNewLeads.min}–${estimate.expectedNewLeads.max} new after de-duplication`}
+        />
+        <Stat
+          label="Processing time"
+          value={`${seconds(estimate.estimatedSeconds.min)}–${seconds(
+            estimate.estimatedSeconds.max,
+          )}`}
+          hint={
+            estimate.basedOnHistory
+              ? 'Based on this profile\u2019s past runs'
+              : 'Estimate \u2014 refines after the first run'
+          }
+        />
+        <Stat
+          label="AI usage"
+          value={
+            estimate.usage.aiEnabled
+              ? `${estimate.usage.estimatedAiCalls.min}–${estimate.usage.estimatedAiCalls.max} calls`
+              : 'None'
+          }
+          hint={
+            estimate.usage.aiEnabled
+              ? `~${estimate.usage.estimatedTokens.min.toLocaleString()}–${estimate.usage.estimatedTokens.max.toLocaleString()} output tokens · ${estimate.usage.model}`
+              : 'No AI provider configured'
+          }
+        />
+      </div>
+
+      <p className="text-muted-foreground">{estimate.usage.note}</p>
+
+      <div className="flex flex-wrap gap-1.5">
+        {running.map((s) => (
+          <Badge key={s.id} variant="success" title="Will run">
+            {s.label}
+          </Badge>
+        ))}
+        {off.map((s) => (
+          <Badge key={s.id} variant="muted" title={s.reason}>
+            {s.label} — off
+          </Badge>
+        ))}
+      </div>
+
+      {estimate.warnings.length > 0 && (
+        <ul className="space-y-1">
+          {estimate.warnings.map((w) => (
+            <li key={w} className="flex items-start gap-1.5 text-muted-foreground">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              {w}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="text-muted-foreground">
+        Results are filed under{' '}
+        <span className="font-medium text-foreground">{estimate.category}</span>
+        {estimate.existingLeads > 0 && (
+          <>
+            {' '}
+            · {estimate.existingLeads} lead
+            {estimate.existingLeads === 1 ? '' : 's'} already found by this
+            requirement (these are de-duplicated, not re-created)
+          </>
+        )}
+        .
+      </p>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-muted/30 p-2.5">
+      <p className="uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-0.5 text-base font-semibold text-foreground">{value}</p>
+      <p className="text-muted-foreground">{hint}</p>
     </div>
   );
 }

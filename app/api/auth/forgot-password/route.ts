@@ -1,8 +1,10 @@
 import { forgotPasswordSchema } from '@/lib/validations/auth';
 import { createPasswordResetToken } from '@/server/services/auth-token.service';
 import { sendPasswordResetEmail } from '@/lib/email';
+import { absoluteUrl } from '@/lib/app-url';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 import { rateLimit, clientIp } from '@/lib/rate-limit';
+import { logger } from '@/lib/logger';
 
 /**
  * POST /api/auth/forgot-password — begin the reset flow.
@@ -21,9 +23,19 @@ export async function POST(req: Request) {
 
     const { rawToken } = await createPasswordResetToken(email);
     if (rawToken) {
-      const base = process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
-      const resetUrl = `${base}/reset-password?token=${rawToken}`;
-      await sendPasswordResetEmail(email, resetUrl);
+      const resetUrl = absoluteUrl(
+        `/reset-password?token=${encodeURIComponent(rawToken)}`,
+      );
+      const delivery = await sendPasswordResetEmail(email, resetUrl);
+      // We still answer with the same neutral message (no account enumeration),
+      // but a real delivery failure must be visible in the server log.
+      if (!delivery.delivered) {
+        logger.error('forgot-password: reset email was not delivered', {
+          transport: delivery.transport,
+          notConfigured: Boolean(delivery.notConfigured),
+          error: delivery.error,
+        });
+      }
     }
 
     return jsonOk({

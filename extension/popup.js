@@ -62,8 +62,30 @@ $('save').addEventListener('click', async () => {
 
 $('saveApi').addEventListener('click', async () => {
   const apiBase = $('apiBase').value.trim();
-  await msg({ type: 'AURA_SET_CONFIG', apiBase });
+  const res = await msg({ type: 'AURA_SET_CONFIG', apiBase });
+  if (res && res.hasPermission === false) {
+    setMsg(
+      'Saved. Chrome has not granted access to this URL yet — press "Grant access to this URL".',
+      true,
+    );
+    return;
+  }
   setMsg('Saved.', false);
+});
+
+// Requesting an optional host permission must happen inside a user gesture,
+// which is why this lives on a button rather than running automatically.
+$('grant').addEventListener('click', async () => {
+  const apiBase = $('apiBase').value.trim();
+  if (!apiBase) return setMsg('Enter your Botella Aura URL first.', true);
+  const res = await msg({ type: 'AURA_REQUEST_PERMISSION', apiBase });
+  if (!res || !res.granted) {
+    return setMsg(
+      (res && res.error) || 'Access was not granted — the extension cannot reach that URL.',
+      true,
+    );
+  }
+  setMsg('Access granted. You can pair now.', false);
 });
 
 $('disconnect').addEventListener('click', async () => {

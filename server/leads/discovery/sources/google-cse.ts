@@ -10,14 +10,16 @@ import type { DiscoveryCriteria, DiscoveredLead } from '@/server/leads/discovery
  */
 export async function discoverViaSearch(
   criteria: DiscoveryCriteria,
+  credentials?: { apiKey?: string | null; cx?: string | null },
 ): Promise<{ leads: DiscoveredLead[]; skipped?: string }> {
-  const key = process.env.GOOGLE_CSE_API_KEY;
-  const cx = process.env.GOOGLE_CSE_CX;
+  // Workspace connector first, deployment env second.
+  const key = credentials?.apiKey || process.env.GOOGLE_CSE_API_KEY;
+  const cx = credentials?.cx || process.env.GOOGLE_CSE_CX;
   if (!key || !cx) {
     return {
       leads: [],
       skipped:
-        'google-cse: GOOGLE_CSE_API_KEY / GOOGLE_CSE_CX not set — web search off.',
+        'google-cse: no API key / search engine id — connect Google Custom Search in Connectors to turn on web search.',
     };
   }
 

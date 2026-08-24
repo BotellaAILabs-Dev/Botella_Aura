@@ -53,6 +53,19 @@ export interface ChangesSummary {
   skipped: string[];
   model: string;
   capturedAt: string; // ISO
+  /**
+   * True on the very first capture of a competitor. There is nothing to diff
+   * against yet, so `hasChanges` is necessarily false — which is why a brand-new
+   * competitor used to produce a completely empty weekly report. We capture
+   * `baseline` instead, so the first report says what the competitor currently
+   * claims rather than "no activity".
+   */
+  isBaseline?: boolean;
+  /** What the pages say right now, summarized. Only set on a baseline capture. */
+  baseline?: {
+    homepage?: string;
+    pricing?: string;
+  };
 }
 
 /** One competitor's section within a weekly report. */
@@ -63,11 +76,32 @@ export interface CompetitorReportEntry {
   pricingChanges: string[];
   notableActivity: string[];
   strategicTakeaway: string;
+  /**
+   * Why this section looks the way it does. Without it, an empty week and a
+   * broken pipeline are indistinguishable in the UI.
+   */
+  coverage?: CompetitorCoverage;
+}
+
+/** Per-competitor transparency about what was actually checked this week. */
+export interface CompetitorCoverage {
+  /** How many snapshots were captured in the report window. */
+  snapshots: number;
+  /** Sources we successfully read (e.g. "homepage", "news", "github"). */
+  checked: string[];
+  /** Sources skipped, with the reason (e.g. "github: org not found"). */
+  skipped: string[];
+  /** True when the only capture in the window was the first-ever baseline. */
+  baselineOnly: boolean;
+  /** ISO timestamp of the most recent capture, if any. */
+  lastCapturedAt?: string;
 }
 
 /** The full weekly report payload persisted on CompetitorReport.payload. */
 export interface CompetitorReportPayload {
   competitors: CompetitorReportEntry[];
+  /** True when no competitor has been tracked yet (nothing to report on). */
+  noCompetitors?: boolean;
   /** Overall "what this means for you" synthesis across all competitors. */
   synthesis: string;
   weekStart: string; // ISO date

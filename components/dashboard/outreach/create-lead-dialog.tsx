@@ -18,7 +18,12 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 
-export function CreateLeadDialog() {
+export function CreateLeadDialog({
+  categories = [],
+}: {
+  /** Existing requirement labels, offered so manual leads stay grouped too. */
+  categories?: string[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -27,6 +32,7 @@ export function CreateLeadDialog() {
     name: '',
     title: '',
     linkedInProfileUrl: '',
+    category: '',
   });
 
   const urlInfo = form.linkedInProfileUrl.trim()
@@ -55,7 +61,13 @@ export function CreateLeadDialog() {
         return;
       }
       toast.success('Lead added.');
-      setForm({ companyName: '', name: '', title: '', linkedInProfileUrl: '' });
+      setForm({
+        companyName: '',
+        name: '',
+        title: '',
+        linkedInProfileUrl: '',
+        category: '',
+      });
       setOpen(false);
       router.refresh();
     } finally {
@@ -116,6 +128,25 @@ export function CreateLeadDialog() {
                 )}
               </p>
             )}
+          </div>
+          {/* Keep manual leads in the same requirement buckets as discovered ones. */}
+          <div className="space-y-1.5">
+            <Label>Requirement / category</Label>
+            <Input
+              list="lead-categories"
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+              placeholder="e.g. Distillery, Liquor Store, Head of Marketing"
+            />
+            <datalist id="lead-categories">
+              {categories.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+            <p className="text-xs text-muted-foreground">
+              Optional. Leads keep this label everywhere, so results from different
+              requirements never get mixed together.
+            </p>
           </div>
         </div>
         <DialogFooter>

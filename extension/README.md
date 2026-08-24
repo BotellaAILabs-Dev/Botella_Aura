@@ -58,23 +58,41 @@ origin you paired from. To set it manually, use the popup's **Advanced → Botel
 Aura URL** field. For a published extension, pin the allowed origin server-side
 with `EXTENSION_ALLOWED_ORIGIN`.
 
+Chrome will only let the extension call an origin it has permission for.
+`manifest.json` pre-approves `localhost:3000` plus the usual deploy hosts
+(`*.vercel.app`, `*.netlify.app`, `*.up.railway.app`, `*.botella.ai`). For any
+other domain, open the popup → **Advanced** → **Grant access to this URL**; that
+requests the optional host permission and registers the pairing content script
+for that origin, so **Send to extension** works there too.
+
+## Install without the Chrome Web Store (how reviewers test it today)
+
+Every deploy packages this folder into a downloadable zip and serves it from the
+app itself:
+
+1. In Botella Aura, go to **Settings → Browser extension**.
+2. Press **Download extension (.zip)** and unzip it.
+3. Open `chrome://extensions` (or `edge://extensions`) → enable **Developer
+   mode** → **Load unpacked** → pick the unzipped folder.
+4. Back in Settings, generate a token and press **Send to extension**.
+
+That is the full end-to-end path — no store listing required.
+
 ## Build / packaging
 
 v1 is plain JS/CSS with **no bundler** — load the folder directly. To produce a
 distributable zip:
 
 ```bash
-cd extension && npm run zip     # → botella-aura-extension.zip
+pnpm ext:package      # → public/downloads/botella-aura-extension.zip
 ```
 
-## Production build & Chrome Web Store submission
+This runs automatically as part of `pnpm build`, so the download offered in the
+app always matches the deployed build. The packager is dependency-free Node, so
+it works on Windows, macOS, Linux, and in CI (the old `npm run zip` script
+shelled out to PowerShell and only ran on Windows).
 
-v1 is plain JS/CSS with no bundler, so the "production build" is just a zip of the
-loadable folder:
-
-```bash
-cd extension && npm run zip     # → botella-aura-extension.zip
-```
+## Chrome Web Store submission
 
 Before submitting to the Chrome Web Store (a manual, one-time step outside this
 repo), check:
@@ -83,8 +101,9 @@ repo), check:
       the published extension id, and set the extension's default API base to the
       production URL (popup → Advanced, or bake it into `background.js`).
 - [ ] **Host permissions** — `manifest.json` requests only `*.linkedin.com` and
-      the Botella Aura origin(s). Replace the `localhost` host with your
-      production domain for the store build.
+      the Botella Aura origin(s), plus `optional_host_permissions` for
+      user-granted custom domains. Drop the `localhost` host for the store build
+      and add your production domain.
 - [ ] **Icons** — add 16/48/128px PNG icons and reference them in `manifest.json`
       (`icons` + `action.default_icon`). The store requires them.
 - [ ] **Privacy policy URL** + a clear store description of the single narrow

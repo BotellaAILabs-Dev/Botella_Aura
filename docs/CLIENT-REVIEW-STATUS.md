@@ -1,137 +1,351 @@
-# Botella Aura — Client Review: Status, Remaining Work & Blockers
+# Botella Aura — Consolidated Client Feedback: Status
 
-> Tracks every item from the product-feedback review: what's **done**, what's
-> **remaining** (and why it isn't done yet), what's **blocked** (and by what), and
-> the **action** + **owner** for each. Grounded in what's actually shipped and
-> deployed.
+> Tracks every item from the consolidated feedback (Phases 1–3): what's **done**,
+> what's **remaining** (and why), what's **blocked** (and by what), and the
+> **action** + **owner** for each.
 >
 > **Owner** = who has to act: **Us** (engineering) · **You** (client — accounts,
 > approvals, keys, decisions) · **Both**.
 > **Status:** ✅ done · 🟡 partial · ⬜ not started · 🔴 blocked.
-> **Effort:** S ≤1 day · M 2–4 days · L 1–2 weeks.
 
-**Guiding principle (yours):** fix broken flows → make the workflow visible → polish.
-
----
-
-## 📌 Latest update (this batch)
-
-Shipped and deployed since the last review — moving many items from ⬜/🟡 to ✅:
-
-- **Dashboard — actionable items first** ✅ (live "Action needed" panel).
-- **Demo data** ✅ (connected, labeled sample story; `pnpm db:seed:demo`).
-- **Outreach status progression** ✅ (visible Draft→Pending→Approved→Queued→Sent stepper).
-- **Outreach sequence labels** ✅ (connection note first, numbered follow-ups, order shown).
-- **Marketing Memory correction** ✅ (edit wording or dismiss any insight).
-- **Content CTA/hashtags** ✅ (hashtags shown as a separate labeled block; publishing note present).
-- **Trend enhancements** ✅ AI summary + weekly recommendations, trending hashtags, seasonal/event moments, competitor mentions. (Forecasting still data-gated; save/monitor optional.)
-- **P2/P3 polish** ✅ LinkedIn URL validation (person vs company), discovery "what to expect" + next auto-run date, "Signals · Msgs" clarified, Crunchbase key guidance, engagement-target examples, role tooltips, trend refresh/zero-result copy.
-
-**Still open:** trend forecasting (needs accumulated history), save & monitor trends (optional, no-migration path available), real connector OAuth, and the three external blockers below (Chrome Web Store, LinkedIn API approval, live analytics/Crunchbase key).
+**Guiding principle (yours):** stabilise core workflows → then AI features →
+then the broader marketing-intelligence layer. That is the order this batch was
+built in.
 
 ---
 
-## 1. ✅ Already shipped (live on the deploy)
+## 📌 Summary of this batch
 
-| Area | Item | Notes |
-|------|------|-------|
-| Dashboard | Rename Overview → **Dashboard** | ✅ |
-| Dashboard | **Create Workspace** now works | Was routing existing users back to the app; fixed with a real "new workspace" flow. |
-| Team | **Invite teammates + roles** (Owner/Admin/Member/**Viewer**) | Email invite, accept flow, role change, remove, last-owner guard. |
-| Team | **Invitation status + Resend** | Pending/Expired badges + Resend with confirmation. |
-| Connectors | **Connectors module** + 24 integrations listed | Available (LinkedIn) vs Coming-soon shown clearly. |
-| Trends | Rename → **AI Trend Insights** | ✅ |
-| Trends | **Geo filters** (country/region/city/language/time range) | Live-verified US vs GB return different results. |
-| Content | **Campaign selector** fixed | No dead "— none —"; empty-state + disable when none. |
-| Content | Speed + accuracy | Lower effort for short posts; live-fetch a URL in the brief; retrieve more grounding. |
-| Leads | **Fit score X/100 + "why"** | Grounded in the lead's real rationale. |
-| Leads | **Company vs Contact** separated | Company-only leads clearly marked. |
-| Onboarding | Website validation, industry autocomplete, **tone chips**, **live brand-voice preview** | ✅ |
-| Extension | **Internal/Beta** label | Honest framing until store submission. |
-| Email | **SMTP + Resend** transports | Auto-activates when a key is set. |
-| KB | PDF upload hardened | Clear errors, size guard, Node runtime. |
-| Copy | Removed internal "Sprint" terms | ✅ |
+All three phases are implemented. Nine of the twenty items needed a real bug fix
+rather than a feature; those are described with their root cause below, because
+several were not what they looked like from the outside.
+
+Two items remain gated on things only you can provide (a Google developer
+account for the Chrome Web Store, and LinkedIn's API approval). Everything else
+works now, and the two gated items have working alternatives in-product today.
 
 ---
 
-## 2. ⬜ Remaining — doable now, no external blocker (Owner: Us)
+## Phase 1 — Critical / Core Functionality
 
-These need **engineering time only** — no keys, no approvals.
+| # | Item | Status | Owner |
+|---|------|--------|-------|
+| 1.1 | Invitation email delivery | ✅ Fixed | Us + **your** mail credentials |
+| 1.2 | Browser extension available for testing | ✅ Fixed | Us |
+| 1.3 | Leads → Outreach | ✅ Fixed | Us |
+| 1.4 | Engagement targets not persisting | ✅ Fixed | Us |
+| 1.5 | Lead categorization by requirement | ✅ Done | Us |
+| 1.6 | AI Trend Insights — "Something went wrong" | ✅ Fixed | Us |
+| 1.7 | AI Competitor Intelligence — "No activities found" | ✅ Fixed | Us |
 
-| # | Item (from review) | Status | Effort | Why not done yet / what to do |
-|---|--------------------|--------|--------|-------------------------------|
-| R1 | **Demo/sample data** (Trend→Content→Campaign→Leads→Outreach→Analytics, labeled) | ⬜ | M | Needs a decision on scope (below) then a seed script that creates connected, clearly-labeled "Sample" records without touching real workspaces. **Highest first-impression value.** |
-| R2 | **Dashboard: actionable items first** (leads found, drafts awaiting approval, pending outreach) | ⬜ | M | Overview page currently shows generic cards. Build a real "what needs you now" panel from our own data. |
-| R3 | **Outreach status progression** (Draft→Pending→Approved→Queued→Sent) | 🟡 | M | We have Draft/Pending/Approved/Sent; add a visible "Queued" (extension queue) state + a progress stepper on each message. |
-| R4 | **Outreach sequence** — label connection notes vs follow-ups + order | ⬜ | S–M | Message `type` exists; surface "Connection note" vs "Follow-up #n" + ordering in the UI. |
-| R5 | **Content output** — separate CTA / hashtags; clarify publishing limits | 🟡 | S | Schemas already separate `hashtags`; display them distinctly and add a one-line "what auto-publishes vs copy-paste" note. |
-| R6 | **Marketing Memory** — correct/edit individual learned insights | ⬜ | M | Add edit/dismiss on `MarketingMemory` rows + a small UI. Trust feature. |
-| R7 | **"Show what Aura learned"** after brand-voice analysis | ⬜ | S | Surface the stored Brand Voice Profile in a readable card post-onboarding. |
-| R8 | **Trend refresh frequency** + zero-result explanation | ⬜ | S | Copy: explain daily refresh + "no results" behavior on the Trends page. |
-| R9 | **Lead Discovery** — expected results/time/usage before "Run now" | ⬜ | S | Copy + a pre-run note. |
-| R10 | **Auto-run weekly** — show next scheduled date | ⬜ | S | Compute + display next run. |
-| R11 | **"Signals: 0 · 0 msg"** — clarify empty vs broken | ⬜ | S | Copy/empty-state fix. |
-| R12 | **LinkedIn URL validation** + person vs company page distinction | ⬜ | S–M | Validate format; detect `/in/` (person) vs `/company/` (page). |
-| R13 | **Engagement target examples** | ⬜ | S | Add example placeholders/help. |
-| R14 | **Role tooltips** (Owner/Admin/Member/Viewer) | ⬜ | S | Hover explanations in the team UI. |
-| R15 | **Connectors: Available vs Coming Soon** alignment | ✅/🟡 | S | Already shown; keep sales messaging aligned. Add the "future: status/reconnect/sync history" as labeled roadmap. |
-| R16 | **Campaign Orchestrator** — populate + test one full campaign E2E | 🟡 | M | Engine exists; needs demo data (R1) + a QA pass to prove goal→calendar→content→leads→outreach→analytics. |
+### 1.1 Invitation email delivery — the UI was lying
 
-### Trend "Additional Enhancements" (Owner: Us; a few are large)
-| # | Item | Status | Effort | Notes |
-|---|------|--------|--------|-------|
-| T1 | Industry-specific trending topics | 🟡 | S | Bias queries by industry (we have it) — small tuning. |
-| T2 | Trending **hashtags** | ⬜ | M | Derive from trend items + Claude; no API. |
-| T3 | **Seasonal / event-based** trends | ⬜ | M | Needs the curated **awareness-days dataset** (we build it, no API). |
-| T4 | AI trend **summary + recommendations** | 🟡 | S | Digest already has per-item "why + angle"; add a top-level summary. |
-| T5 | **Competitor trend comparison** | ⬜ | M | Uses our competitor tracking + Claude. |
-| T6 | **Save & monitor** trends for later | ⬜ | M | New "saved trends" model + UI. |
-| T7 | **Trend forecasting** (emerging trends) | 🔴* | L | *Not blocked by an API, but blocked by **time-series data we don't have yet** — forecasting needs weeks of accumulated trend history. Build the collector now; forecasting becomes meaningful once data accrues. |
+**Root cause.** `sendEmail()` caught every failure and silently fell back to
+writing the message to the server log, then returned success either way. With no
+mail provider configured — or with one that rejected the message — the UI showed
+"Mail Sent / Pending" while nothing ever left the building.
+
+**Fixed.**
+- `sendEmail()` now returns a truthful result (`delivered`, `transport`,
+  `error`, `notConfigured`) and never reports a send that did not happen.
+- The real outcome is persisted per invitation (`emailStatus`,
+  `emailTransport`, `emailError`, `emailSentAt`) and shown in the team list as
+  **Email delivered** / **Email failed** / **Email not sent**, with the
+  provider's own error text.
+- When delivery does not happen, the invite still works: a **Copy invite link**
+  button and the full link appear inline, so onboarding is never blocked by a
+  mail outage.
+- New **Settings → Email delivery** panel: shows which transport is active, what
+  is missing, and a **Send test email to me** button that reports the real
+  provider response. This is how you verify the setup without guessing.
+- Invite/reset links now resolve their base URL from `APP_URL` → `NEXTAUTH_URL`
+  → the platform URL → the request host, instead of only `NEXTAUTH_URL`
+  (which is why links could point at `localhost`). The panel warns when the
+  resolved URL is local.
+- Emails now send HTML as well as plain text.
+- Covered by tests (`tests/email-delivery.test.ts`) that specifically assert a
+  failed send is never reported as success.
+
+**Needs from you:** set `RESEND_API_KEY` + `EMAIL_FROM`, **or** the `SMTP_*`
+variables, on the deployment (5 minutes — see `.env.example`). Until then the
+app now says plainly that email is not configured, rather than claiming
+delivery.
+
+### 1.2 Browser extension — installable and testable now
+
+**Root cause.** The extension's `manifest.json` only granted host permissions
+for `http://localhost:3000`. Against the deployed app, Chrome blocked every API
+call and the pairing content script never ran — so it genuinely could not be
+tested end-to-end anywhere but a developer's laptop.
+
+**Fixed.**
+- Manifest now covers the real deploy hosts (`*.vercel.app`, `*.netlify.app`,
+  `*.up.railway.app`, `*.botella.ai`) plus `optional_host_permissions` for any
+  custom domain, with a **Grant access to this URL** button in the popup that
+  requests it and registers the pairing script for that origin.
+- Failed calls now distinguish "the app is unreachable" from "Chrome blocked
+  this origin" — previously identical, and fixed in opposite ways.
+- Every deploy now packages the extension into a downloadable
+  `.zip` (`scripts/package-extension.mjs`, dependency-free and cross-platform;
+  the old packaging script was PowerShell-only and never ran in CI).
+- **Settings → Browser extension** now has a **Download extension (.zip)**
+  button and five-step sideload instructions.
+
+**Result:** the extension can be installed and tested end-to-end today without a
+store listing. Publishing to the Chrome Web Store still needs **your** Google
+developer account (+ one-time $5 fee) and Google's review — see Blockers.
+
+### 1.3 Leads → Outreach
+
+**What we found.** Both pages already read the same `Lead` table, so leads
+*were* on the Outreach board — but nothing in the UI said so, discovered leads
+sat at status `NEW` with no obvious next step, and there was no way to see which
+requirement a lead came from. Functionally present, practically invisible.
+
+**Fixed.**
+- Explicit hand-off: select leads on the Leads page → **Send to Outreach**. It
+  qualifies them and lands you on the Outreach board already filtered to that
+  requirement.
+- The Leads page states the pipeline in-product: *Lead requirement → Fetch leads
+  → Leads → Outreach*, and says every lead is already on the Outreach board.
+- The Outreach board shows counts and provenance ("12 leads — 8 from lead
+  discovery") and carries the same requirement filter as Leads.
+- Both pages render dynamically, so a discovery run's results are never served
+  from a stale cache.
+- Both read through one `listLeads()` function, so a lead visible in one is
+  guaranteed visible in the other by construction.
+
+### 1.4 Engagement targets not persisting
+
+**What we found.** Targets were being stored correctly. The Engagement page
+never listed them — it mentioned a count inside a paragraph — and when there
+were no comments yet it showed "No comments yet — add profiles to monitor in
+settings", which reads exactly like the targets were gone.
+
+**Fixed.** Targets are now listed and managed directly on the Engagement page,
+with an "N saved to your workspace" confirmation and the date each was added.
+The empty state now distinguishes "no comments yet, monitoring 3 profiles" from
+"nothing set up".
+
+### 1.5 Lead categorization
+
+- Discovery requirements now carry a **Lead category** (e.g. *Distillery*,
+  *Liquor Store*, *Head of Marketing*), defaulting to the requirement name.
+- Every discovered lead is stamped with that category at creation. It is stored
+  on the lead itself, so it survives renaming or deleting the requirement.
+- Existing leads were backfilled from their discovery profile in the migration —
+  nothing is left uncategorised after the upgrade.
+- Filter **and** group by requirement on the Leads page, filter by requirement on
+  the Outreach board, requirement shown on the lead detail page and on each
+  outreach card, and manual leads can be filed into the same buckets.
+
+### 1.6 AI Trend Insights — "Something went wrong"
+
+**Root cause — two independent faults.**
+1. `/api/trends/refresh` had no `maxDuration`, while every other long-running
+   route in the app declares one. Digest generation fans out across every
+   configured source and makes two model calls, so it routinely ran past the
+   platform's default 10–15 s function budget; the request was killed and the UI
+   showed the generic 500 message.
+2. Digests are stored as JSON. Digests written by earlier builds lack fields the
+   current page reads, and `payload.skippedSources.length` threw during render —
+   taking the whole page down, because the app had **no error boundary at all**.
+
+**Fixed.** The route declares a 300 s budget and returns the actual failure
+reason instead of a generic 500. Stored payloads are normalized before render, so
+an old digest degrades to "fewer sections" rather than a crash
+(`tests/digest-payload.test.ts`). Error boundaries were added at
+`/app/error.tsx` and `/app/dashboard/error.tsx`, so no future render failure can
+produce an unattributed error screen again.
+
+### 1.7 AI Competitor Intelligence — "No activities found"
+
+**Root cause.** This was a genuine result reported badly. The first capture of a
+competitor has no previous snapshot to diff against, so `hasChanges` is
+necessarily false — a freshly-added competitor always produced a completely
+empty report section, which is indistinguishable from a broken pipeline.
+
+**Fixed.**
+- The first capture now records a **baseline**: a factual summary of what the
+  competitor's homepage and pricing page say *today*. The first report has real
+  content instead of nothing.
+- Reports now include GitHub activity properly (recent pushes, not only tagged
+  releases — most orgs ship without tagging) and the captured news.
+- Every empty section now explains itself: what was checked, how many snapshots
+  exist in the window, when the last one was taken, and which sources were
+  unavailable and why.
+- The competitor list shows a **Baseline captured** badge with the positioning
+  summary, so the first run visibly did something.
 
 ---
 
-## 3. 🔴 Blocked — needs external accounts / approvals / keys (Owner: You or Both)
+## Phase 2 — Important Workflow & AI Features
 
-None of these are code problems. They need procurement or a third party.
+| # | Item | Status | Owner |
+|---|------|--------|-------|
+| 2.1 | Discover Leads — pre-run estimate | ✅ Done | Us |
+| 2.2 | LinkedIn profile validation | ✅ Done | Us |
+| 2.3 | Content Studio — campaign selection | ✅ Fixed | Us |
+| 2.4 | AI Marketing Advisor | ✅ Built | Us |
+| 2.5 | AI Marketing Planner | ✅ Built | Us |
+| 2.6 | Crunchbase targeting | ✅ Integrated | **You** (key) |
+| 2.7 | Connectors | ✅ Implemented | **Both** (app credentials) |
 
-| # | Item | Blocker | Owner | What to do |
-|---|------|---------|-------|------------|
-| B1 | **Chrome extension on the Web Store** | Needs **your Google developer account** (+ one-time $5 fee) and Google's review (days). We can't submit it. | **You** | Create/confirm the Chrome Web Store developer account; we prepare the listing + package and hand it over, or you submit. Until then it stays labeled Internal/Beta. |
-| B2 | **Real post performance** (Analytics "Performance" tiles, Coach data-mode) | Needs published-post metrics: **GA4 / LinkedIn / Meta APIs**, or the extension, or manual entry. | **Both** | Fix the extension (free metrics) and/or connect GA4 (easy). LinkedIn/Meta need apps + review. Manual entry works today. |
-| B3 | **LinkedIn publishing + company-page reads** | **LinkedIn Marketing / Community Management API approval** (weeks). | **You** | Start the LinkedIn app review **now** (long lead time). Until approved → "copy for manual posting" (already honest). |
-| B4 | **Real connector OAuth** (the 24 integrations) | Each integration = its own app registration + secrets (+ some need review). | **Both** | Pick **1–2 to build first** (GA4 + Meta Ad Library are easiest/free). We build them; you approve app registrations. |
-| B5 | **Crunchbase lead enrichment** | Needs a **Crunchbase API key** (paid). | **You** | Decide: buy a key, or we keep enrichment on the keyless/manual path and just add "key required" guidance (R-item). |
-| B6 | **Emails actually sending in production** | `RESEND_API_KEY`+`EMAIL_FROM` **or** `SMTP_*` not set in Vercel. | **You** | Set the email env vars in Vercel (5 min). Code is done; invites/resets log to console until then. |
-| B7 | **Semantic search / richer AI quality** | Optional embeddings service (pgvector + a small Python service). | **Us** | Not urgent; keyword retrieval works. Future upgrade. |
+### 2.1 Discover Leads — know before you run
+Press **Estimate** on any requirement to see, before spending anything:
+expected results and how many are new after de-duplication, processing time,
+and AI usage (model calls and output tokens). Nothing is invented — the numbers
+come from your criteria, which sources you actually have connected, and that
+requirement's own run history (and it says which). It also warns about
+criteria that would search nothing and sources that are switched off.
+
+### 2.2 LinkedIn profile validation
+URLs are validated and classified as **personal profile** (`/in/`) vs **company
+page** (`/company/`, `/school/`, `/showcase/`) wherever they are entered — leads,
+engagement targets, and competitors. Competitors additionally warn when a
+personal profile is entered where an organization page belongs.
+
+### 2.3 Content Studio — campaign selection
+With more than one campaign, nothing is auto-selected: the dropdown opens on
+"Select a campaign…" and generation is blocked until you choose. A single
+campaign still auto-selects (there is nothing to choose). Fixed because content
+was silently being filed against a campaign nobody picked.
+
+### 2.4 AI Marketing Advisor — new module (`/dashboard/advisor`)
+Campaign opportunities built from what your competitors actually did (30 days of
+snapshots), what your market is discussing (recent trend digests), what you have
+already published, and what Marketing Memory has learned.
+
+Two rules make it trustworthy: every opportunity **cites the specific
+observations it came from** (expandable on each card), and anything the model
+returns that does not trace back to a real observation is discarded. With no
+signal at all it says so and tells you what to connect — it does not invent
+plausible-sounding campaigns. Also lists **competitive gaps**: themes competitors
+are consistently active on where you are absent. Each content idea has a
+one-click **Draft** into Content Studio with the brief pre-filled.
+
+### 2.5 AI Marketing Planner — new module (`/dashboard/planner`)
+An explicit brief — business goals, campaign objectives, topics, audience, brand
+guidelines, channels, cadence — generates a **dated monthly content calendar**.
+
+The dates are computed by us (real weekdays of the requested month, spread to
+your cadence) and the model fills those slots; it cannot invent dates, which is
+what keeps "a monthly calendar" from degrading into a topic list. Each item has a
+theme, title, hook, full brief, CTA, hashtags, and the objective it serves, plus a
+one-click **Draft this** into Content Studio. Grounded in your brand voice
+profile, knowledge base, and current trends — it says which. Idempotent per
+month: regenerating replaces, never duplicates.
+
+### 2.6 Crunchbase targeting
+The official Crunchbase v4 integration is wired and now activates from the UI:
+**Connectors → Crunchbase → Add key**. The key is verified against Crunchbase
+before it is stored (encrypted at rest), and turns on funding/stage search in
+Lead Discovery plus funding signals in Outreach — for that workspace, with no
+redeploy. A deployment-wide `CRUNCHBASE_API_KEY` still works as a fallback.
+
+**Needs from you:** a Crunchbase API key (paid). Without one, the source reports
+itself as switched off rather than returning nothing silently.
+
+### 2.7 Connectors — no longer "Coming Soon"
+A real connector framework now backs the module:
+
+- **OAuth connectors implemented:** Google Analytics (GA4), Google Search
+  Console, HubSpot, Mailchimp, Slack. Full authorization-code flow with signed,
+  time-limited CSRF state, automatic token refresh, and post-connect
+  verification against the provider.
+- **API-key connectors implemented:** Crunchbase, Google Custom Search, GitHub.
+  Keys are verified with the provider *before* being saved — we never store a
+  credential we could not authenticate with.
+- All secrets encrypted at rest (AES-256-GCM) and never returned to the browser.
+- **Test connection** re-verifies live, so "Connected" means "working", not "was
+  working once".
+- Connectors that need one-time app credentials show **Needs setup** and name the
+  exact environment variables missing — instead of an indefinite "Coming soon".
+- Each card says what connecting actually unlocks inside Aura.
+- One accessor (`resolveCredential`) serves every feature, so connecting in the
+  UI has exactly the same effect as setting the key on the server.
+
+**Needs from you:** a one-time app registration per OAuth provider (client id +
+secret). Redirect URIs and variable names are documented in `.env.example`.
+Recommended order: **GA4** (free, highest value), then **Slack**.
 
 ---
 
-## 4. ❓ Decisions we need from you (unblocks the most)
+## Phase 3 — AI Marketing Intelligence Dashboard ✅
 
-1. **Demo data (R1):** build it? Should it auto-load **only** for a dedicated demo workspace (keeping real/new workspaces genuinely empty)? — *This is the single biggest "first impression" win.*
-2. **Chrome extension (B1):** do you submit to the Web Store, or hand us the developer account?
-3. **First connectors (B4):** which 1–2 matter most for the demo? (Recommend **GA4** + **Meta Ad Library** — free, easy.)
-4. **Crunchbase (B5):** buy a key, or keep keyless + guidance?
-5. **LinkedIn approval (B3):** can you start the Marketing API review now? (Long lead time — earlier is better.)
+New module at **`/dashboard/intelligence`**, also linked from the main dashboard.
+
+**Design rule throughout:** the scores are deterministic and computed from your
+real rows — the model is used only to turn them into advice, never to produce a
+number. The dashboard is fully functional with no AI provider configured. And
+anything that cannot be measured is reported as *not measured*, never as a zero:
+"no campaigns" and "campaigns that are failing" must not look the same.
+
+**Marketing Performance**
+- Campaign Performance — planned tasks that produced output, minus failures
+- Lead Generation Health — good-fit share **and** whether leads actually move
+  into outreach (a pile of unworked leads is not a healthy pipeline)
+- Competitor Visibility — how many competitors, and whether they are actually
+  being captured
+- Content Output — published vs drafted over 30 days
+- Outreach Conversion — accepted connections and replies per message sent
+- **Overall Marketing Score** — weighted across every area that had data, with
+  the contributing numbers named, plus movement since the last run
+
+**Content Intelligence** (scored from the writing itself, so a weak hook is
+visible *before* you publish)
+- AI Content Quality Score
+- Hook Strength Analysis — length, specificity, tension, filler openers
+- Readability Score — Flesch Reading Ease + grade level
+- CTA Effectiveness — presence, kind, and placement of the ask
+- Engagement Prediction — labelled as a forecast from the writing, and checked
+  against real measured engagement where we have it
+- Content Performance — measured engagement from real snapshots only
+- Per-piece breakdown, **worst first** — a work queue, not a leaderboard, with
+  "why this score" on every item
+
+**Brand Intelligence**
+- Brand Consistency Score — measured against your saved brand voice profile
+- Tone of Voice Validation — each descriptor tested by an objective proxy
+  ("concise" by sentence length, "no hype" by hype-word density, and so on), and
+  honest about descriptors it cannot test objectively
+- Vocabulary Recommendations — brand terms in use, terms defined but never used,
+  words the writing is drifting toward, and explicit topics-to-avoid violations
+- AI-generated improvement suggestions — ranked, each quoting the specific number
+  that triggered it, each with a concrete next step and a link to where to do it
+
+Snapshots are stored per day (`/api/cron/intelligence`, daily) so the movement
+indicator is meaningful, and the advisor refreshes weekly
+(`/api/cron/advisor`) — both protected by the existing `CRON_SECRET`.
 
 ---
 
-## 5. Recommended next order (fits "visible workflow → polish")
+## 🔴 Still blocked — needs your accounts / approvals
 
-**Next batch (Us, no blockers) — highest visible value:**
-1. **R1 Demo data** (pending your decision) — makes everything non-empty.
-2. **R2 Dashboard actionable items** — "what needs you now."
-3. **R3/R4 Outreach status progression + sequence labels** — makes the outreach flow legible.
-4. **R7 "What Aura learned" + R5 CTA/hashtag separation** — quick, visible.
-
-**Then polish batch (Us):** R8–R14 (mostly copy/validation/tooltips — fast, high-trust).
-
-**Trend enhancements (Us):** T3 seasonal (awareness dataset) + T4 summary + T2 hashtags + T6 save/monitor. Forecasting (T7) after data accrues.
-
-**In parallel (You):** B6 email env vars (5 min), B3 LinkedIn approval (start now), B1 Chrome dev account, B5 Crunchbase decision.
+| # | Item | Blocker | What to do | Workaround today |
+|---|------|---------|-----------|------------------|
+| B1 | Chrome Web Store listing | Needs **your** Google developer account (+ $5 one-time) and Google's review (days) | Create the account, or hand it to us with the listing assets | **None needed** — the extension is downloadable and sideloadable from Settings and fully testable |
+| B2 | LinkedIn publishing + company-page reads | LinkedIn Marketing API approval (weeks) | Start the app review now — the lead time is the whole problem | "Copy for manual posting" (already honest) |
+| B3 | Real post performance metrics | Needs published-post numbers | Use the extension's metric sync, connect GA4, or enter manually | Extension sync + manual entry both work |
+| B4 | OAuth connector credentials | One-time app registration per provider | Register GA4 first (free, highest value) | Connectors show exactly what's missing |
+| B5 | Crunchbase enrichment | Paid API key | Buy a key, then paste it in Connectors | Source reports itself off; other sources unaffected |
+| B6 | Emails reaching inboxes | Mail provider not configured on the deployment | Set `RESEND_API_KEY` + `EMAIL_FROM`, or `SMTP_*` (5 min) | Copyable invite links; Settings → Email delivery verifies it |
 
 ---
 
-_Everything in §2 we can build with no external dependency. Everything in §3 needs
-your accounts/approvals/keys. Tell us the §4 decisions and we'll take the next
-batch straight through._
+## Migration & deployment notes
+
+- One migration: `20260824090000_client_review_phases`. Adds invitation email
+  delivery columns, lead/requirement categories (**with a backfill** so existing
+  discovered leads keep their origin), the `Connection` table, and the advisor /
+  planner / intelligence tables. Applied automatically by
+  `vercel-build` / `netlify:build`.
+- `ENCRYPTION_KEY` is now **required** for connectors (it already existed for
+  LinkedIn tokens).
+- `pnpm build` now also packages the extension into
+  `public/downloads/` — no extra step.
+- Two new cron endpoints to schedule: `/api/cron/intelligence` (daily) and
+  `/api/cron/advisor` (weekly).
+- 169 tests pass, including new coverage for the email-delivery truth-telling,
+  the trend-digest normalization, the content metrics, and the calendar
+  scheduler. Production build is clean.

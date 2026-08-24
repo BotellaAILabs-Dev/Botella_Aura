@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { UserPlus, Mail, X } from 'lucide-react';
+import { UserPlus, Mail, X, Copy, AlertTriangle, Check } from 'lucide-react';
 import { toast } from '@/components/ui/toaster';
 
 import {
@@ -33,6 +33,64 @@ export interface InvitationView {
   email: string;
   role: Role;
   expiresAt: string;
+  /** Real outcome of the invitation email - never assume it was delivered. */
+  emailStatus: 'PENDING' | 'SENT' | 'FAILED' | 'NOT_CONFIGURED';
+  emailTransport: string | null;
+  emailError: string | null;
+  emailSentAt: string | null;
+}
+
+interface InviteResponse {
+  email: string;
+  acceptUrl: string;
+  emailStatus: 'SENT' | 'FAILED' | 'NOT_CONFIGURED';
+  emailTransport: string;
+  emailError?: string;
+}
+
+const DELIVERY_LABEL: Record<InvitationView['emailStatus'], string> = {
+  PENDING: 'Email queued',
+  SENT: 'Email delivered',
+  FAILED: 'Email failed',
+  NOT_CONFIGURED: 'Email not sent',
+};
+
+function deliveryVariant(
+  status: InvitationView['emailStatus'],
+): 'success' | 'destructive' | 'warning' | 'muted' {
+  if (status === 'SENT') return 'success';
+  if (status === 'FAILED') return 'destructive';
+  if (status === 'NOT_CONFIGURED') return 'warning';
+  return 'muted';
+}
+
+/** Copy-to-clipboard button with a confirmation tick. */
+function CopyLinkButton({
+  url,
+  label = 'Copy invite link',
+}: {
+  url: string;
+  label?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(url);
+          setCopied(true);
+          toast.success('Invite link copied.');
+          setTimeout(() => setCopied(false), 2000);
+        } catch {
+          toast.error('Could not copy - select the link and copy it manually.');
+        }
+      }}
+    >
+      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />} {label}
+    </Button>
+  );
 }
 
 const ROLE_LABEL: Record<Role, string> = {
@@ -68,6 +126,8 @@ export function TeamManager({
   const [role, setRole] = useState<Role>('MEMBER');
   const [inviting, setInviting] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  /** Accept links from invites sent in this session, keyed by email. */
+  const [links, setLinks] = useState<Record<string, string>>({});
 
   const isOwner = currentUserRole === 'OWNER';
 
@@ -80,12 +140,14 @@ export function TeamManager({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, role }),
       });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      const body = (await res.json().catch(() => ({}))) as InviteResponse & {
+        error?: string;
+      };
       if (!res.ok) {
         toast.error(body.error ?? 'Could not send the invite.');
         return;
       }
-      toast.success(`Invitation sent to ${email}.`);
+      reportDelivery(body);
       setEmail('');
       setRole('MEMBER');
       router.refresh();
@@ -102,16 +164,45 @@ export function TeamManager({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: inv.email, role: inv.role }),
       });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      const body = (await res.json().catch(() => ({}))) as InviteResponse & {
+        error?: string;
+      };
       if (!res.ok) {
         toast.error(body.error ?? 'Could not resend the invite.');
         return;
       }
-      toast.success(`Invitation re-sent to ${inv.email}.`);
+      reportDelivery(body);
       router.refresh();
     } finally {
       setBusyId(null);
     }
+  }
+
+  /**
+   * Tell the admin what really happened. A fresh accept link is always kept so
+   * a mail-provider problem never blocks getting a teammate into the workspace.
+   */
+  function reportDelivery(body: InviteResponse) {
+    if (body.acceptUrl) {
+      setLinks((prev) => ({ ...prev, [body.email]: body.acceptUrl }));
+    }
+    if (body.emailStatus === 'SENT') {
+      toast.success(
+        `Invitation emailed to ${body.email} via ${body.emailTransport}.`,
+      );
+      return;
+    }
+    if (body.emailStatus === 'NOT_CONFIGURED') {
+      toast.error(
+        `No email provider is configured, so nothing was emailed. Copy the invite link for ${body.email} below.`,
+      );
+      return;
+    }
+    toast.error(
+      `The email provider rejected the message${
+        body.emailError ? `: ${body.emailError}` : ''
+      }. Copy the invite link below instead.`,
+    );
   }
 
   async function revoke(id: string) {
@@ -207,35 +298,79 @@ export function TeamManager({
             <ul className="divide-y divide-border rounded-md border border-border">
               {invitations.map((inv) => {
                 const expired = new Date(inv.expiresAt).getTime() < Date.now();
+                const link = links[inv.email];
+                const undelivered =
+                  inv.emailStatus === 'FAILED' ||
+                  inv.emailStatus === 'NOT_CONFIGURED';
                 return (
-                  <li key={inv.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <Mail className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium text-foreground">{inv.email}</span>
-                      <Badge variant="secondary">{ROLE_LABEL[inv.role]}</Badge>
-                      <Badge variant={expired ? 'warning' : 'muted'}>
-                        {expired ? 'Expired' : 'Pending'}
-                      </Badge>
-                    </div>
-                    {canManage && (
-                      <div className="flex shrink-0 gap-1">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          loading={busyId === inv.id}
-                          onClick={() => resend(inv)}
+                  <li key={inv.id} className="px-3 py-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium text-foreground">{inv.email}</span>
+                        <Badge variant="secondary">{ROLE_LABEL[inv.role]}</Badge>
+                        <Badge variant={expired ? 'warning' : 'muted'}>
+                          {expired ? 'Expired' : 'Pending'}
+                        </Badge>
+                        {/* The delivery truth - separate from the invite's own status. */}
+                        <Badge
+                          variant={deliveryVariant(inv.emailStatus)}
+                          title={
+                            inv.emailError ??
+                            (inv.emailSentAt
+                              ? `Accepted by ${inv.emailTransport ?? 'the provider'} at ${new Date(
+                                  inv.emailSentAt,
+                                ).toLocaleString()}`
+                              : undefined)
+                          }
                         >
-                          Resend
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          loading={busyId === inv.id}
-                          onClick={() => revoke(inv.id)}
-                        >
-                          <X className="h-4 w-4" /> Revoke
-                        </Button>
+                          {DELIVERY_LABEL[inv.emailStatus]}
+                        </Badge>
                       </div>
+                      {canManage && (
+                        <div className="flex shrink-0 flex-wrap gap-1">
+                          {link && <CopyLinkButton url={link} />}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            loading={busyId === inv.id}
+                            onClick={() => resend(inv)}
+                          >
+                            Resend
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            loading={busyId === inv.id}
+                            onClick={() => revoke(inv.id)}
+                          >
+                            <X className="h-4 w-4" /> Revoke
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Why it did not arrive + the manual way in. */}
+                    {undelivered && (
+                      <p className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          {inv.emailStatus === 'NOT_CONFIGURED'
+                            ? 'No email provider is configured, so this invite was never emailed.'
+                            : `The email provider rejected it${
+                                inv.emailError ? `: ${inv.emailError}` : ''
+                              }.`}{' '}
+                          {link
+                            ? 'Use \u201CCopy invite link\u201D and send it yourself.'
+                            : 'Press \u201CResend\u201D to generate a shareable invite link.'}
+                        </span>
+                      </p>
+                    )}
+
+                    {link && (
+                      <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+                        {link}
+                      </p>
                     )}
                   </li>
                 );

@@ -34,12 +34,21 @@ const optionalUrl = z
   )
   .transform((v) => (v && !/^https?:\/\//i.test(v) ? `https://${v}` : v));
 
+/** The requirement bucket a lead belongs to (e.g. "Distillery"). */
+const leadCategory = z.string().trim().max(80).optional().or(z.literal(''));
+
 export const createLeadSchema = z.object({
   companyName: z.string().trim().min(1, 'Company name is required').max(160),
   name: z.string().trim().max(120).optional().or(z.literal('')),
   title: z.string().trim().max(120).optional().or(z.literal('')),
   linkedInProfileUrl: optionalUrl,
   sourceUrl: optionalUrl,
+  category: leadCategory,
+});
+
+/** Bulk hand-off from Leads into the outreach workflow. */
+export const sendToOutreachSchema = z.object({
+  leadIds: z.array(z.string().min(1)).min(1, 'Select at least one lead').max(200),
 });
 
 export const updateLeadSchema = z.object({
@@ -47,6 +56,7 @@ export const updateLeadSchema = z.object({
   title: z.string().trim().max(120).optional().or(z.literal('')),
   companyName: z.string().trim().min(1).max(160).optional(),
   linkedInProfileUrl: optionalUrl,
+  category: leadCategory,
   status: z
     .enum(['NEW', 'QUALIFIED', 'DRAFTED', 'CONTACTED', 'ARCHIVED'])
     .optional(),

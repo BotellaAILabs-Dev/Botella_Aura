@@ -22,6 +22,7 @@ import { can } from '@/lib/rbac';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { CompanyProfileForm } from '@/components/dashboard/company-profile-form';
 import { TeamManager } from '@/components/dashboard/team-manager';
+import { EmailDiagnosticsCard } from '@/components/dashboard/email-diagnostics-card';
 import {
   Card,
   CardContent,
@@ -83,8 +84,15 @@ export default async function SettingsPage() {
           email: i.email,
           role: i.role,
           expiresAt: i.expiresAt.toISOString(),
+          emailStatus: i.emailStatus,
+          emailTransport: i.emailTransport,
+          emailError: i.emailError,
+          emailSentAt: i.emailSentAt ? i.emailSentAt.toISOString() : null,
         }))}
       />
+
+      {/* Is outbound email actually working? (admins only) */}
+      {canManageTeam && <EmailDiagnosticsCard />}
 
       {/* Sub-settings navigation (Sprint 2) */}
       <div className="grid gap-4 sm:grid-cols-2">

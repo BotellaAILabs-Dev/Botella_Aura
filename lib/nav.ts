@@ -12,6 +12,9 @@ import {
   Brain,
   Megaphone,
   Plug,
+  Gauge,
+  Lightbulb,
+  CalendarRange,
 } from 'lucide-react';
 
 /**
@@ -37,12 +40,35 @@ export const NAV_ITEMS: NavItem[] = [
     ready: true,
   },
   {
+    label: 'Marketing Intelligence',
+    href: '/dashboard/intelligence',
+    icon: Gauge,
+    ready: true,
+    description:
+      'Overall marketing health, content quality, and brand consistency in one score.',
+  },
+  {
     label: 'AI Trend Insights',
     href: '/dashboard/trends',
     icon: Radar,
     ready: true,
     sprint: 2,
     description: 'Daily digests of what your market is talking about.',
+  },
+  {
+    label: 'Marketing Advisor',
+    href: '/dashboard/advisor',
+    icon: Lightbulb,
+    ready: true,
+    description:
+      'Campaign opportunities inspired by competitor activity and market trends.',
+  },
+  {
+    label: 'Marketing Planner',
+    href: '/dashboard/planner',
+    icon: CalendarRange,
+    ready: true,
+    description: 'Turn your goals into a dated monthly content calendar.',
   },
   {
     label: 'Content Studio',

@@ -50,8 +50,10 @@ export function CreateContentDialog() {
       .then((d) => {
         const list: Campaign[] = d.campaigns ?? [];
         setCampaigns(list);
-        // Default to the first campaign so there's never a dead "— none —".
-        if (list.length > 0) setCampaignId((prev) => prev || list[0]!.id);
+        // Only auto-select when there is exactly one campaign — with several,
+        // silently picking the first one means content gets filed against a
+        // campaign the user never chose.
+        if (list.length === 1) setCampaignId((prev) => prev || list[0]!.id);
       })
       .catch(() => setCampaigns([]))
       .finally(() => setCampaignsLoaded(true));
@@ -165,19 +167,30 @@ export function CreateContentDialog() {
               </div>
             ) : (
               <div className="space-y-1.5">
-                <Label htmlFor="campaign">Campaign</Label>
+                <Label htmlFor="campaign">
+                  Campaign {campaigns.length > 1 && <span aria-hidden>*</span>}
+                </Label>
                 <select
                   id="campaign"
                   className={selectCls}
                   value={campaignId}
                   onChange={(e) => setCampaignId(e.target.value)}
                 >
+                  {/* Explicit placeholder: with several campaigns the user picks. */}
+                  {campaigns.length > 1 && (
+                    <option value="">Select a campaign…</option>
+                  )}
                   {campaigns.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                     </option>
                   ))}
                 </select>
+                <p className="text-xs text-muted-foreground">
+                  {campaigns.length > 1
+                    ? `You have ${campaigns.length} campaigns — choose which one this content belongs to.`
+                    : 'This draft will be filed against your campaign.'}
+                </p>
               </div>
             ))}
 

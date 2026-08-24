@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Trash2, Linkedin } from 'lucide-react';
+import { Plus, Trash2, Linkedin, CheckCircle2 } from 'lucide-react';
 import { toast } from '@/components/ui/toaster';
 import {
   Card,
@@ -20,6 +20,8 @@ export interface TargetRow {
   id: string;
   label: string;
   profileUrl: string;
+  /** ISO timestamp - proves persistence at a glance. */
+  addedAt?: string;
 }
 
 export function TargetManager({
@@ -60,9 +62,10 @@ export function TargetManager({
         toast.error(b.error ?? 'Could not add target.');
         return;
       }
-      toast.success('Target added.');
+      toast.success(`Saved - ${label.trim()} is now monitored.`);
       setLabel('');
       setUrl('');
+      // Re-fetch the server list so what is on screen is what is stored.
       router.refresh();
     } finally {
       setSaving(false);
@@ -82,12 +85,22 @@ export function TargetManager({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Monitored profiles &amp; pages</CardTitle>
-        <CardDescription>
-          Public figures/pages you want to engage with. When you browse LinkedIn,
-          the extension offers to draft a comment on their posts that are already
-          visible on your screen — nothing is fetched server-side.
-        </CardDescription>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <CardTitle>Monitored profiles &amp; pages</CardTitle>
+            <CardDescription>
+              Public figures/pages you want to engage with. When you browse
+              LinkedIn, the extension offers to draft a comment on their posts that
+              are already visible on your screen — nothing is fetched server-side.
+            </CardDescription>
+          </div>
+          {targets.length > 0 && (
+            <span className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
+              <CheckCircle2 className="h-4 w-4 text-primary" />
+              {targets.length} saved to your workspace
+            </span>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {canManage && (
@@ -136,7 +149,10 @@ export function TargetManager({
         )}
 
         {targets.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No monitored profiles yet.</p>
+          <p className="text-sm text-muted-foreground">
+            No monitored profiles yet. Anything you add here is stored on your
+            workspace and stays until you remove it.
+          </p>
         ) : (
           <ul className="divide-y divide-border">
             {targets.map((t) => (
@@ -156,6 +172,11 @@ export function TargetManager({
                     >
                       {t.profileUrl}
                     </a>
+                    {t.addedAt && (
+                      <p className="text-xs text-muted-foreground">
+                        Added {new Date(t.addedAt).toLocaleDateString()}
+                      </p>
+                    )}
                   </div>
                 </div>
                 {canManage && (

@@ -138,3 +138,66 @@ export function deterministicSummary(pageLabel: string, diff: TextDiff): string 
   const preview = head ? ` e.g. "${head.slice(0, 120)}"` : '';
   return `The ${pageLabel} changed — ${parts.join(', ')}.${preview}`;
 }
+
+const positioningSchema = z.object({ summary: z.string() });
+
+/**
+ * Summarize what a competitor page SAYS today (positioning, claims, headline
+ * offers, price points). Used only on the first-ever capture, where there is no
+ * previous snapshot to diff against.
+ *
+ * Without this, a freshly-added competitor produced an empty weekly report —
+ * technically correct ("nothing changed") but indistinguishable from a broken
+ * pipeline, which is exactly how it was read in review.
+ */
+export async function summarizePositioning(args: {
+  competitorName: string;
+  pageLabel: string;
+  pageText: string;
+}): Promise<{ text: string; model: string }> {
+  const { competitorName, pageLabel, pageText } = args;
+  const deterministic = deterministicPositioning(pageLabel, pageText);
+  if (!isClaudeConfigured()) return { text: deterministic, model: 'none' };
+
+  try {
+    const result = await completeStructured({
+      schema: positioningSchema,
+      system:
+        'You are a competitive-intelligence analyst. Given the visible text of a ' +
+        "competitor's web page, summarize their CURRENT positioning in 1-2 factual " +
+        'sentences a marketer can act on: who they say they are for, the headline ' +
+        'claim or offer, and any explicit price points. Use only what is in the ' +
+        'text — invent nothing. Respond with ONLY JSON: {"summary": string}.',
+      prompt: [
+        `Competitor: ${competitorName}`,
+        `Page: ${pageLabel}`,
+        `Visible text:\n${normalizeText(pageText).slice(0, 4000)}`,
+      ].join('\n\n'),
+      maxTokens: 400,
+      effort: 'low',
+    });
+    const text = result.summary.trim();
+    return { text: text || deterministic, model: DEFAULT_MODEL };
+  } catch (err) {
+    logger.warn('competitors: positioning summarization failed, using fallback', {
+      competitor: competitorName,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { text: deterministic, model: 'none' };
+  }
+}
+
+/** Deterministic baseline: the first substantial lines of the page. */
+export function deterministicPositioning(
+  pageLabel: string,
+  pageText: string,
+): string {
+  const lines = normalizeText(pageText)
+    .split('\n')
+    .filter((l) => l.length >= 25)
+    .slice(0, 3);
+  if (lines.length === 0) {
+    return `Baseline captured for the ${pageLabel} — we'll report changes from the next run.`;
+  }
+  return `Current ${pageLabel} messaging: "${lines.join(' ').slice(0, 300)}"`;
+}

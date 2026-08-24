@@ -5,7 +5,12 @@ import { capturePage } from '@/server/competitors/sources/website';
 import { fetchCompetitorNews } from '@/server/competitors/sources/news';
 import { fetchGitHubSignal } from '@/server/competitors/sources/github';
 import { fetchLinkedInCompanySignal } from '@/server/competitors/sources/linkedin';
-import { diffTexts, hashText, summarizeChange } from '@/server/competitors/diff';
+import {
+  diffTexts,
+  hashText,
+  summarizeChange,
+  summarizePositioning,
+} from '@/server/competitors/diff';
 import type { ChangesSummary } from '@/server/competitors/types';
 
 /**
@@ -22,20 +27,28 @@ interface Meta {
 }
 
 /** Capture + diff one page against a prior hash/text. */
-async function trackPage(
-  url: string | null,
-  prevHash: string | null | undefined,
-  prevText: string | null | undefined,
-  competitorName: string,
-  pageLabel: string,
-): Promise<{
+interface TrackedPage {
   hash: string | null;
   text: string | null;
   changed: boolean;
   summary: string;
   model: string;
   skipped?: string;
-}> {
+  /** True when this is the first-ever capture of the page. */
+  isBaseline?: boolean;
+  /** What the page says today. Only produced on a baseline capture. */
+  baseline?: string;
+  /** True when the page was read successfully (used for coverage reporting). */
+  read?: boolean;
+}
+
+async function trackPage(
+  url: string | null,
+  prevHash: string | null | undefined,
+  prevText: string | null | undefined,
+  competitorName: string,
+  pageLabel: string,
+): Promise<TrackedPage> {
   if (!url) return { hash: null, text: null, changed: false, summary: '', model: 'none' };
 
   const capture = await capturePage(url);
@@ -54,8 +67,36 @@ async function trackPage(
   const isFirst = !prevHash;
   const changed = !isFirst && hash !== prevHash;
 
+  // First capture: there is nothing to diff against, so record what the page
+  // says NOW. That gives the first weekly report real substance instead of an
+  // empty "no activity detected" section.
+  if (isFirst) {
+    const { text: baseline, model } = await summarizePositioning({
+      competitorName,
+      pageLabel,
+      pageText: capture.text,
+    });
+    return {
+      hash,
+      text: capture.text,
+      changed: false,
+      summary: '',
+      model,
+      isBaseline: true,
+      baseline,
+      read: true,
+    };
+  }
+
   if (!changed) {
-    return { hash, text: capture.text, changed: false, summary: '', model: 'none' };
+    return {
+      hash,
+      text: capture.text,
+      changed: false,
+      summary: '',
+      model: 'none',
+      read: true,
+    };
   }
 
   const diff = diffTexts(prevText, capture.text);
@@ -64,7 +105,7 @@ async function trackPage(
     pageLabel,
     diff,
   });
-  return { hash, text: capture.text, changed: true, summary, model };
+  return { hash, text: capture.text, changed: true, summary, model, read: true };
 }
 
 /**
@@ -115,6 +156,15 @@ export async function trackCompetitor(args: {
         ? pricing.model
         : 'none';
 
+  const isBaseline = Boolean(homepage.isBaseline || pricing.isBaseline);
+  const baseline =
+    homepage.baseline || pricing.baseline
+      ? {
+          ...(homepage.baseline ? { homepage: homepage.baseline } : {}),
+          ...(pricing.baseline ? { pricing: pricing.baseline } : {}),
+        }
+      : undefined;
+
   const changesSummary: ChangesSummary = {
     hasChanges: homepage.changed || pricing.changed,
     homepage: homepage.summary || undefined,
@@ -124,6 +174,8 @@ export async function trackCompetitor(args: {
     skipped,
     model: usedModel,
     capturedAt: new Date().toISOString(),
+    ...(isBaseline ? { isBaseline: true } : {}),
+    ...(baseline ? { baseline } : {}),
   };
 
   const snapshot = await db.$transaction(async (tx) => {

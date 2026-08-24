@@ -11,6 +11,7 @@ import {
   dedupeWithin,
   findExistingMatch,
 } from '@/server/leads/discovery/dedup';
+import { resolveCredential } from '@/server/connectors/connection.service';
 import type { DiscoveredLead, DiscoveryCriteria } from '@/server/leads/discovery/types';
 
 /**
@@ -33,7 +34,13 @@ export async function runDiscovery(args: {
   profileId: string;
   userId?: string | null;
   requestMeta?: Meta;
-}): Promise<{ runId: string; leadsFound: number; leadsCreated: number; skipped: string[] }> {
+}): Promise<{
+  runId: string;
+  leadsFound: number;
+  leadsCreated: number;
+  skipped: string[];
+  category: string;
+}> {
   const { companyId, profileId, userId, requestMeta } = args;
 
   const profile = await db.discoveryProfile.findFirst({
@@ -60,13 +67,25 @@ export async function runDiscovery(args: {
 
   const skipped: string[] = [];
   const perSource: Record<string, number> = {};
+  const leadCategory = profile.category?.trim() || profile.name;
 
   try {
+    // Credentials come from this workspace's connectors when present, and fall
+    // back to deployment-wide env vars — so connecting Crunchbase in the UI has
+    // exactly the same effect as setting the key on the server.
+    const [crunchbaseCred, cseCred] = await Promise.all([
+      resolveCredential(companyId, 'crunchbase'),
+      resolveCredential(companyId, 'google-cse'),
+    ]);
+
     // 1) Companies from GitHub + Crunchbase; people from company sites.
     const [gh, cb, cse] = await Promise.all([
       discoverGitHubCompanies(criteria),
-      discoverCrunchbaseCompanies(criteria),
-      discoverViaSearch(criteria),
+      discoverCrunchbaseCompanies(criteria, crunchbaseCred?.apiKey),
+      discoverViaSearch(criteria, {
+        apiKey: cseCred?.apiKey,
+        cx: typeof cseCred?.metadata.cx === 'string' ? cseCred.metadata.cx : null,
+      }),
     ]);
     if (gh.skipped) skipped.push(gh.skipped);
     if (cb.skipped) skipped.push(cb.skipped);
@@ -120,6 +139,10 @@ export async function runDiscovery(args: {
           sourceUrl: cand.sourceUrl ?? null,
           source: 'DISCOVERY_ENGINE',
           discoveryProfileId: profileId,
+          // Snapshot the requirement this lead came from. Denormalized so the
+          // label survives renaming or deleting the profile, and so leads from
+          // different requirements stay separable everywhere downstream.
+          category: leadCategory,
           status: 'NEW',
         },
       });
@@ -149,7 +172,12 @@ export async function runDiscovery(args: {
       });
     }
 
-    const summary = { perSource, skipped, candidates: deduped.length };
+    const summary = {
+      perSource,
+      skipped,
+      candidates: deduped.length,
+      category: leadCategory,
+    };
     await db.$transaction([
       db.discoveryRun.update({
         where: { id: run.id },
@@ -174,7 +202,13 @@ export async function runDiscovery(args: {
       ...requestMeta,
     });
 
-    return { runId: run.id, leadsFound: deduped.length, leadsCreated, skipped };
+    return {
+      runId: run.id,
+      leadsFound: deduped.length,
+      leadsCreated,
+      skipped,
+      category: leadCategory,
+    };
   } catch (err) {
     logger.error('discovery: run failed', {
       profileId,

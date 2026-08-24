@@ -1,7 +1,8 @@
 import type { CompanyRole } from '@prisma/client';
 import { db } from '@/lib/db';
 import { generateToken, sha256 } from '@/lib/crypto';
-import { sendInvitationEmail } from '@/lib/email';
+import { sendInvitationEmail, isEmailConfigured } from '@/lib/email';
+import { absoluteUrl } from '@/lib/app-url';
 import { recordAudit } from '@/server/services/audit.service';
 
 /**
@@ -46,22 +47,42 @@ interface InviteArgs {
   companyId: string;
   companyName: string;
   inviterId: string;
+  inviterName?: string | null;
   inviterRole: CompanyRole;
   email: string;
   role: CompanyRole;
   requestMeta?: { ipAddress?: string | null; userAgent?: string | null };
 }
 
-/** Invite someone by email at a role. Emails a single-use accept link. */
+export interface InviteResult {
+  email: string;
+  role: CompanyRole;
+  /** The accept link. Always returned so an admin can share it manually. */
+  acceptUrl: string;
+  /** What actually happened to the email — never optimistic. */
+  emailStatus: 'SENT' | 'FAILED' | 'NOT_CONFIGURED';
+  emailTransport: string;
+  emailError?: string;
+}
+
+/**
+ * Invite someone by email at a role, and report the TRUE outcome of the email.
+ *
+ * The invitation row is created either way — a mail outage must not block
+ * onboarding — but we persist and return whether delivery actually happened so
+ * the UI can say "email delivered" vs "copy this link and send it yourself"
+ * instead of an unconditional "Mail sent".
+ */
 export async function inviteMember({
   companyId,
   companyName,
   inviterId,
+  inviterName,
   inviterRole,
   email,
   role,
   requestMeta,
-}: InviteArgs) {
+}: InviteArgs): Promise<InviteResult> {
   const normalized = email.trim().toLowerCase();
   if (role === 'OWNER' && inviterRole !== 'OWNER') {
     throw new TeamError('Only an owner can invite another owner.', 403);
@@ -107,18 +128,59 @@ export async function inviteMember({
     },
   });
 
-  const base = process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
-  await sendInvitationEmail(normalized, `${base}/invite/${rawToken}`, companyName);
+  const acceptUrl = absoluteUrl(`/invite/${rawToken}`);
+  const delivery = await sendInvitationEmail(
+    normalized,
+    acceptUrl,
+    companyName,
+    inviterName,
+  );
+
+  const emailStatus: InviteResult['emailStatus'] = delivery.delivered
+    ? 'SENT'
+    : delivery.notConfigured
+      ? 'NOT_CONFIGURED'
+      : 'FAILED';
+
+  await db.companyInvitation.update({
+    where: { companyId_email: { companyId, email: normalized } },
+    data: {
+      emailStatus,
+      emailTransport: delivery.transport,
+      emailError: delivery.error ?? null,
+      emailSentAt: delivery.delivered ? new Date() : null,
+    },
+  });
 
   await recordAudit({
     action: 'COMPANY_MEMBER_INVITED',
     userId: inviterId,
     companyId,
-    metadata: { email: normalized, role },
+    metadata: { email: normalized, role, emailStatus, transport: delivery.transport },
+    ...requestMeta,
+  });
+  await recordAudit({
+    action: delivery.delivered ? 'INVITATION_EMAIL_SENT' : 'INVITATION_EMAIL_FAILED',
+    userId: inviterId,
+    companyId,
+    metadata: {
+      email: normalized,
+      transport: delivery.transport,
+      providerId: delivery.providerId ?? null,
+      error: delivery.error ?? null,
+      emailProviderConfigured: isEmailConfigured(),
+    },
     ...requestMeta,
   });
 
-  return { email: normalized, role };
+  return {
+    email: normalized,
+    role,
+    acceptUrl,
+    emailStatus,
+    emailTransport: delivery.transport,
+    ...(delivery.error ? { emailError: delivery.error } : {}),
+  };
 }
 
 /** Accept an invite. The accepting user's email must match the invite. */

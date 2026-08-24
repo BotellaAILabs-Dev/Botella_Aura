@@ -16,14 +16,23 @@ export const discoveryCriteriaSchema = z.object({
   keywords: stringList.default([]),
 });
 
+/**
+ * The category every lead from this requirement is filed under
+ * (e.g. "Distillery", "Liquor Store", "Head of Marketing"). Defaults to the
+ * profile name so leads are never uncategorised.
+ */
+const profileCategory = z.string().trim().max(80).optional();
+
 export const createDiscoveryProfileSchema = z.object({
   name: z.string().trim().min(2, 'Give this profile a name').max(120),
+  category: profileCategory,
   criteria: discoveryCriteriaSchema,
   autoRun: z.boolean().default(false),
 });
 
 export const updateDiscoveryProfileSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
+  category: profileCategory,
   criteria: discoveryCriteriaSchema.optional(),
   isActive: z.boolean().optional(),
   autoRun: z.boolean().optional(),

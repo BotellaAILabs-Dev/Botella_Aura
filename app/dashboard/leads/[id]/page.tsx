@@ -154,6 +154,20 @@ export default async function LeadDetailPage({
               <Row label="Status">
                 <Badge variant="secondary">{lead.status}</Badge>
               </Row>
+              {/* The requirement this lead came from — kept even if the
+                  discovery profile is later renamed or deleted. */}
+              <Row label="Requirement">
+                {lead.category ? (
+                  <Link
+                    href={`/dashboard/outreach?category=${encodeURIComponent(lead.category)}`}
+                    className="hover:underline"
+                  >
+                    <Badge variant="outline">{lead.category}</Badge>
+                  </Link>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </Row>
               {lead.discoveryProfile && (
                 <Row label="Found by">
                   <span className="inline-flex items-center gap-1">
