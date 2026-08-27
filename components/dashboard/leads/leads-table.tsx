@@ -3,10 +3,19 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Sparkles, ArrowRight, Send, FolderTree } from 'lucide-react';
+import { Sparkles, ArrowRight, Send, FolderTree, EyeOff, ThumbsDown } from 'lucide-react';
 import { toast } from '@/components/ui/toaster';
 import { Button } from '@/components/ui/button';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export interface LeadTableRow {
   id: string;
@@ -21,6 +30,9 @@ export interface LeadTableRow {
   profileName: string | null;
   fitScore: number | null;
   fitRationale: string | null;
+  /** Stated criteria this lead meets / does not — the reviewable breakdown. */
+  fitMatched: string[];
+  fitMissed: string[];
   signalCount: number;
   messageCount: number;
 }
@@ -62,14 +74,23 @@ export function LeadsTable({
   const router = useRouter();
   const [source, setSource] = useState('ALL');
   const [category, setCategory] = useState('ALL');
+  /**
+   * Leads below this are collapsed out of the way rather than listed at the
+   * same visual weight as qualified ones. A page of unexplained low scores
+   * reads as noise; hiding them by default keeps the list to leads worth a
+   * human's time, and the count stays visible so nothing is silently dropped.
+   */
   const [minScore, setMinScore] = useState(0);
+  const LOW_FIT_THRESHOLD = 40;
+  const [showLowFit, setShowLowFit] = useState(false);
   const [draftingId, setDraftingId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
+  const [dismissing, setDismissing] = useState<LeadTableRow | null>(null);
   /** Group the table by requirement instead of showing one flat list. */
   const [grouped, setGrouped] = useState(categories.length > 1);
 
-  const filtered = useMemo(
+  const matching = useMemo(
     () =>
       leads.filter(
         (l) =>
@@ -79,6 +100,26 @@ export function LeadsTable({
           (l.fitScore ?? 0) >= minScore,
       ),
     [leads, source, category, minScore],
+  );
+
+  // A lead with no score yet is not "low fit" — it is unscored, and hiding it
+  // would make discovery look like it returned nothing.
+  const lowFit = useMemo(
+    () =>
+      matching.filter(
+        (l) => typeof l.fitScore === 'number' && l.fitScore < LOW_FIT_THRESHOLD,
+      ),
+    [matching],
+  );
+  const filtered = useMemo(
+    () =>
+      showLowFit
+        ? matching
+        : matching.filter(
+            (l) =>
+              typeof l.fitScore !== 'number' || l.fitScore >= LOW_FIT_THRESHOLD,
+          ),
+    [matching, showLowFit],
   );
 
   /** Requirement buckets present in the current filter, in table order. */
@@ -233,6 +274,19 @@ export function LeadsTable({
         <span className="text-muted-foreground">
           {filtered.length} of {leads.length}
         </span>
+        {/* Never silently truncate: say how many are hidden and why. */}
+        {lowFit.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowLowFit((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-muted/50"
+          >
+            <EyeOff className="h-3.5 w-3.5" />
+            {showLowFit
+              ? `Hide ${lowFit.length} low-fit (under ${LOW_FIT_THRESHOLD}/100)`
+              : `${lowFit.length} low-fit lead${lowFit.length === 1 ? '' : 's'} hidden — show`}
+          </button>
+        )}
       </div>
 
       {/* Bulk hand-off bar — the explicit Leads → Outreach step. */}
@@ -359,21 +413,45 @@ export function LeadsTable({
                           {SOURCE_LABEL[l.source] ?? l.source}
                         </Badge>
                       </td>
-                      {/* Fit score with scale + "why" on hover. */}
-                      <td className="px-3 py-2">
+                      {/* Fit score, with the criteria it met and missed shown
+                          inline — a bare number can't be reviewed. */}
+                      <td className="px-3 py-2 align-top">
                         {l.fitScore != null ? (
-                          <Badge
-                            variant={scoreVariant(l.fitScore)}
-                            title={
-                              l.fitRationale
-                                ? `Why ${l.fitScore}/100: ${l.fitRationale}`
-                                : `AI fit score: ${l.fitScore}/100`
-                            }
-                          >
-                            {l.fitScore}/100
-                          </Badge>
+                          <div className="space-y-1">
+                            <Badge
+                              variant={scoreVariant(l.fitScore)}
+                              title={
+                                l.fitRationale
+                                  ? `Why ${l.fitScore}/100: ${l.fitRationale}`
+                                  : `AI fit score: ${l.fitScore}/100`
+                              }
+                            >
+                              {l.fitScore}/100
+                            </Badge>
+                            {l.fitMatched.length > 0 && (
+                              <p className="max-w-[16rem] text-[11px] leading-tight text-muted-foreground">
+                                <span className="font-medium text-foreground">
+                                  Matched:
+                                </span>{' '}
+                                {l.fitMatched.slice(0, 3).join(', ')}
+                              </p>
+                            )}
+                            {l.fitMatched.length === 0 && l.fitMissed.length > 0 && (
+                              <p className="max-w-[16rem] text-[11px] leading-tight text-muted-foreground">
+                                <span className="font-medium text-foreground">
+                                  No match on:
+                                </span>{' '}
+                                {l.fitMissed.slice(0, 2).join('; ')}
+                              </p>
+                            )}
+                          </div>
                         ) : (
-                          <span className="text-muted-foreground">—</span>
+                          <span
+                            className="text-muted-foreground"
+                            title="Not scored yet — this lead arrived without a discovery requirement to score against."
+                          >
+                            Not scored
+                          </span>
                         )}
                       </td>
                       <td className="px-3 py-2">
@@ -414,6 +492,16 @@ export function LeadsTable({
                               </Link>
                             </Button>
                           ))}
+                        {canManage && l.status !== 'ARCHIVED' && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            title="Not relevant — tell us why"
+                            onClick={() => setDismissing(l)}
+                          >
+                            <ThumbsDown className="h-4 w-4 text-muted-foreground" />
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -430,6 +518,115 @@ export function LeadsTable({
           see the rest.
         </p>
       )}
+
+      <DismissLeadDialog
+        lead={dismissing}
+        onClose={() => setDismissing(null)}
+        onDone={() => {
+          setDismissing(null);
+          router.refresh();
+        }}
+      />
     </div>
+  );
+}
+
+/**
+ * "Not relevant, because…" — the correction channel for bad matches.
+ *
+ * A reason is required rather than optional: an unexplained dismissal removes
+ * the lead but teaches the discovery criteria nothing, so the same wrong
+ * matches come back on the next run.
+ */
+function DismissLeadDialog({
+  lead,
+  onClose,
+  onDone,
+}: {
+  lead: LeadTableRow | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const PRESETS = [
+    'Wrong industry',
+    'Wrong company size',
+    'Wrong region',
+    'Not a decision maker',
+    'Already a customer',
+    'Competitor',
+  ];
+
+  async function submit() {
+    if (!lead) return;
+    if (reason.trim().length < 3) {
+      toast.error('Say briefly why this lead is not relevant.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/leads/${lead.id}/irrelevant`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(b.error ?? 'Could not save that.');
+        return;
+      }
+      toast.success('Noted — future discovery runs will use this.');
+      setReason('');
+      onDone();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={Boolean(lead)} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Not relevant — {lead?.companyName}</DialogTitle>
+          <DialogDescription>
+            Why doesn&apos;t this lead fit? Your answer is stored against the
+            requirement that found it, so the same kind of mismatch stops being
+            surfaced.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-1.5">
+            {PRESETS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setReason(p)}
+                className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+          <Textarea
+            rows={3}
+            placeholder="e.g. They're a distributor, not a distillery."
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={submit} loading={saving}>
+            Mark not relevant
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { BarChart3, TrendingUp } from 'lucide-react';
 
+import { db } from '@/lib/db';
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
 import { getMembership } from '@/server/services/company.service';
@@ -15,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { TrendChart } from '@/components/dashboard/memory/trend-chart';
 import { BarList } from '@/components/dashboard/analytics/bar-list';
 import { ReportCard } from '@/components/dashboard/analytics/report-card';
+import { LogResultDialog } from '@/components/dashboard/analytics/log-result-dialog';
 import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
 import type { ContentTypeKey } from '@/lib/validations/content';
 
@@ -32,10 +34,17 @@ export default async function AnalyticsPage({
   if (!active) return null;
 
   const days = RANGES.includes(Number(searchParams.days)) ? Number(searchParams.days) : 30;
-  const [membership, analytics, report] = await Promise.all([
+  const [membership, analytics, report, publishedDrafts] = await Promise.all([
     getMembership(user.id, active.id),
     getAnalytics(active.id, days),
     getLatestReport(active.id),
+    // Only published work can have real numbers to log against it.
+    db.contentDraft.findMany({
+      where: { companyId: active.id, status: 'PUBLISHED' },
+      orderBy: { publishedAt: 'desc' },
+      take: 50,
+      select: { id: true, title: true },
+    }),
   ]);
   const canManage = membership ? can(membership.role, 'content:approve') : false;
   const t = analytics.topline;
@@ -50,19 +59,37 @@ export default async function AnalyticsPage({
     </div>
   );
 
+  // Published titles are nullable in the schema; fall back rather than drop the row.
+  const loggableDrafts = publishedDrafts.map((d) => ({
+    id: d.id,
+    title: d.title ?? 'Untitled post',
+  }));
+
+  const actions = (
+    <div className="flex flex-wrap items-center gap-2">
+      {canManage && <LogResultDialog drafts={loggableDrafts} />}
+      {rangeSwitch}
+    </div>
+  );
+
   return (
     <div>
       <PageHeader
         title="Analytics"
         description="Your results at a glance — real captured data only."
-        actions={rangeSwitch}
+        actions={actions}
       />
 
       {!analytics.hasData ? (
         <EmptyState
           icon={BarChart3}
           title="Not enough data for this period"
-          description="Publish content and sync its metrics (via the extension), log outreach outcomes, and run discovery — your results will populate here honestly, never with placeholder numbers."
+          description="Nothing has reported a number yet. Connect Google Analytics, sync metrics through the extension, or use “Log results” to type them in by hand — Analytics and Marketing Memory treat all three the same, so you are never blocked waiting on an integration."
+          action={
+            canManage ? (
+              <LogResultDialog drafts={loggableDrafts} />
+            ) : undefined
+          }
         />
       ) : (
         <div className="space-y-6">

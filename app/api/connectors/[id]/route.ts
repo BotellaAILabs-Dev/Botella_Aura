@@ -9,6 +9,7 @@ import {
 } from '@/server/connectors/connection.service';
 import { getProvider, providerReadiness } from '@/server/connectors/providers';
 import { buildAuthorizeUrl } from '@/server/connectors/oauth';
+import { preflightConnector } from '@/server/connectors/preflight';
 import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
 export const dynamic = 'force-dynamic';
@@ -62,12 +63,26 @@ export async function POST(
       if (!ready.connectable) {
         return jsonError(ready.blockedReason ?? 'This connector is not available yet.', 409);
       }
+
+      // Catch a misconfigured redirect here rather than letting the provider
+      // reject it on a page we do not control and cannot explain.
+      const preflight = preflightConnector(params.id);
+      if (!preflight.ok) {
+        const blocker = preflight.issues.find((i) => i.severity === 'blocker');
+        return jsonError(
+          blocker?.message ?? 'This connector is not configured correctly yet.',
+          409,
+        );
+      }
+
       return jsonOk({
         authorizeUrl: buildAuthorizeUrl({
           connectorId: params.id,
           companyId: company.id,
           userId: user.id,
         }),
+        // Shown alongside a failure so an admin can fix it without digging.
+        redirectUri: preflight.redirectUri,
       });
     }
 

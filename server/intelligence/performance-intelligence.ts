@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 
+import { analyseFoundations, type FoundationsResult } from '@/server/intelligence/foundations';
 import type {
   MarketingPerformance,
   ScoreBlock,
@@ -26,7 +27,11 @@ function pct(part: number, whole: number): number {
 
 export async function analysePerformance(
   companyId: string,
-): Promise<{ performance: MarketingPerformance; gaps: string[] }> {
+): Promise<{
+  performance: MarketingPerformance;
+  gaps: string[];
+  foundations: FoundationsResult;
+}> {
   const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000);
   const gaps: string[] = [];
 
@@ -213,8 +218,12 @@ export async function analysePerformance(
         'Draft and approve outreach for your best-fit leads, then send it from the browser extension.',
       );
 
+  // Always measurable — this is what stops a brand-new workspace scoring null.
+  const foundations = await analyseFoundations(companyId);
+
   return {
     performance: {
+      foundations: foundations.block,
       campaign,
       leadGeneration,
       competitorVisibility,
@@ -222,5 +231,6 @@ export async function analysePerformance(
       outreach,
     },
     gaps,
+    foundations,
   };
 }

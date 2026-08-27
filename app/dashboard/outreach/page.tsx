@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { Settings2, Send, ShieldCheck, Target } from 'lucide-react';
+import { Settings2, Send, Target } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
@@ -8,6 +8,8 @@ import { getMembership } from '@/server/services/company.service';
 import { can } from '@/lib/rbac';
 import { listLeads, listLeadCategories } from '@/server/outreach/lead.service';
 import { listOutreachHistory } from '@/server/outreach/outreach.service';
+import { db } from '@/lib/db';
+import { OutreachQueueBar } from '@/components/dashboard/outreach/outreach-queue-bar';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
@@ -33,14 +35,34 @@ export default async function OutreachPage({
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const [membership, leads, categories, history] = await Promise.all([
+  const [membership, leads, categories, history, pendingCount, approvedWaiting] =
+    await Promise.all([
     getMembership(user.id, active.id),
     // Same source of truth as the Leads page — a lead visible there is
     // guaranteed to be visible here.
     listLeads(active.id),
     listLeadCategories(active.id),
     listOutreachHistory(active.id),
-  ]);
+      db.outreachMessage.count({
+        where: { companyId: active.id, status: 'PENDING_APPROVAL' },
+      }),
+      // Approved but not yet sent — the silent backlog the review flagged.
+      db.outreachMessage.findMany({
+        where: { companyId: active.id, status: 'APPROVED' },
+        orderBy: { updatedAt: 'asc' },
+        select: { updatedAt: true },
+      }),
+    ]);
+
+  const STALE_AFTER_DAYS = 3;
+  const oldestApproved = approvedWaiting[0]?.updatedAt ?? null;
+  const oldestDays = oldestApproved
+    ? Math.floor((Date.now() - oldestApproved.getTime()) / 86_400_000)
+    : 0;
+  const staleApproved = {
+    count: oldestDays >= STALE_AFTER_DAYS ? approvedWaiting.length : 0,
+    oldestDays,
+  };
   const canManage = membership ? can(membership.role, 'content:approve') : false;
 
   const rows: LeadRow[] = leads.map((l) => ({
@@ -104,15 +126,11 @@ export default async function OutreachPage({
         actions={actions}
       />
 
-      <div className="mb-5 flex items-start gap-2 rounded-lg border border-border bg-card p-3 text-sm text-muted-foreground">
-        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-        <p>
-          Approved messages appear in your{' '}
-          <span className="font-medium text-foreground">browser extension</span>{' '}
-          queue. Nothing is ever sent automatically — you send each one yourself,
-          on the lead&apos;s profile.
-        </p>
-      </div>
+      <OutreachQueueBar
+        pendingCount={pendingCount}
+        staleApproved={staleApproved}
+        canApprove={canManage}
+      />
 
       {rows.length === 0 ? (
         <EmptyState

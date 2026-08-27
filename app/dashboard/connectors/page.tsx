@@ -14,9 +14,12 @@ import { getProvider, providerReadiness } from '@/server/connectors/providers';
 import { PageHeader } from '@/components/dashboard/page-header';
 import {
   ConnectorGrid,
+  RedirectUriPanel,
   type ConnectorCardData,
 } from '@/components/dashboard/connectors/connector-grid';
-import { CONNECTORS, CONNECTOR_CATEGORIES } from '@/lib/connectors';
+import { oauthRedirectPaths } from '@/server/connectors/providers';
+import { absoluteUrl, getAppUrl } from '@/lib/app-url';
+import { CONNECTORS } from '@/lib/connectors';
 
 export const metadata: Metadata = { title: 'Connectors' };
 export const dynamic = 'force-dynamic';
@@ -187,20 +190,20 @@ export default async function ConnectorsPage({
         saved, then stored encrypted — they are never sent back to your browser.
       </p>
 
-      <div className="space-y-8">
-        {CONNECTOR_CATEGORIES.map((category) => {
-          const items = cards.filter((c) => c.category === category);
-          if (items.length === 0) return null;
-          return (
-            <section key={category}>
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                {category}
-              </h2>
-              <ConnectorGrid connectors={items} canManage={canManage} />
-            </section>
-          );
-        })}
-      </div>
+      <ConnectorGrid connectors={cards} canManage={canManage} />
+
+      {/* Only an admin can act on this, and it is the fix for the most common
+          OAuth failure — so it belongs on the page, not in a runbook. */}
+      {canManage && (
+        <RedirectUriPanel
+          appUrl={getAppUrl()}
+          entries={oauthRedirectPaths().map((entry) => ({
+            label: entry.label,
+            uri: absoluteUrl(entry.path),
+            connectors: entry.connectors,
+          }))}
+        />
+      )}
     </div>
   );
 }

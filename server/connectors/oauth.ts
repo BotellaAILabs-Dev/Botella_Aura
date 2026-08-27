@@ -84,9 +84,19 @@ export function decodeState(raw: string): OAuthState {
   return parsed;
 }
 
-/** Redirect URI registered with each provider. One per connector. */
+/**
+ * The redirect URI this connector uses.
+ *
+ * Defaults to a per-connector path, but a provider may share one across
+ * several connectors (see `redirectPath` in providers.ts) so a deployment
+ * registers a single URI rather than one per connector. The value returned
+ * here MUST match what is registered with the provider exactly — including
+ * scheme, host and trailing path — or the provider rejects the handshake
+ * before the user ever reaches us.
+ */
 export function redirectUri(connectorId: string): string {
-  return absoluteUrl(`/api/connectors/${connectorId}/callback`);
+  const cfg = getProvider(connectorId)?.oauth;
+  return absoluteUrl(cfg?.redirectPath ?? `/api/connectors/${connectorId}/callback`);
 }
 
 export function buildAuthorizeUrl(args: {

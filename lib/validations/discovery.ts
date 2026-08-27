@@ -50,5 +50,14 @@ export type UpdateDiscoveryProfileInput = z.infer<
 export const fitScoreSchema = z.object({
   fitScore: z.number().int().min(0).max(100),
   fitRationale: z.string().min(1).max(600),
+  /**
+   * Which stated criteria this lead actually meets, and which it does not.
+   *
+   * A bare number pushed all the qualification work back onto the user: "35/100"
+   * with no breakdown cannot be argued with or acted on. Naming the hits and
+   * misses turns the score into something reviewable.
+   */
+  matched: z.array(z.string().max(80)).max(12).default([]),
+  missed: z.array(z.string().max(80)).max(12).default([]),
 });
 export type FitScore = z.infer<typeof fitScoreSchema>;

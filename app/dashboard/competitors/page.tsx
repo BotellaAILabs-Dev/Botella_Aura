@@ -61,6 +61,24 @@ export default async function CompetitorsPage() {
           </Button>
         }
       />
+      {/* Comparison needs more than one point of reference — and with a single
+          competitor both this page and Marketing Memory stay permanently thin,
+          which reads as the feature being broken rather than under-fed. */}
+      {canManage && rows.length < 3 && (
+        <div className="mb-5 rounded-lg border border-primary/30 bg-primary/[0.04] p-3 text-sm">
+          <p className="font-medium text-foreground">
+            {rows.length === 0
+              ? 'Add your first competitor'
+              : `Track ${3 - rows.length} more competitor${3 - rows.length === 1 ? '' : 's'}`}
+          </p>
+          <p className="mt-0.5 text-muted-foreground">
+            {rows.length === 0
+              ? 'Competitor Intelligence has nothing to report until at least one competitor is tracked. Aim for three — patterns only show up in comparison.'
+              : 'With three tracked, weekly reports can tell you what is unusual rather than just what happened.'}
+          </p>
+        </div>
+      )}
+
       <CompetitorManager competitors={rows} canManage={canManage} />
     </div>
   );

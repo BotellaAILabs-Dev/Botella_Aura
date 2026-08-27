@@ -33,11 +33,23 @@ function todayUtc(now: number = Date.now()): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
 
+/**
+ * Reports what the digest is doing right now. Generation fans out to many
+ * sources and makes two model calls; without this the UI can only show an
+ * undifferentiated spinner, which reads as a hang. Optional so the cron path
+ * stays unchanged.
+ */
+export type ProgressReporter = (
+  message: string,
+  percent: number,
+) => void | Promise<void>;
+
 interface GenerateArgs {
   companyId: string;
   /** Who triggered it (manual refresh). Null for the scheduled job. */
   userId?: string | null;
   trigger: 'scheduled' | 'manual';
+  onProgress?: ProgressReporter;
 }
 
 /**
@@ -49,7 +61,17 @@ export async function generateDigestForCompany({
   companyId,
   userId,
   trigger,
+  onProgress,
 }: GenerateArgs) {
+  const report = async (message: string, percent: number) => {
+    try {
+      await onProgress?.(message, percent);
+    } catch {
+      // Progress is cosmetic — never fail a digest because reporting failed.
+    }
+  };
+
+  await report('Loading your trend settings…', 8);
   const company = await db.company.findUnique({ where: { id: companyId } });
   if (!company) throw new Error(`Company ${companyId} not found`);
 
@@ -73,6 +95,12 @@ export async function generateDigestForCompany({
 
   // Fetch from every runnable source in parallel; a failing source is skipped,
   // never fatal, and never faked.
+  await report(
+    runnable.length
+      ? `Scanning ${runnable.map((s) => s.label ?? s.id).join(', ')}…`
+      : 'Checking your sources…',
+    20,
+  );
   const settled = await Promise.allSettled(
     runnable.map((s) => s.fetchTrendItems(ctx)),
   );
@@ -93,9 +121,14 @@ export async function generateDigestForCompany({
   });
 
   const ranked = scoreAndRank(all, ctx, { limit: TOP_N });
+  await report(
+    `Ranking ${all.length} item${all.length === 1 ? '' : 's'} — writing why each matters…`,
+    55,
+  );
   const items = await enrichItems(company, ranked);
 
   // Top-level synthesis + trending hashtags (one Claude call, graceful fallback).
+  await report('Summarising the week and pulling hashtags…', 80);
   const synthesis = await synthesizeDigest(company, items);
   // Seasonal moments (curated, no API) + competitor mentions (from config).
   const seasonal = upcomingSeasonalEvents(new Date(), [
@@ -117,6 +150,7 @@ export async function generateDigestForCompany({
     competitorMentions,
   };
 
+  await report('Saving your digest…', 95);
   const date = todayUtc();
   const digest = await db.trendDigest.upsert({
     where: { companyId_date: { companyId, date } },

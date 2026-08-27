@@ -2,54 +2,66 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { NAV_ITEMS } from '@/lib/nav';
+import { navBySection } from '@/lib/nav';
 import { cn } from '@/lib/utils';
 
 /**
- * Sidebar navigation links. Marks the active route, and tags not-yet-shipped
- * features with a subtle "Sprint N" chip so the roadmap is visible in-product.
+ * Sidebar navigation links, grouped into labelled sections.
+ *
+ * The flat fourteen-item list read as a menu of separate tools. Sections give
+ * the sidebar an obvious top — the score — and a reading order that follows
+ * what someone is trying to do, while every page stays exactly where it was.
  */
 export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
 
   return (
     <nav className="flex flex-1 flex-col gap-1 px-3 py-4" aria-label="Primary">
-      {NAV_ITEMS.map((item) => {
-        const active =
-          item.href === '/dashboard'
-            ? pathname === '/dashboard'
-            : pathname.startsWith(item.href);
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            aria-current={active ? 'page' : undefined}
-            className={cn(
-              'group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-              active
-                ? 'bg-primary/10 text-primary'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-            )}
-          >
-            <item.icon
-              className={cn(
-                'h-4 w-4 shrink-0',
-                active
-                  ? 'text-primary'
-                  : 'text-muted-foreground group-hover:text-foreground',
-              )}
-              aria-hidden
-            />
-            <span className="flex-1 truncate">{item.label}</span>
-            {!item.ready && (
-              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                Soon
-              </span>
-            )}
-          </Link>
-        );
-      })}
+      {navBySection().map((section) => (
+        <div key={section.id} className="flex flex-col gap-1">
+          {section.label && (
+            <p className="px-3 pb-0.5 pt-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              {section.label}
+            </p>
+          )}
+          {section.items.map((item) => {
+            const active =
+              item.href === '/dashboard'
+                ? pathname === '/dashboard'
+                : pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onNavigate}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                  active
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                )}
+              >
+                <item.icon
+                  className={cn(
+                    'h-4 w-4 shrink-0',
+                    active
+                      ? 'text-primary'
+                      : 'text-muted-foreground group-hover:text-foreground',
+                  )}
+                  aria-hidden
+                />
+                <span className="flex-1 truncate">{item.label}</span>
+                {!item.ready && (
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    Soon
+                  </span>
+                )}
+              </Link>
+            );
+          })}
+        </div>
+      ))}
     </nav>
   );
 }

@@ -29,6 +29,21 @@ const COLUMNS: DraftCard['status'][] = [
   'PUBLISHED',
 ];
 
+/**
+ * Per-column empty copy.
+ *
+ * A single "Nothing here" in every column is ambiguous: an empty Pending column
+ * is good news, an empty Published column is a to-do, and neither should be
+ * mistakable for a load that stalled. Each column now says which it is.
+ */
+const EMPTY_COPY: Record<DraftCard['status'], string> = {
+  DRAFT: 'No drafts in progress — generate one to start.',
+  PENDING_APPROVAL: 'Nothing waiting on you.',
+  APPROVED: 'Nothing approved and waiting to publish.',
+  PUBLISHED: 'Nothing published yet.',
+  REJECTED: 'Nothing rejected.',
+};
+
 export function QueueBoard({ drafts }: { drafts: DraftCard[] }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -87,7 +102,7 @@ export function QueueBoard({ drafts }: { drafts: DraftCard[] }) {
               <div className="flex flex-col gap-2">
                 {items.length === 0 && (
                   <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-                    Nothing here
+                    {EMPTY_COPY[status]}
                   </p>
                 )}
                 {items.map((d) => (

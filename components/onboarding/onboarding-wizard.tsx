@@ -84,6 +84,10 @@ export function OnboardingWizard({
   const [preview, setPreview] = useState<string | null>(null);
   const [previewNote, setPreviewNote] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  /** Whether the last preview failure is worth offering a retry for. */
+  const [previewRetryable, setPreviewRetryable] = useState(false);
+  /** Set once the user has confirmed they really want a same-named workspace. */
+  const [duplicateConfirmed, setDuplicateConfirmed] = useState(false);
 
   function toggleTone(t: string) {
     setTones((prev) =>
@@ -134,13 +138,25 @@ export function OnboardingWizard({
         sample?: string | null;
         note?: string | null;
         error?: string;
+        retryable?: boolean;
       };
       if (!res.ok) {
-        setPreviewNote(body.error ?? 'Could not generate a preview.');
+        setPreviewNote(
+          body.error ??
+            'Could not generate a preview. Your details are saved — you can continue.',
+        );
+        setPreviewRetryable(true);
         return;
       }
       setPreview(body.sample ?? null);
       setPreviewNote(body.note ?? null);
+      setPreviewRetryable(Boolean(body.retryable));
+    } catch {
+      // A network drop must not read like a broken product on step 2.
+      setPreviewNote(
+        'We could not reach the preview service. Your details are saved — you can continue and try later.',
+      );
+      setPreviewRetryable(true);
     } finally {
       setPreviewLoading(false);
     }
@@ -193,17 +209,48 @@ export function OnboardingWizard({
           website: data.website ?? '',
           industry: data.industry ?? '',
           brandVoiceNotes: composeNotes(),
+          confirmDuplicate: duplicateConfirmed,
         }),
       });
+      if (res.status === 409) {
+        // A name clash is recoverable, not a failure — offer the second
+        // workspace rather than making them retype everything.
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (
+          confirm(
+            `${body.error ?? 'You already have a workspace with this name.'}
+
+Create it anyway?`,
+          )
+        ) {
+          setDuplicateConfirmed(true);
+          toast('Press Create again to confirm.');
+        }
+        return;
+      }
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         toast.error(body.error ?? 'Could not create your workspace.');
         return;
       }
-      const created = (await res.json().catch(() => ({}))) as { id?: string };
+      const created = (await res.json().catch(() => ({}))) as {
+        id?: string;
+        intelligenceJobId?: string;
+      };
       // Make the new workspace the active one so the app opens into it.
       if (created.id) {
         document.cookie = `${ACTIVE_COMPANY_COOKIE}=${created.id}; path=/; max-age=31536000; samesite=lax`;
+      }
+      // Start the first analysis now, so the dashboard has a real score by the
+      // time they land on it instead of a wall of "Not measured". Not awaited:
+      // it runs server-side and the redirect below must not wait for it.
+      if (created.intelligenceJobId) {
+        void fetch(`/api/jobs/${created.intelligenceJobId}/run`, {
+          method: 'POST',
+          keepalive: true,
+        }).catch(() => {
+          // The cron reaper picks it up if this kick never lands.
+        });
       }
       toast.success(additional ? 'New workspace created!' : 'Workspace created!');
       router.push('/dashboard');
@@ -357,7 +404,22 @@ export function OnboardingWizard({
                 </p>
               )}
               {!preview && previewNote && (
-                <p className="mt-3 text-xs text-muted-foreground">{previewNote}</p>
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-muted-foreground">{previewNote}</p>
+                  {/* Onboarding is never blocked on this step — a failed
+                      preview offers a retry and nothing more. */}
+                  {previewRetryable && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={runPreview}
+                      loading={previewLoading}
+                    >
+                      Try again
+                    </Button>
+                  )}
+                </div>
               )}
               {!preview && !previewNote && !previewLoading && (
                 <p className="mt-2 text-xs text-muted-foreground">

@@ -5,9 +5,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Check,
+  ChevronDown,
+  Copy,
   ExternalLink,
   KeyRound,
   Link2,
+  Mail,
   Plug,
   RefreshCw,
   Trash2,
@@ -28,7 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { connectorInitials } from '@/lib/connectors';
+import { connectorInitials, CONNECTOR_CATEGORIES } from '@/lib/connectors';
 
 export interface ConnectorCardData {
   id: string;
@@ -73,6 +76,14 @@ function statusBadge(c: ConnectorCardData): {
   return { label: 'Available', variant: 'outline' };
 }
 
+/**
+ * Connectors, split by whether they actually work.
+ *
+ * Interleaving 20-odd "On the roadmap" placeholders with the handful that
+ * function made the catalog read as feature-rich but hollow, and invited users
+ * to click things that cannot connect. Working integrations now get the page;
+ * roadmap items collapse into one clearly-labelled, low-prominence list.
+ */
 export function ConnectorGrid({
   connectors,
   canManage,
@@ -81,22 +92,95 @@ export function ConnectorGrid({
   canManage: boolean;
 }) {
   const [keyDialog, setKeyDialog] = useState<ConnectorCardData | null>(null);
+  const [emailDialog, setEmailDialog] = useState<ConnectorCardData | null>(null);
+  const [showRoadmap, setShowRoadmap] = useState(false);
+
+  const live = connectors.filter((c) => c.implemented);
+  const roadmap = connectors.filter((c) => !c.implemented);
 
   return (
     <>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {connectors.map((c) => (
-          <ConnectorCard
-            key={c.id}
-            connector={c}
-            canManage={canManage}
-            onEnterKey={() => setKeyDialog(c)}
-          />
-        ))}
-      </div>
-      <ApiKeyDialog
-        connector={keyDialog}
-        onClose={() => setKeyDialog(null)}
+      <section>
+        <h2 className="mb-1 text-sm font-semibold text-foreground">
+          Available now
+        </h2>
+        <p className="mb-4 text-xs text-muted-foreground">
+          {live.length} integration{live.length === 1 ? '' : 's'} built and ready
+          to connect. Anything needing a credential says exactly which one.
+        </p>
+        {/* Categories group the working integrations only — roadmap items are
+            never mixed in among them. */}
+        <div className="space-y-6">
+          {CONNECTOR_CATEGORIES.map((category) => {
+            const items = live.filter((c) => c.category === category);
+            if (items.length === 0) return null;
+            return (
+              <div key={category}>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {category}
+                </h3>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {items.map((c) => (
+                    <ConnectorCard
+                      key={c.id}
+                      connector={c}
+                      canManage={canManage}
+                      onEnterKey={() => setKeyDialog(c)}
+                      onEmailVerify={() => setEmailDialog(c)}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {roadmap.length > 0 && (
+        <section className="mt-8">
+          <button
+            type="button"
+            onClick={() => setShowRoadmap((v) => !v)}
+            className="flex w-full items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted/40"
+          >
+            <ChevronDown
+              className={`h-4 w-4 shrink-0 transition-transform ${showRoadmap ? '' : '-rotate-90'}`}
+            />
+            <span className="font-medium text-foreground">Coming soon</span>
+            <span>
+              — {roadmap.length} integration{roadmap.length === 1 ? '' : 's'} on the
+              roadmap, not yet built. Nothing here can be connected.
+            </span>
+          </button>
+          {showRoadmap && (
+            <ul className="mt-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+              {roadmap.map((c) => (
+                <li
+                  key={c.id}
+                  className="flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-2 text-xs text-muted-foreground"
+                >
+                  <span
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white opacity-50"
+                    style={{ backgroundColor: c.color }}
+                    aria-hidden
+                  >
+                    {connectorInitials(c.name)}
+                  </span>
+                  <span className="truncate">{c.name}</span>
+                  <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide">
+                    {c.category}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      <ApiKeyDialog connector={keyDialog} onClose={() => setKeyDialog(null)} />
+      <EmailVerifyDialog
+        connector={emailDialog}
+        onClose={() => setEmailDialog(null)}
       />
     </>
   );
@@ -106,10 +190,12 @@ function ConnectorCard({
   connector,
   canManage,
   onEnterKey,
+  onEmailVerify,
 }: {
   connector: ConnectorCardData;
   canManage: boolean;
   onEnterKey: () => void;
+  onEmailVerify: () => void;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -122,9 +208,12 @@ function ConnectorCard({
       const res = await fetch(`/api/connectors/${connector.id}`, { method: 'POST' });
       const body = (await res.json().catch(() => ({}))) as {
         authorizeUrl?: string;
+        redirectUri?: string;
         error?: string;
       };
       if (!res.ok || !body.authorizeUrl) {
+        // The pre-flight check ran server-side, so this message already names
+        // the fix rather than deferring to the provider's error page.
         toast.error(body.error ?? 'Could not start the connection.');
         return;
       }
@@ -265,8 +354,19 @@ function ConnectorCard({
               <KeyRound className="h-4 w-4" /> Add key
             </Button>
           ) : connector.auth === 'oauth' && connector.connectable ? (
-            <Button size="sm" onClick={startOAuth} loading={busy === 'connect'}>
-              <Plug className="h-4 w-4" /> Connect
+            <>
+              <Button size="sm" onClick={startOAuth} loading={busy === 'connect'}>
+                <Plug className="h-4 w-4" /> Connect
+              </Button>
+              <Button size="sm" variant="ghost" onClick={onEmailVerify}>
+                <Mail className="h-4 w-4" /> Use email code
+              </Button>
+            </>
+          ) : connector.auth === 'oauth' ? (
+            // OAuth app credentials are missing, but the workspace can still
+            // record which account this connector belongs to.
+            <Button size="sm" variant="outline" onClick={onEmailVerify}>
+              <Mail className="h-4 w-4" /> Verify by email
             </Button>
           ) : null}
         </div>
@@ -377,5 +477,206 @@ function ApiKeyDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Connect by proving control of the account email.
+ *
+ * The alternative path for when a provider's OAuth client is not registered on
+ * this deployment — the user is not left staring at "needs setup" with nothing
+ * they can do. It records which account the connector belongs to; it does not
+ * pretend to grant API access, and says so.
+ */
+function EmailVerifyDialog({
+  connector,
+  onClose,
+}: {
+  connector: ConnectorCardData | null;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [stage, setStage] = useState<'email' | 'code'>('email');
+  const [busy, setBusy] = useState(false);
+
+  function close() {
+    setEmail('');
+    setCode('');
+    setStage('email');
+    onClose();
+  }
+
+  async function submit(payload: { email: string } | { code: string }) {
+    if (!connector) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/connectors/${connector.id}/email-verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        stage?: string;
+        accountLabel?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        toast.error(body.error ?? 'That did not work.');
+        return;
+      }
+      if (body.stage === 'code_sent') {
+        toast.success('Code sent — check that inbox.');
+        setStage('code');
+        return;
+      }
+      toast.success(`${connector.name} verified as ${body.accountLabel}.`);
+      close();
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={Boolean(connector)} onOpenChange={(open) => !open && close()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Verify {connector?.name} by email</DialogTitle>
+          <DialogDescription>
+            We&apos;ll email a 6-digit code to the account address. This confirms
+            which account is yours so results can be logged against it —
+            automatic metric sync still needs OAuth or an API key.
+          </DialogDescription>
+        </DialogHeader>
+
+        {stage === 'email' ? (
+          <div className="space-y-2">
+            <Label htmlFor="verify-email">Account email</Label>
+            <Input
+              id="verify-email"
+              type="email"
+              autoComplete="email"
+              placeholder="you@company.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <Label htmlFor="verify-code">6-digit code</Label>
+            <Input
+              id="verify-code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              placeholder="123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              className="text-center text-lg tracking-[0.4em]"
+            />
+            <p className="text-xs text-muted-foreground">
+              Sent to {email}. It expires in 15 minutes.
+            </p>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={close}>
+            Cancel
+          </Button>
+          {stage === 'email' ? (
+            <Button onClick={() => void submit({ email })} loading={busy}>
+              Send code
+            </Button>
+          ) : (
+            <Button
+              onClick={() => void submit({ code })}
+              loading={busy}
+              disabled={code.length !== 6}
+            >
+              Verify
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * The exact redirect URIs this deployment sends providers.
+ *
+ * `redirect_uri_mismatch` is almost always a transcription problem, so the
+ * value is shown verbatim with a copy button rather than described in prose
+ * and retyped by hand into a provider console.
+ */
+export function RedirectUriPanel({
+  entries,
+  appUrl,
+}: {
+  entries: { label: string; uri: string; connectors: string[] }[];
+  appUrl: string;
+}) {
+  const [copied, setCopied] = useState<string | null>(null);
+
+  async function copy(uri: string) {
+    try {
+      await navigator.clipboard.writeText(uri);
+      setCopied(uri);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      toast.error('Could not copy — select the text and copy it manually.');
+    }
+  }
+
+  if (entries.length === 0) return null;
+
+  return (
+    <Card className="mt-8">
+      <CardContent className="p-4">
+        <p className="text-sm font-medium text-foreground">
+          Redirect URIs to register
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Paste these into each provider&apos;s OAuth console exactly as shown. A
+          single character of difference is what produces{' '}
+          <code className="rounded bg-muted px-1">Error 400: redirect_uri_mismatch</code>.
+          This deployment identifies itself as{' '}
+          <span className="font-medium text-foreground">{appUrl}</span>.
+        </p>
+        <ul className="mt-3 space-y-2">
+          {entries.map((entry) => (
+            <li
+              key={entry.uri}
+              className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 p-2"
+            >
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {entry.label}
+              </span>
+              <code className="min-w-0 flex-1 break-all text-xs text-foreground">
+                {entry.uri}
+              </code>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void copy(entry.uri)}
+              >
+                {copied === entry.uri ? (
+                  <>
+                    <Check className="h-4 w-4" /> Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-4 w-4" /> Copy
+                  </>
+                )}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }

@@ -146,9 +146,19 @@ export async function generateMarketingPlan(args: {
   companyId: string;
   userId?: string | null;
   inputs: PlanInputs;
+  /** Optional status line for the background-job runner. */
+  onProgress?: (message: string, percent: number) => void | Promise<void>;
 }): Promise<MarketingPlanPayload> {
-  const { companyId, userId, inputs } = args;
+  const { companyId, userId, inputs, onProgress } = args;
+  const report = async (message: string, percent: number) => {
+    try {
+      await onProgress?.(message, percent);
+    } catch {
+      // Progress is cosmetic — never fail a plan because reporting failed.
+    }
+  };
 
+  await report('Reading your brief…', 8);
   const company = await db.company.findUnique({ where: { id: companyId } });
   if (!company) throw new Error('Company not found.');
 
@@ -190,6 +200,11 @@ export async function generateMarketingPlan(args: {
       error: err instanceof Error ? err.message : String(err),
     });
   }
+
+  await report(
+    `Drafting ${slots.length} dated slots across the month…`,
+    35,
+  );
 
   let body: { summary: string; weeks: PlanWeek[]; items: PlanItem[] };
   let model = 'none';
@@ -279,6 +294,7 @@ export async function generateMarketingPlan(args: {
     groundedOn,
   };
 
+  await report('Saving your calendar…', 92);
   const month = monthStart(inputs.month);
   await db.marketingPlan.upsert({
     where: { companyId_month: { companyId, month } },

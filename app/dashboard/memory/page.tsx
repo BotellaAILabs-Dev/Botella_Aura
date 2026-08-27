@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AnalyzeButton } from '@/components/dashboard/memory/analyze-button';
 import { InsightCard } from '@/components/dashboard/memory/insight-card';
 import { TrendChart } from '@/components/dashboard/memory/trend-chart';
+import { MIN_SAMPLE_FOR_INSIGHTS } from '@/server/memory/metrics';
 
 export const metadata: Metadata = { title: 'Marketing Memory' };
 
@@ -32,6 +33,9 @@ export default async function MemoryPage() {
     getContentPerformance(active.id),
   ]);
   const canManage = membership ? can(membership.role, 'content:approve') : false;
+
+  // How many published posts actually have numbers attached — the real gate.
+  const publishedWithMetrics = perf.length;
 
   const insufficient = memories.find(isInsufficient);
   const realInsights = memories.filter((m) => !isInsufficient(m));
@@ -58,7 +62,12 @@ export default async function MemoryPage() {
         <EmptyState
           icon={Brain}
           title="No learnings yet"
-          description="Once you publish content and sync its metrics (via the extension), Aura analyzes what works and remembers it — feeding smarter drafts every week."
+          description={
+            // "Not enough data" with no number reads as "come back never".
+            // Say exactly what the gate is and how far off it is, and that
+            // it is posts-with-numbers — not elapsed time — that moves it.
+            `Marketing Memory needs results from at least ${MIN_SAMPLE_FOR_INSIGHTS} published posts before it will claim a pattern — you have ${publishedWithMetrics}. This is a count of posts with real numbers attached, not a waiting period: publish, then sync metrics via the extension, connect Google Analytics, or log the numbers by hand on the Analytics page.`
+          }
           action={canManage ? <AnalyzeButton firstRun /> : undefined}
         />
       )}

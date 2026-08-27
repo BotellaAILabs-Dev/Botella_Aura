@@ -63,29 +63,102 @@ export interface CompleteOptions {
   maxTokens?: number;
   /** Thinking depth. Default 'high' for quality; 'low' for cheap calls. */
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  /** Hard per-attempt ceiling in ms. Default 120s. */
+  timeoutMs?: number;
 }
 
 /**
- * Run one prompt and return the concatenated text output. Retries once.
+ * The model answered, but with no text.
+ *
+ * This is the failure behind "Could not generate a preview". Extended thinking
+ * draws from the SAME max_tokens budget as the reply, so a small cap (the
+ * onboarding preview asked for 400) could be spent entirely on thinking,
+ * returning a well-formed response containing only a thinking block and no
+ * text. The old code read that as an empty string and handed "" to the caller,
+ * which surfaced as a generic failure with nothing to retry.
+ *
+ * Treating it as an error means the retry path below actually fires, and
+ * `shouldThink()` stops us requesting thinking we cannot afford in the first
+ * place.
+ */
+export class EmptyCompletionError extends Error {
+  constructor(readonly stopReason?: string | null) {
+    super(
+      `The model returned no text${stopReason ? ` (stop reason: ${stopReason})` : ''}.`,
+    );
+    this.name = 'EmptyCompletionError';
+  }
+}
+
+/** Nothing about a bad key or a malformed request improves by trying again. */
+function isRetryable(err: unknown): boolean {
+  if (err instanceof ClaudeNotConfiguredError) return false;
+  const status = (err as { status?: number } | null)?.status;
+  if (typeof status === 'number') {
+    // 429 and 5xx are transient; 400/401/403/404 are not.
+    return status === 429 || status >= 500;
+  }
+  return true;
+}
+
+/**
+ * Reserve room for thinking, or skip it entirely.
+ *
+ * Thinking shares the output budget, so we only ask for it when there is enough
+ * headroom left for a real answer afterwards. Short, cheap calls (the
+ * onboarding sample post, lead scoring) get a straight completion — they gain
+ * nothing from deliberation and were the ones starving.
+ */
+function shouldThink(
+  maxTokens: number,
+  effort: NonNullable<CompleteOptions['effort']>,
+): boolean {
+  return effort !== 'low' && maxTokens >= THINKING_MIN_TOKENS;
+}
+
+const THINKING_MIN_TOKENS = 2000;
+const DEFAULT_TIMEOUT_MS = 120_000;
+const MAX_ATTEMPTS = 3;
+
+/**
+ * Run one prompt and return the concatenated text output.
  * Provider-agnostic: uses Anthropic when configured, otherwise Google Gemini.
+ *
+ * Retries transient failures (and empty completions) up to MAX_ATTEMPTS with
+ * backoff. Permanent failures — no key, bad request — throw immediately so the
+ * caller can fall back without waiting out a pointless retry loop.
  */
 export async function complete(options: CompleteOptions): Promise<string> {
-  const { system, prompt, maxTokens = 2048, effort = 'high' } = options;
+  const {
+    system,
+    prompt,
+    maxTokens = 2048,
+    effort = 'high',
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+  } = options;
 
   const run = async (): Promise<string> => {
-    if (hasAnthropic()) return callAnthropic(system, prompt, maxTokens, effort);
-    if (isGeminiConfigured()) return callGemini(system, prompt, maxTokens);
+    if (hasAnthropic())
+      return callAnthropic(system, prompt, maxTokens, effort, timeoutMs);
+    if (isGeminiConfigured())
+      return callGemini(system, prompt, maxTokens, timeoutMs);
     throw new ClaudeNotConfiguredError();
   };
 
-  try {
-    return await run();
-  } catch (err) {
-    logger.warn('AI: first attempt failed, retrying once', {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return run();
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await run();
+    } catch (err) {
+      lastError = err;
+      if (!isRetryable(err) || attempt === MAX_ATTEMPTS) break;
+      logger.warn(`AI: attempt ${attempt} failed, retrying`, {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await new Promise((r) => setTimeout(r, 400 * attempt));
+    }
   }
+  throw lastError;
 }
 
 async function callAnthropic(
@@ -93,23 +166,29 @@ async function callAnthropic(
   prompt: string,
   maxTokens: number,
   effort: NonNullable<CompleteOptions['effort']>,
+  timeoutMs: number,
 ): Promise<string> {
   const c = getClient();
+  const think = shouldThink(maxTokens, effort);
   const params = {
     model: getModel(),
     max_tokens: maxTokens,
-    thinking: { type: 'adaptive' as const },
+    ...(think ? { thinking: { type: 'adaptive' as const } } : {}),
     output_config: { effort },
     ...(system ? { system } : {}),
     messages: [{ role: 'user' as const, content: prompt }],
   };
-  if (maxTokens >= STREAM_THRESHOLD_TOKENS) {
-    const stream = c.messages.stream(params);
-    const msg = await stream.finalMessage();
-    return extractText(msg.content);
-  }
-  const msg = await c.messages.create(params);
-  return extractText(msg.content);
+  // The SDK retries on its own too; ours adds the empty-completion case.
+  const requestOptions = { timeout: timeoutMs, maxRetries: 1 };
+
+  const msg =
+    maxTokens >= STREAM_THRESHOLD_TOKENS
+      ? await c.messages.stream(params, requestOptions).finalMessage()
+      : await c.messages.create(params, requestOptions);
+
+  const text = extractText(msg.content);
+  if (!text) throw new EmptyCompletionError(msg.stop_reason);
+  return text;
 }
 
 /**
@@ -122,35 +201,52 @@ async function callGemini(
   system: string | undefined,
   prompt: string,
   maxTokens: number,
+  timeoutMs: number,
 ): Promise<string> {
   const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-    {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-goog-api-key': geminiKey(),
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-goog-api-key': geminiKey(),
+        },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+          generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
       },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
-        generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
-      }),
-    },
-  );
+    );
+  } catch (err) {
+    if (err instanceof Error && err.name === 'TimeoutError') {
+      throw new Error(`Gemini did not respond within ${Math.round(timeoutMs / 1000)}s.`);
+    }
+    throw err;
+  }
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    throw new Error(`Gemini API error (${res.status}): ${detail.slice(0, 200)}`);
+    const error = new Error(
+      `Gemini API error (${res.status}): ${detail.slice(0, 200)}`,
+    );
+    // Carry the status so isRetryable() can tell a bad key from a rate limit.
+    Object.assign(error, { status: res.status });
+    throw error;
   }
   const data = (await res.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
+    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
   };
-  const parts = data.candidates?.[0]?.content?.parts ?? [];
-  return parts
+  const candidate = data.candidates?.[0];
+  const text = (candidate?.content?.parts ?? [])
     .map((p) => p.text ?? '')
     .join('')
     .trim();
+  if (!text) throw new EmptyCompletionError(candidate?.finishReason ?? null);
+  return text;
 }
 
 /**

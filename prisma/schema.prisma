@@ -186,6 +186,9 @@ enum AuditAction {
   MARKETING_PLAN_GENERATED
   // --- Client review (Phase 3) — AI Marketing Intelligence dashboard ---
   INTELLIGENCE_SNAPSHOT_GENERATED
+  // --- Screens review — manual measurement + lead feedback ---
+  PERFORMANCE_LOGGED_MANUALLY
+  LEAD_MARKED_IRRELEVANT
 }
 
 /// Sprint 3 — origin of an ingested knowledge chunk.
@@ -471,6 +474,7 @@ model Company {
   advisorReports        AdvisorReport[]
   marketingPlans        MarketingPlan[]
   intelligenceSnapshots IntelligenceSnapshot[]
+  generationJobs        GenerationJob[]
 
   @@index([slug])
 }
@@ -944,6 +948,14 @@ model Lead {
   fitScore           Int?
   /// Sprint 5 — short "why this lead" rationale (traceable, human-readable).
   fitRationale       String?    @db.Text
+  /// Which stated criteria this lead meets / does not. A score with no
+  /// breakdown cannot be reviewed, so the breakdown is stored beside it.
+  fitMatched         String[]   @default([])
+  fitMissed          String[]   @default([])
+  /// Why a human judged this lead irrelevant. Feeds future discovery so the
+  /// same bad matches stop being surfaced.
+  irrelevantReason   String?    @db.Text
+  irrelevantAt       DateTime?
   /// The requirement/category this lead came from, snapshotted at creation
   /// (e.g. "Distillery", "Liquor Store", "Head of Marketing"). Denormalized on
   /// purpose: leads must keep their origin even if the profile is renamed or
@@ -1205,6 +1217,10 @@ model AnalyticsReport {
 enum ConnectionKind {
   OAUTH
   API_KEY
+  /// Ownership of the account email proved with a one-time code. Used where a
+  /// provider's OAuth app is not yet registered, so a workspace can still
+  /// record which account a connector belongs to and start logging results.
+  EMAIL_CODE
 }
 
 /// Lifecycle of a live connector connection.
@@ -1238,6 +1254,9 @@ model Connection {
   /// Populated when status = ERROR/EXPIRED so the UI can prompt a reconnect.
   errorMessage    String?          @db.Text
   connectedById   String?
+  /// EMAIL_CODE only — the address a one-time code was sent to.
+  verifiedEmail   String?
+  verifiedAt      DateTime?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
@@ -1314,4 +1333,84 @@ model IntelligenceSnapshot {
 
   @@unique([companyId, date])
   @@index([companyId, date])
+}
+
+// ---------------------------------------------------------------------------
+// Screens review — background generation jobs
+// ---------------------------------------------------------------------------
+
+/// What a GenerationJob produces. Each kind maps to one runner in
+/// server/jobs/runners.ts.
+enum GenerationJobKind {
+  TREND_DIGEST
+  MARKETING_PLAN
+  INTELLIGENCE
+  BRAND_VOICE_PREVIEW
+}
+
+enum GenerationJobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+/// A long AI generation, moved off the request thread.
+///
+/// The trend digest, the monthly calendar and the intelligence run all fan out
+/// to several sources and make multiple model calls. Run inline they exceeded
+/// the platform's function budget and were killed mid-flight, which the UI
+/// could only report as a hang or a generic failure. Here the work is a row:
+/// the request creates it and returns immediately, a runner advances it, and
+/// the client polls `progress` for a real status line.
+///
+/// `inputs` is retained for the lifetime of the job so a failed run can be
+/// retried without the user re-entering their brief.
+model GenerationJob {
+  id         String              @id @default(cuid())
+  companyId  String
+  userId     String?
+  kind       GenerationJobKind
+  status     GenerationJobStatus @default(QUEUED)
+  /// The request that produced this job — replayed verbatim on retry.
+  inputs     Json                @default("{}")
+  /// { step, message, percent } — what the UI shows while it runs.
+  progress   Json                @default("{}")
+  /// Kind-specific result summary once SUCCEEDED.
+  result     Json                @default("{}")
+  /// Human-readable failure reason, shown directly to the user.
+  error      String?             @db.Text
+  attempts   Int                 @default(0)
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// The reaper scans by status+age; the UI lists a company's recent jobs.
+  @@index([companyId, kind, status])
+  @@index([status, createdAt])
+}
+
+/// A one-time code proving the recipient controls an email address.
+///
+/// Backs the "connect with an email and verification code" path: the code is
+/// stored hashed (never in the clear), single-use, short-lived, and rate-limited
+/// by attempt count — the same handling as a password reset token, because it
+/// grants the same kind of access.
+model ConnectorEmailVerification {
+  id          String    @id @default(cuid())
+  companyId   String
+  connectorId String
+  email       String
+  /// SHA-256 of the 6-digit code. Never store the code itself.
+  codeHash    String
+  attempts    Int       @default(0)
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([companyId, connectorId])
+  @@index([expiresAt])
 }

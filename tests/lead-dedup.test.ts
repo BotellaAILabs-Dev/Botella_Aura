@@ -91,6 +91,10 @@ describe('fit scoring', () => {
     const strong = deterministicScore(crit, lead({ name: 'Jane', title: 'CTO', companyName: 'DevTools Co' }));
     const weak = deterministicScore(crit, lead({ companyName: 'Unrelated Bakery' }));
     expect(strong.fitScore).toBeGreaterThan(weak.fitScore);
-    expect(weak.fitRationale).toMatch(/no explicit criteria match/i);
+    // A no-match lead must name the criteria it failed, not emit a generic
+    // "no explicit criteria match" that gives the reviewer nothing to act on.
+    expect(weak.fitRationale).toMatch(/no stated criterion matched/i);
+    expect(weak.fitRationale).toContain('devtools');
+    expect(weak.missed.length).toBeGreaterThan(0);
   });
 });

@@ -302,3 +302,35 @@ export async function sendTestEmail(to: string): Promise<EmailResult> {
     ),
   });
 }
+
+/**
+ * One-time code for connecting a data source by email.
+ *
+ * Deliberately plain: no link and no button. A code the recipient types back
+ * into a page they already have open cannot be turned into a click-through
+ * phishing lure the way an action link can.
+ */
+export async function sendConnectorVerificationEmail(
+  to: string,
+  code: string,
+  connectorName: string,
+  minutesValid: number,
+): Promise<EmailResult> {
+  return sendEmail({
+    to,
+    subject: `${code} is your Botella Aura verification code`,
+    text: [
+      `Your verification code for connecting ${connectorName} is: ${code}`,
+      '',
+      `It expires in ${minutesValid} minutes and can be used once.`,
+      '',
+      'If you did not request this, ignore this email — nothing was connected.',
+    ].join('\n'),
+    html: wrap(
+      `Verify ${connectorName}`,
+      `<p style="margin:0 0 16px">Enter this code to finish connecting <strong>${connectorName}</strong>:</p>` +
+        `<p style="margin:0;font-size:30px;letter-spacing:7px;font-weight:700;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${code}</p>` +
+        `<p style="margin:16px 0 0;font-size:13px;color:#6b7280">Expires in ${minutesValid} minutes. Single use. If you did not request it, ignore this email — nothing was connected.</p>`,
+    ),
+  });
+}

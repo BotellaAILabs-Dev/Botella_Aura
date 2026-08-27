@@ -5,7 +5,7 @@ import { getMembership } from '@/server/services/company.service';
 import { can } from '@/lib/rbac';
 import { absoluteUrl } from '@/lib/app-url';
 import { logger } from '@/lib/logger';
-import { decodeState, InvalidOAuthStateError } from '@/server/connectors/oauth';
+import { decodeState } from '@/server/connectors/oauth';
 import { completeOAuth } from '@/server/connectors/connection.service';
 import { getRequestMeta } from '@/lib/api';
 
@@ -14,6 +14,13 @@ export const maxDuration = 60;
 
 /**
  * GET /api/connectors/:id/callback — OAuth redirect target.
+ *
+ * The connector is taken from the signed `state`, not from the path. Providers
+ * that share one OAuth client across several connectors (Google: GA4 +
+ * Search Console) therefore share one registered redirect URI, which is what
+ * removes the `redirect_uri_mismatch` class of failure — there is a single URI
+ * to register instead of one per connector. `state` is HMAC'd, so it is the
+ * safer source of truth in any case.
  *
  * Always redirects back to the Connectors page with a human-readable outcome in
  * the query string; the user never sees a raw JSON error at the end of an OAuth
@@ -36,10 +43,14 @@ export async function GET(
   const providerError = url.searchParams.get('error');
 
   if (providerError) {
-    // The user pressed "Cancel", or the provider refused the scopes.
+    // The user pressed "Cancel", or the provider refused the request.
+    const description =
+      url.searchParams.get('error_description') ?? providerError;
     return back('denied', {
       connector: params.id,
-      reason: url.searchParams.get('error_description') ?? providerError,
+      reason: /redirect_uri/i.test(description)
+        ? `${description} — the redirect URI registered with the provider does not match this deployment. Copy the exact URI shown on the Connectors page into the provider's console.`
+        : description,
     });
   }
   if (!code || !stateRaw) {
@@ -49,11 +60,11 @@ export async function GET(
     });
   }
 
+  let connectorId = params.id;
   try {
     const state = decodeState(stateRaw);
-    if (state.connectorId !== params.id) {
-      throw new InvalidOAuthStateError();
-    }
+    // Authoritative: the path may be a shared alias (e.g. "google").
+    connectorId = state.connectorId;
 
     // Re-authenticate: the state proves the request came from us, the session
     // proves who is completing it, and membership proves they may.
@@ -67,7 +78,7 @@ export async function GET(
     const membership = await getMembership(user.id, state.companyId);
     if (!membership || !can(membership.role, 'company:update')) {
       return back('error', {
-        connector: params.id,
+        connector: connectorId,
         reason: 'You do not have permission to manage connectors for that workspace.',
       });
     }
@@ -75,21 +86,21 @@ export async function GET(
     const connection = await completeOAuth({
       companyId: state.companyId,
       userId: user.id,
-      connectorId: params.id,
+      connectorId,
       code,
       requestMeta: getRequestMeta(req),
     });
 
     return back('connected', {
-      connector: params.id,
-      account: connection.accountLabel ?? params.id,
+      connector: connectorId,
+      account: connection.accountLabel ?? connectorId,
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     logger.error('connectors: OAuth callback failed', {
-      connectorId: params.id,
+      connectorId,
       error: reason,
     });
-    return back('error', { connector: params.id, reason });
+    return back('error', { connector: connectorId, reason });
   }
 }

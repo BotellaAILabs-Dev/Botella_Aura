@@ -42,6 +42,8 @@ export default async function LeadsPage() {
     profileName: l.discoveryProfile?.name ?? null,
     fitScore: l.fitScore,
     fitRationale: l.fitRationale,
+    fitMatched: l.fitMatched,
+    fitMissed: l.fitMissed,
     signalCount: l.signals.length,
     messageCount: l.messages.length,
   }));

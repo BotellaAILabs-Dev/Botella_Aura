@@ -45,6 +45,7 @@ const suggestionSchema = z.object({
           'competitors',
           'campaigns',
           'outreach',
+          'setup',
         ]),
         priority: z.enum(['high', 'medium', 'low']),
         title: z.string().max(120),
@@ -62,7 +63,55 @@ const AREA_HREF: Record<ImprovementSuggestion['area'], string> = {
   competitors: '/dashboard/competitors',
   campaigns: '/dashboard/campaigns',
   outreach: '/dashboard/outreach',
+  setup: '/dashboard/settings',
 };
+
+/**
+ * Weight of each scored area in the headline number.
+ *
+ * Shared deliberately between `computeOverall()` and the suggestion ranker, so
+ * "what to fix first" is ordered by the same arithmetic that produced the score
+ * it is trying to move. Anything else would let the list recommend work that
+ * cannot change the number it sits under.
+ */
+const AREA_WEIGHTS = {
+  foundations: 3,
+  contentQuality: 3,
+  contentOutput: 2,
+  leadGeneration: 2,
+  outreach: 2,
+  brandConsistency: 2,
+  measuredPerformance: 2,
+  campaign: 1,
+  competitorVisibility: 1,
+} as const;
+
+/** A score at or above this is healthy; gap is measured against it. */
+const TARGET_SCORE = 80;
+
+/**
+ * How many points of the overall score this area could still win back.
+ *
+ * impact = (share of the total weight) x (gap to target). An area that is
+ * heavily weighted AND far from target outranks one that is barely weighted or
+ * nearly fixed — which is the differentiation the flat "medium" label lacked.
+ * Unmeasured areas score their full gap: not knowing is itself the problem.
+ */
+function impactOf(weight: number, score: number | null, totalWeight: number): number {
+  const gap = score === null ? TARGET_SCORE : Math.max(0, TARGET_SCORE - score);
+  return Math.round((weight / totalWeight) * gap * 10) / 10;
+}
+
+function priorityFor(impact: number): ImprovementSuggestion['priority'] {
+  if (impact >= 6) return 'high';
+  if (impact >= 2.5) return 'medium';
+  return 'low';
+}
+
+function describeImpact(impact: number): string {
+  if (impact < 0.5) return 'Minor polish — little movement on your score.';
+  return `Worth about +${impact.toFixed(1)} points on your overall score.`;
+}
 
 function startOfUtcDay(now = new Date()): Date {
   return new Date(
@@ -99,46 +148,75 @@ function computeOverall(
   };
 }
 
-/** Deterministic suggestions derived straight from the computed numbers. */
+/**
+ * Deterministic suggestions derived straight from the computed numbers, ranked
+ * by how many points of the overall score each one could actually win back.
+ */
 function ruleBasedSuggestions(
   payload: Omit<IntelligencePayload, 'suggestions' | 'model' | 'generatedAt'>,
 ): ImprovementSuggestion[] {
   const out: ImprovementSuggestion[] = [];
   const { performance, content, brand } = payload;
+  const totalWeight = Object.values(AREA_WEIGHTS).reduce((a, b) => a + b, 0);
 
   const push = (
     area: ImprovementSuggestion['area'],
-    priority: ImprovementSuggestion['priority'],
+    weight: number,
+    score: number | null,
     title: string,
     rationale: string,
     action: string,
-  ) => out.push({ area, priority, title, rationale, action, href: AREA_HREF[area] });
+  ) => {
+    const impact = impactOf(weight, score, totalWeight);
+    out.push({
+      area,
+      priority: priorityFor(impact),
+      title,
+      rationale,
+      action,
+      href: AREA_HREF[area],
+      impact,
+      expectedImpact: describeImpact(impact),
+    });
+  };
 
   // Anything with a concrete recommendation already knows what is wrong.
-  const blocks: [ImprovementSuggestion['area'], string, ScoreBlock][] = [
-    ['campaigns', 'Campaign performance', performance.campaign],
-    ['leads', 'Lead generation health', performance.leadGeneration],
-    ['competitors', 'Competitor visibility', performance.competitorVisibility],
-    ['content', 'Content output', performance.contentOutput],
-    ['outreach', 'Outreach conversion', performance.outreach],
-    ['content', 'Content quality', content.quality],
-    ['content', 'Hook strength', content.hookStrength],
-    ['content', 'Readability', content.readability],
-    ['content', 'CTA effectiveness', content.ctaEffectiveness],
-    ['content', 'Measured performance', content.performance],
-    ['brand', 'Brand consistency', brand.consistency],
+  const blocks: [
+    ImprovementSuggestion['area'],
+    string,
+    ScoreBlock,
+    number,
+  ][] = [
+    ['setup', 'Finish your setup', performance.foundations, AREA_WEIGHTS.foundations],
+    ['campaigns', 'Campaign performance', performance.campaign, AREA_WEIGHTS.campaign],
+    ['leads', 'Lead generation health', performance.leadGeneration, AREA_WEIGHTS.leadGeneration],
+    [
+      'competitors',
+      'Competitor visibility',
+      performance.competitorVisibility,
+      AREA_WEIGHTS.competitorVisibility,
+    ],
+    ['content', 'Content output', performance.contentOutput, AREA_WEIGHTS.contentOutput],
+    ['outreach', 'Outreach conversion', performance.outreach, AREA_WEIGHTS.outreach],
+    ['content', 'Content quality', content.quality, AREA_WEIGHTS.contentQuality],
+    ['content', 'Hook strength', content.hookStrength, 1],
+    ['content', 'Readability', content.readability, 1],
+    ['content', 'CTA effectiveness', content.ctaEffectiveness, 1],
+    [
+      'content',
+      'Measured performance',
+      content.performance,
+      AREA_WEIGHTS.measuredPerformance,
+    ],
+    ['brand', 'Brand consistency', brand.consistency, AREA_WEIGHTS.brandConsistency],
   ];
 
-  for (const [area, label, block] of blocks) {
+  for (const [area, label, block, weight] of blocks) {
     if (!block.recommendation) continue;
-    const priority: ImprovementSuggestion['priority'] = !block.hasData
-      ? 'medium'
-      : (block.score ?? 100) < 45
-        ? 'high'
-        : 'medium';
     push(
       area,
-      priority,
+      weight,
+      block.hasData ? block.score : null,
       label,
       block.hasData ? `${label} is ${block.score}/100. ${block.basis}` : block.basis,
       block.recommendation,
@@ -147,7 +225,14 @@ function ruleBasedSuggestions(
 
   for (const rec of brand.vocabulary.recommendations) {
     if (rec.startsWith('Vocabulary is aligned')) continue;
-    push('brand', 'medium', 'Brand vocabulary', 'From your brand voice profile.', rec);
+    push(
+      'brand',
+      1,
+      brand.consistency.score,
+      'Brand vocabulary',
+      'From your brand voice profile.',
+      rec,
+    );
   }
 
   // The single worst piece is a concrete, immediately actionable fix.
@@ -155,7 +240,8 @@ function ruleBasedSuggestions(
   if (worst && worst.qualityScore < 55) {
     push(
       'content',
-      'high',
+      AREA_WEIGHTS.contentQuality,
+      worst.qualityScore,
       `Rewrite: “${worst.title.slice(0, 60)}”`,
       `This draft scores ${worst.qualityScore}/100 — the lowest you have. ${
         worst.hook.weaknesses[0] ?? worst.cta.notes[0] ?? ''
@@ -166,8 +252,7 @@ function ruleBasedSuggestions(
     );
   }
 
-  const order = { high: 0, medium: 1, low: 2 };
-  return out.sort((a, b) => order[a.priority] - order[b.priority]).slice(0, 10);
+  return out.sort((a, b) => (b.impact ?? 0) - (a.impact ?? 0)).slice(0, 10);
 }
 
 export async function generateIntelligenceSnapshot(args: {
@@ -229,21 +314,60 @@ export async function generateIntelligenceSnapshot(args: {
     competitors: Number(perf.performance.competitorVisibility.detail?.competitors ?? 0),
     hasBrandProfile: Boolean(brandProfile),
     gaps,
+    foundationSteps: perf.foundations.steps.map((step) => ({
+      key: step.key,
+      label: step.label,
+      done: step.done,
+      action: step.action,
+      href: step.href,
+    })),
+    nextStep: perf.foundations.nextStep
+      ? {
+          key: perf.foundations.nextStep.key,
+          label: perf.foundations.nextStep.label,
+          done: false,
+          action: perf.foundations.nextStep.action,
+          href: perf.foundations.nextStep.href,
+        }
+      : null,
   };
 
   const overall = computeOverall([
-    { block: content.quality, weight: 3, label: 'content quality' },
-    { block: perf.performance.contentOutput, weight: 2, label: 'content output' },
-    { block: perf.performance.leadGeneration, weight: 2, label: 'lead health' },
-    { block: perf.performance.outreach, weight: 2, label: 'outreach' },
-    { block: brand.consistency, weight: 2, label: 'brand consistency' },
-    { block: perf.performance.campaign, weight: 1, label: 'campaigns' },
+    // Foundations first: it is the only block guaranteed to have data, so it
+    // is what keeps a first-run dashboard from reporting no score at all.
+    {
+      block: perf.performance.foundations,
+      weight: AREA_WEIGHTS.foundations,
+      label: 'setup',
+    },
+    { block: content.quality, weight: AREA_WEIGHTS.contentQuality, label: 'content quality' },
+    {
+      block: perf.performance.contentOutput,
+      weight: AREA_WEIGHTS.contentOutput,
+      label: 'content output',
+    },
+    {
+      block: perf.performance.leadGeneration,
+      weight: AREA_WEIGHTS.leadGeneration,
+      label: 'lead health',
+    },
+    { block: perf.performance.outreach, weight: AREA_WEIGHTS.outreach, label: 'outreach' },
+    {
+      block: brand.consistency,
+      weight: AREA_WEIGHTS.brandConsistency,
+      label: 'brand consistency',
+    },
+    { block: perf.performance.campaign, weight: AREA_WEIGHTS.campaign, label: 'campaigns' },
     {
       block: perf.performance.competitorVisibility,
-      weight: 1,
+      weight: AREA_WEIGHTS.competitorVisibility,
       label: 'competitor visibility',
     },
-    { block: content.performance, weight: 2, label: 'measured performance' },
+    {
+      block: content.performance,
+      weight: AREA_WEIGHTS.measuredPerformance,
+      label: 'measured performance',
+    },
   ]);
 
   const base = {
@@ -259,10 +383,16 @@ export async function generateIntelligenceSnapshot(args: {
   let model = 'none';
 
   // The model reprioritizes and sharpens; it never produces the scores.
-  if (isClaudeConfigured() && (content.quality.hasData || perf.performance.leadGeneration.hasData)) {
+  // Foundations always has data, so this now also runs for a brand-new
+  // workspace — which is exactly the case that used to get no advice at all.
+  if (isClaudeConfigured()) {
     try {
       const facts = [
         `Overall marketing score: ${overall.score ?? 'not measurable'}`,
+        `setup foundations: ${perf.performance.foundations.score}/100 — ${perf.performance.foundations.basis}`,
+        ...perf.foundations.steps
+          .filter((step) => !step.done)
+          .map((step) => `setup step outstanding: ${step.label} — ${step.action}`),
         ...Object.entries(perf.performance).map(
           ([k, v]) =>
             `${k}: ${v.hasData ? `${v.score}/100` : 'no data'} — ${v.basis}`,
@@ -305,10 +435,25 @@ export async function generateIntelligenceSnapshot(args: {
       });
 
       if (ai.suggestions.length > 0) {
-        suggestions = ai.suggestions.map((s) => ({
-          ...s,
-          href: AREA_HREF[s.area],
-        }));
+        // The model may reword and reorder, but impact stays ours: it is
+        // arithmetic on the scores, and letting a model guess it would put the
+        // flat, undifferentiated priorities straight back.
+        const byArea = new Map(
+          suggestions.map((s) => [s.area, s] as const),
+        );
+        suggestions = ai.suggestions
+          .map((s) => {
+            const computed = byArea.get(s.area);
+            const impact = computed?.impact ?? 0;
+            return {
+              ...s,
+              href: AREA_HREF[s.area],
+              impact,
+              expectedImpact: describeImpact(impact),
+              priority: priorityFor(impact),
+            };
+          })
+          .sort((a, b) => (b.impact ?? 0) - (a.impact ?? 0));
         model = getModel();
       }
     } catch (err) {

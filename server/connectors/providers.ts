@@ -18,6 +18,19 @@ export interface OAuthConfig {
   authorizeUrl: string;
   tokenUrl: string;
   scopes: string[];
+  /**
+   * Callback path registered with the provider, when it differs from the
+   * per-connector default of `/api/connectors/<id>/callback`.
+   *
+   * Google is the reason this exists. GA4 and Search Console are one OAuth
+   * client with two connector ids, so the default gave them two redirect URIs,
+   * each needing separate registration in Google Cloud — and any that was
+   * missed produced `Error 400: redirect_uri_mismatch`. Pointing both at one
+   * shared path means a single URI to register and nothing to miss. Which
+   * connector is being connected is read from the signed `state`, which is
+   * authoritative regardless of the path.
+   */
+  redirectPath?: string;
   /** Extra params appended to the authorize URL (e.g. Google's offline access). */
   authorizeParams?: Record<string, string>;
   /** Env var holding the OAuth client id. */
@@ -64,12 +77,16 @@ export interface ProviderCredentials {
   metadata?: Record<string, unknown>;
 }
 
+/** The one Google redirect URI to register in Google Cloud Console. */
+export const GOOGLE_REDIRECT_PATH = '/api/connectors/google/callback';
+
 const GOOGLE_OAUTH: Omit<OAuthConfig, 'scopes'> = {
   authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
   tokenUrl: 'https://oauth2.googleapis.com/token',
   authorizeParams: { access_type: 'offline', prompt: 'consent' },
   clientIdEnv: 'GOOGLE_CLIENT_ID',
   clientSecretEnv: 'GOOGLE_CLIENT_SECRET',
+  redirectPath: GOOGLE_REDIRECT_PATH,
 };
 
 /** Small helper so every verify() failure reads the same way. */
@@ -380,4 +397,25 @@ export function providerReadiness(id: string): ProviderReadiness {
     unlocks: provider.unlocks,
     blockedReason: `Awaiting app credentials: set ${cfg.clientIdEnv} and ${cfg.clientSecretEnv} on the deployment (one-time registration with the provider).`,
   };
+}
+
+/** Every distinct callback URL a deployment must register, by provider group. */
+export function oauthRedirectPaths(): { label: string; path: string; connectors: string[] }[] {
+  const byPath = new Map<string, { clientIdEnv: string; connectors: string[] }>();
+  for (const provider of Object.values(PROVIDERS)) {
+    if (!provider.oauth) continue;
+    const path =
+      provider.oauth.redirectPath ?? `/api/connectors/${provider.id}/callback`;
+    const entry = byPath.get(path) ?? {
+      clientIdEnv: provider.oauth.clientIdEnv,
+      connectors: [],
+    };
+    entry.connectors.push(provider.id);
+    byPath.set(path, entry);
+  }
+  return [...byPath.entries()].map(([path, entry]) => ({
+    label: entry.clientIdEnv.replace(/_CLIENT_ID$/, '').replace(/_/g, ' '),
+    path,
+    connectors: entry.connectors,
+  }));
 }

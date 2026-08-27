@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { CalendarDays, Sparkles, Target, Info, Wand2 } from 'lucide-react';
@@ -18,6 +18,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { useGenerationJob } from '@/components/dashboard/jobs/use-generation-job';
+import { JobProgressBar } from '@/components/dashboard/jobs/job-progress';
 import { CONTENT_CHANNELS } from '@/lib/validations/planner';
 import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
 import type { ContentTypeKey } from '@/lib/validations/content';
@@ -87,7 +89,7 @@ export function PlannerView({
   const [topicsText, setTopicsText] = useState(
     (savedInputs?.topics ?? []).join(', '),
   );
-  const [busy, setBusy] = useState(false);
+  const draftKey = 'aura.planner.brief';
 
   function toggleChannel(ch: string) {
     setForm((f) => ({
@@ -96,6 +98,55 @@ export function PlannerView({
         ? f.channels.filter((c) => c !== ch)
         : [...f.channels, ch],
     }));
+  }
+
+  /**
+   * A generation that fails must never cost the user their brief. The server
+   * keeps it on the job row for retry; this keeps it in the box in front of
+   * them too, so a reload mid-run doesn't wipe the form either.
+   */
+  useEffect(() => {
+    if (savedInputs) return;
+    try {
+      const raw = window.localStorage.getItem(draftKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as PlannerInputsView;
+      setForm(parsed);
+      setTopicsText((parsed.topics ?? []).join(', '));
+    } catch {
+      // A corrupt draft is not worth surfacing — just start clean.
+    }
+  }, [savedInputs]);
+
+  const { job, start, attach, running } = useGenerationJob('MARKETING_PLAN', {
+    onDone(finished) {
+      if (finished.status !== 'SUCCEEDED') return;
+      const items = Number(finished.result?.items ?? 0);
+      toast.success(`Calendar ready — ${items} piece${items === 1 ? '' : 's'} scheduled.`);
+      try {
+        window.localStorage.removeItem(draftKey);
+      } catch {
+        // Non-fatal.
+      }
+      router.refresh();
+    },
+  });
+
+  // Reattach to a calendar already being generated (e.g. after a reload).
+  useEffect(() => {
+    void attach();
+  }, [attach]);
+
+  function buildInputs() {
+    return {
+      ...form,
+      topics: topicsText
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean),
+      brandGuidelines: form.brandGuidelines || undefined,
+      audience: form.audience || undefined,
+    };
   }
 
   async function generate() {
@@ -111,35 +162,16 @@ export function PlannerView({
       toast.error('Pick at least one channel.');
       return;
     }
-    setBusy(true);
+    const inputs = buildInputs();
     try {
-      const res = await fetch('/api/planner', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...form,
-          topics: topicsText
-            .split(',')
-            .map((t) => t.trim())
-            .filter(Boolean),
-          brandGuidelines: form.brandGuidelines || undefined,
-          audience: form.audience || undefined,
-        }),
-      });
-      const body = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        items?: number;
-      };
-      if (!res.ok) {
-        toast.error(body.error ?? 'Could not build the plan.');
-        return;
-      }
-      toast.success(`Calendar ready — ${body.items ?? 0} pieces scheduled.`);
-      router.refresh();
-    } finally {
-      setBusy(false);
+      window.localStorage.setItem(draftKey, JSON.stringify(inputs));
+    } catch {
+      // Storage can be unavailable (private mode) — the server copy still covers retry.
     }
+    await start(inputs);
   }
+
+  const busy = running;
 
   return (
     <div className="space-y-6">
@@ -277,6 +309,15 @@ export function PlannerView({
               {plan ? 'Regenerate calendar' : 'Generate monthly calendar'}
             </Button>
           )}
+
+          {/* Named steps + a retry that reuses this brief, instead of an
+              indefinite buffering state that ends with no calendar. */}
+          <JobProgressBar
+            job={job}
+            runningLabel="Building your monthly calendar"
+            onRetry={() => void generate()}
+          />
+
           {plan && (
             <p className="text-xs text-muted-foreground">
               Regenerating replaces the plan for {plan.month} — it never creates a

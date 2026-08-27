@@ -330,13 +330,23 @@ export function TeamManager({
                       {canManage && (
                         <div className="flex shrink-0 flex-wrap gap-1">
                           {link && <CopyLinkButton url={link} />}
+                          {/* When mail did not go out, sharing the link IS the
+                              way in — so it leads, and says what it does.
+                              Invite tokens are stored hashed, so the link can
+                              only be produced by issuing a fresh one; the
+                              button name reflects that rather than implying we
+                              are re-sending something we still hold. */}
                           <Button
-                            variant="outline"
+                            variant={undelivered && !link ? 'default' : 'outline'}
                             size="sm"
                             loading={busyId === inv.id}
                             onClick={() => resend(inv)}
                           >
-                            Resend
+                            {undelivered
+                              ? link
+                                ? 'New link'
+                                : 'Get invite link'
+                              : 'Resend'}
                           </Button>
                           <Button
                             variant="ghost"

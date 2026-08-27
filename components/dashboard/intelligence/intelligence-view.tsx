@@ -1,17 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
   BarChart3,
   Brain,
+  Check,
   Gauge,
   Lightbulb,
   PenLine,
   RefreshCw,
   Sparkles,
+  Target,
   TriangleAlert,
   Info,
 } from 'lucide-react';
@@ -27,6 +29,8 @@ import {
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useGenerationJob } from '@/components/dashboard/jobs/use-generation-job';
+import { JobProgressBar } from '@/components/dashboard/jobs/job-progress';
 import {
   ScoreDial,
   ScoreMeter,
@@ -53,31 +57,35 @@ export function IntelligenceView({
   canRun: boolean;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
-
-  async function run() {
-    setBusy(true);
-    try {
-      const res = await fetch('/api/intelligence', { method: 'POST' });
-      const body = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        draftsAnalysed?: number;
-      };
-      if (!res.ok) {
-        toast.error(body.error ?? 'Could not run the analysis.');
-        return;
-      }
-      toast.success(
-        `Analysis complete — ${body.draftsAnalysed ?? 0} piece(s) of content scored.`,
-      );
+  const { job, start, attach, running } = useGenerationJob('INTELLIGENCE', {
+    onDone(finished) {
+      if (finished.status !== 'SUCCEEDED') return;
+      toast.success('Analysis complete.');
       router.refresh();
-    } finally {
-      setBusy(false);
-    }
-  }
+    },
+  });
+
+  useEffect(() => {
+    void attach();
+  }, [attach]);
+
+  /**
+   * With no snapshot, start one immediately rather than waiting to be asked.
+   *
+   * The foundations scorer can grade a workspace from onboarding data alone, so
+   * there is always something to compute — leaving the page blank behind a
+   * button the user has to discover was the activation blocker.
+   */
+  useEffect(() => {
+    if (!snapshot && canRun) void start();
+    // Intentionally runs once: `start` would otherwise re-fire on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const busy = running;
 
   const runBtn = canRun ? (
-    <Button onClick={run} loading={busy}>
+    <Button onClick={() => void start()} loading={busy}>
       <RefreshCw className="h-4 w-4" />
       {snapshot ? 'Recalculate' : 'Run analysis'}
     </Button>
@@ -90,17 +98,26 @@ export function IntelligenceView({
           <div className="flex items-center gap-2">
             <Gauge className="h-5 w-5 text-primary" />
             <div>
-              <CardTitle className="text-base">No analysis yet</CardTitle>
+              <CardTitle className="text-base">
+                {busy ? 'Scoring your workspace…' : 'No analysis yet'}
+              </CardTitle>
               <CardDescription>
-                This dashboard scores your campaigns, leads, competitor coverage,
-                content quality, and brand consistency from your real workspace
-                data. Nothing is estimated — anything that cannot be measured is
-                reported as unavailable rather than as a zero.
+                This dashboard scores your setup, campaigns, leads, competitor
+                coverage, content quality, and brand consistency from your real
+                workspace data. Nothing is estimated — anything that cannot be
+                measured is reported as unavailable rather than as a zero.
               </CardDescription>
             </div>
           </div>
         </CardHeader>
-        <CardContent>{runBtn}</CardContent>
+        <CardContent className="space-y-3">
+          {runBtn}
+          <JobProgressBar
+            job={job}
+            runningLabel="Running your first analysis"
+            onRetry={() => void start()}
+          />
+        </CardContent>
       </Card>
     );
   }
@@ -155,46 +172,66 @@ export function IntelligenceView({
         </CardContent>
       </Card>
 
-      {/* ---------- What to fix ---------- */}
+      {/* ---------- Setup checklist (first-run next step) ---------- */}
+      <SetupChecklist coverage={snapshot.coverage} />
+
+      {/* ---------- What to fix ----------
+          The top item is pulled out and given real visual weight. Nine
+          equally-sized cards could not answer the question the section asks. */}
       {snapshot.suggestions.length > 0 && (
         <section>
           <SectionHeading
             icon={Lightbulb}
             title="What to fix first"
-            subtitle="Ranked by what will move results most. Every item names the number that triggered it."
+            subtitle="Ranked by how many points each fix is worth on your overall score — weight of the area times how far it sits below target."
           />
-          <ul className="space-y-2">
-            {snapshot.suggestions.map((s, i) => (
-              <li key={i}>
-                <Card>
-                  <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant={PRIORITY_VARIANT[s.priority]}>
-                          {s.priority}
-                        </Badge>
-                        <Badge variant="outline">{s.area}</Badge>
-                        <p className="font-medium text-foreground">{s.title}</p>
-                      </div>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {s.rationale}
-                      </p>
-                      <p className="mt-1 text-sm text-foreground">
-                        <span className="font-medium">Do this:</span> {s.action}
-                      </p>
-                    </div>
-                    {s.href && (
-                      <Button asChild size="sm" variant="ghost" className="shrink-0">
-                        <Link href={s.href}>
-                          Go <ArrowRight className="h-4 w-4" />
-                        </Link>
-                      </Button>
-                    )}
-                  </CardContent>
-                </Card>
-              </li>
-            ))}
-          </ul>
+
+          <TopPriority suggestion={snapshot.suggestions[0]!} />
+
+          {snapshot.suggestions.length > 1 && (
+            <>
+              <h3 className="mb-2 mt-4 text-sm font-semibold text-foreground">
+                Then
+              </h3>
+              <ul className="space-y-2">
+                {snapshot.suggestions.slice(1).map((s, i) => (
+                  <li key={i}>
+                    <Card>
+                      <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={PRIORITY_VARIANT[s.priority]}>
+                              {s.priority}
+                            </Badge>
+                            <Badge variant="outline">{s.area}</Badge>
+                            <p className="font-medium text-foreground">{s.title}</p>
+                          </div>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {s.rationale}
+                          </p>
+                          <p className="mt-1 text-sm text-foreground">
+                            <span className="font-medium">Do this:</span> {s.action}
+                          </p>
+                          {s.expectedImpact && (
+                            <p className="mt-1 text-xs font-medium text-primary">
+                              {s.expectedImpact}
+                            </p>
+                          )}
+                        </div>
+                        {s.href && (
+                          <Button asChild size="sm" variant="ghost" className="shrink-0">
+                            <Link href={s.href}>
+                              Go <ArrowRight className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </section>
       )}
 
@@ -206,6 +243,7 @@ export function IntelligenceView({
           subtitle="How the machine is running: campaigns, lead generation, competitor coverage, output, and outreach."
         />
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          <ScoreMeter label="Setup foundations" block={performance.foundations} />
           <ScoreMeter label="Campaign performance" block={performance.campaign} />
           <ScoreMeter
             label="Lead generation health"
@@ -563,5 +601,129 @@ function Metric({
         ))}
       </ul>
     </div>
+  );
+}
+
+/**
+ * The single highest-impact fix, given the visual weight the rest of the list
+ * does not get. The review's complaint was that nine items at equal prominence,
+ * all labelled "medium", cannot tell anyone what to do first.
+ */
+function TopPriority({ suggestion }: { suggestion: ImprovementSuggestion }) {
+  return (
+    <Card className="border-primary/40 bg-primary/[0.03]">
+      <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="default">
+              <Target className="h-3 w-3" /> Start here
+            </Badge>
+            <Badge variant={PRIORITY_VARIANT[suggestion.priority]}>
+              {suggestion.priority}
+            </Badge>
+            <Badge variant="outline">{suggestion.area}</Badge>
+          </div>
+          <h3 className="mt-2 text-base font-semibold text-foreground">
+            {suggestion.title}
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {suggestion.rationale}
+          </p>
+          <p className="mt-2 text-sm text-foreground">
+            <span className="font-medium">Do this:</span> {suggestion.action}
+          </p>
+          {suggestion.expectedImpact && (
+            <p className="mt-2 text-sm font-medium text-primary">
+              {suggestion.expectedImpact}
+            </p>
+          )}
+        </div>
+        {suggestion.href && (
+          <Button asChild className="shrink-0">
+            <Link href={suggestion.href}>
+              Fix it <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Setup progress, and the one step worth doing next.
+ *
+ * A new workspace cannot be scored on activity it has not had time to produce,
+ * but it can always be scored on whether it is set up — so this replaces the
+ * wall of "Not measured" with a checklist that visibly completes.
+ */
+function SetupChecklist({
+  coverage,
+}: {
+  coverage: IntelligencePayload['coverage'];
+}) {
+  const steps = coverage.foundationSteps ?? [];
+  if (steps.length === 0) return null;
+
+  const done = steps.filter((s) => s.done).length;
+  if (done === steps.length) return null; // nothing left to nag about
+
+  const next = coverage.nextStep;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Check className="h-5 w-5 text-primary" />
+          <div>
+            <CardTitle className="text-base">
+              Setup — {done} of {steps.length} complete
+            </CardTitle>
+            <CardDescription>
+              Each step unlocks a part of the score that cannot be measured
+              without it.
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {next && (
+          <div className="rounded-lg border border-primary/30 bg-primary/[0.04] p-3">
+            <p className="text-sm font-medium text-foreground">
+              Next: {next.label}
+            </p>
+            <p className="mt-0.5 text-sm text-muted-foreground">{next.action}</p>
+            <Button asChild size="sm" variant="outline" className="mt-2">
+              <Link href={next.href}>
+                Do it <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        )}
+        <ul className="grid gap-1.5 text-sm sm:grid-cols-2">
+          {steps.map((step) => (
+            <li key={step.key} className="flex items-center gap-2">
+              <span
+                className={cn(
+                  'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px]',
+                  step.done
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border text-muted-foreground',
+                )}
+              >
+                {step.done ? '✓' : ''}
+              </span>
+              <span
+                className={
+                  step.done ? 'text-muted-foreground line-through' : 'text-foreground'
+                }
+              >
+                {step.label}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }

@@ -161,7 +161,12 @@ export async function runDiscovery(args: {
       const score = await scoreLead({ company, criteria, lead: cand });
       await db.lead.update({
         where: { id: lead.id },
-        data: { fitScore: score.fitScore, fitRationale: score.fitRationale },
+        data: {
+          fitScore: score.fitScore,
+          fitRationale: score.fitRationale,
+          fitMatched: score.matched,
+          fitMissed: score.missed,
+        },
       });
       await recordAudit({
         action: 'LEAD_SCORED',

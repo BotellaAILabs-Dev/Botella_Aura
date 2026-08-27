@@ -21,6 +21,8 @@ export interface ScoreBlock {
 }
 
 export interface MarketingPerformance {
+  /** Setup completeness — always measurable, so a new workspace still scores. */
+  foundations: ScoreBlock;
   campaign: ScoreBlock;
   leadGeneration: ScoreBlock;
   competitorVisibility: ScoreBlock;
@@ -91,7 +93,14 @@ export interface BrandIntelligence {
 }
 
 export interface ImprovementSuggestion {
-  area: 'content' | 'brand' | 'leads' | 'competitors' | 'campaigns' | 'outreach';
+  area:
+    | 'content'
+    | 'brand'
+    | 'leads'
+    | 'competitors'
+    | 'campaigns'
+    | 'outreach'
+    | 'setup';
   priority: 'high' | 'medium' | 'low';
   title: string;
   /** Why — referencing the specific number that triggered it. */
@@ -99,6 +108,26 @@ export interface ImprovementSuggestion {
   action: string;
   /** Where in the app to go and do it. */
   href?: string;
+  /**
+   * Points the overall score would gain if this were fully fixed.
+   *
+   * This is what makes the ranking defensible. Priority used to be a flat
+   * default, so every item read "medium" and the list could not answer its own
+   * question — what to fix FIRST. Impact is weight x gap-to-target, computed
+   * from the same weights that produce the headline score.
+   */
+  impact?: number;
+  /** Plain-language version of `impact`, e.g. "+6 points on your score". */
+  expectedImpact?: string;
+}
+
+/** One setup step and whether it is done — drives the first-run next action. */
+export interface FoundationStepView {
+  key: string;
+  label: string;
+  done: boolean;
+  action: string;
+  href: string;
 }
 
 export interface IntelligenceCoverage {
@@ -111,6 +140,10 @@ export interface IntelligenceCoverage {
   hasBrandProfile: boolean;
   /** What could not be measured, and why. */
   gaps: string[];
+  /** Setup checklist, so the UI can show one concrete next step. */
+  foundationSteps: FoundationStepView[];
+  /** The single highest-value outstanding setup step, if any. */
+  nextStep: FoundationStepView | null;
 }
 
 export interface IntelligencePayload {
