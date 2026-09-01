@@ -9,6 +9,10 @@ import {
 import { updateTrendConfigSchema } from '@/lib/validations/trends';
 import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
+// Reads the session, so it can never be statically prerendered. Declaring it
+// keeps the build output clean instead of logging a fallback for every build.
+export const dynamic = 'force-dynamic';
+
 /** GET /api/trends/config — the active company's trend configuration. */
 export async function GET() {
   try {

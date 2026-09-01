@@ -7,6 +7,10 @@ import {
 } from '@/server/outreach/config.service';
 import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
+// Reads the session, so it can never be statically prerendered. Declaring it
+// keeps the build output clean instead of logging a fallback for every build.
+export const dynamic = 'force-dynamic';
+
 /** GET /api/outreach/config — current targeting config. */
 export async function GET() {
   try {
