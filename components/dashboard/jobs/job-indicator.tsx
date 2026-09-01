@@ -59,6 +59,12 @@ export function JobIndicator() {
     let delay = IDLE_POLL_MS;
     try {
       const res = await fetch('/api/jobs/active', { cache: 'no-store' });
+      // Session gone — stop polling rather than retry forever against a
+      // logged-out API. The next navigation lands on /login anyway.
+      if (res.status === 401 || res.status === 403) {
+        setRunning([]);
+        return;
+      }
       if (res.ok) {
         const body = (await res.json()) as { jobs: ActiveJob[] };
         const active = body.jobs.filter(

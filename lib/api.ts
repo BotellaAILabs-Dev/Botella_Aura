@@ -24,12 +24,37 @@ export function jsonError(
 }
 
 /** Turn any thrown error into a safe JSON response. */
+/**
+ * Is this Next's internal "redirect()" control-flow signal?
+ *
+ * `requireUser()` calls `redirect('/login')`, which works by throwing. That is
+ * right for a page, but in a route handler it fell through to the catch-all
+ * below and answered 500 — so an expired session read as a server fault, both
+ * to the caller and to monitoring. Detected by the `digest` marker Next sets,
+ * since the error class itself is not exported.
+ */
+function isNextRedirect(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === 'object' &&
+    'digest' in error &&
+    typeof (error as { digest: unknown }).digest === 'string' &&
+    (error as { digest: string }).digest.startsWith('NEXT_REDIRECT')
+  );
+}
+
 export function handleRouteError(error: unknown) {
   if (error instanceof ZodError) {
     return jsonError('Validation failed', 422, error.flatten().fieldErrors);
   }
   if (error instanceof ForbiddenError) {
     return jsonError(error.message, 403);
+  }
+  // An unauthenticated API call is a 401, not a server error. Worth being
+  // exact about: the job indicator polls continuously, so a lapsed session
+  // would otherwise fill the logs with phantom 500s.
+  if (isNextRedirect(error)) {
+    return jsonError('Not signed in.', 401);
   }
   // Errors we explicitly annotate with a numeric `status` are safe to surface.
   if (
