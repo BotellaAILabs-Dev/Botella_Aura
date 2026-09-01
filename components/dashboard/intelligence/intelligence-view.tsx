@@ -75,9 +75,21 @@ export function IntelligenceView({
    * The foundations scorer can grade a workspace from onboarding data alone, so
    * there is always something to compute — leaving the page blank behind a
    * button the user has to discover was the activation blocker.
+   *
+   * Guarded to once per tab. Without it, every visit re-kicked a run and
+   * started another 1.5s poll, so navigating in and out of this page stacked
+   * up concurrent pollers — cheap individually, punishing in aggregate.
    */
   useEffect(() => {
-    if (!snapshot && canRun) void start();
+    if (snapshot || !canRun) return;
+    const key = 'aura.intelligence.autostarted';
+    try {
+      if (window.sessionStorage.getItem(key)) return;
+      window.sessionStorage.setItem(key, '1');
+    } catch {
+      // Storage unavailable (private mode) — fall through and start once.
+    }
+    void start();
     // Intentionally runs once: `start` would otherwise re-fire on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

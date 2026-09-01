@@ -40,6 +40,12 @@ export function useGenerationJob(kind: JobKind, options?: {
   const [starting, setStarting] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const polls = useRef(0);
+  /**
+   * Same orphan-loop guard as the app-wide indicator: an in-flight poll must
+   * not arm a fresh timer after the component has gone, or every remount
+   * leaves another loop running.
+   */
+  const alive = useRef(true);
   const onDone = useRef(options?.onDone);
   onDone.current = options?.onDone;
 
@@ -48,10 +54,17 @@ export function useGenerationJob(kind: JobKind, options?: {
     timer.current = null;
   }, []);
 
-  useEffect(() => stop, [stop]);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      stop();
+    };
+  }, [stop]);
 
   const poll = useCallback(
     async (id: string) => {
+      if (!alive.current) return;
       if (polls.current++ > MAX_POLLS) {
         setJob((j) =>
           j
@@ -69,6 +82,7 @@ export function useGenerationJob(kind: JobKind, options?: {
         const res = await fetch(`/api/jobs/${id}`, { cache: 'no-store' });
         if (!res.ok) throw new Error('lost the job');
         const next = (await res.json()) as JobState;
+        if (!alive.current) return;
         setJob(next);
 
         if (next.status === 'SUCCEEDED' || next.status === 'FAILED') {
@@ -79,7 +93,9 @@ export function useGenerationJob(kind: JobKind, options?: {
       } catch {
         // A dropped poll is not a failed job — keep trying until MAX_POLLS.
       }
-      timer.current = setTimeout(() => void poll(id), POLL_MS);
+      if (alive.current) {
+        timer.current = setTimeout(() => void poll(id), POLL_MS);
+      }
     },
     [stop],
   );

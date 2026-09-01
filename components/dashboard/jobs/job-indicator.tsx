@@ -29,8 +29,9 @@ const KIND_HREF: Record<string, string> = {
   INTELLIGENCE: '/dashboard/intelligence',
 };
 
-const ACTIVE_POLL_MS = 2500;
-const IDLE_POLL_MS = 20_000;
+const ACTIVE_POLL_MS = 3000;
+/** Idle heartbeat — only there to notice a job started in another tab. */
+const IDLE_POLL_MS = 45_000;
 
 interface ActiveJob {
   id: string;
@@ -55,10 +56,35 @@ export function JobIndicator() {
   /** Jobs this session actually saw running. */
   const wasRunning = useRef<Set<string>>(new Set());
 
+  /**
+   * Guards against orphaned loops.
+   *
+   * The previous version scheduled the next tick unconditionally at the end of
+   * poll(). If the effect cleanup ran while a fetch was in flight, that
+   * in-flight call still armed a fresh timer afterwards — so every remount
+   * could leave another loop running, each one calling router.refresh() and
+   * refetching the whole server tree. That is what made the UI stutter and
+   * swallow clicks.
+   */
+  const alive = useRef(true);
+
   const poll = useCallback(async () => {
+    if (!alive.current) return;
+
+    // Nothing to show while the tab is in the background, and polling there is
+    // pure waste — check back when it is visible again.
+    if (typeof document !== 'undefined' && document.hidden) {
+      if (alive.current) {
+        timer.current = setTimeout(() => void poll(), IDLE_POLL_MS);
+      }
+      return;
+    }
+
     let delay = IDLE_POLL_MS;
     try {
       const res = await fetch('/api/jobs/active', { cache: 'no-store' });
+      if (!alive.current) return;
+
       // Session gone — stop polling rather than retry forever against a
       // logged-out API. The next navigation lands on /login anyway.
       if (res.status === 401 || res.status === 403) {
@@ -67,6 +93,8 @@ export function JobIndicator() {
       }
       if (res.ok) {
         const body = (await res.json()) as { jobs: ActiveJob[] };
+        if (!alive.current) return;
+
         const active = body.jobs.filter(
           (j) => j.status === 'QUEUED' || j.status === 'RUNNING',
         );
@@ -87,18 +115,35 @@ export function JobIndicator() {
           announced.current.add(justDone.id);
           setFinished(justDone);
           // Pull the finished result into whatever page happens to be open.
+          // Once per job — a full RSC refetch is expensive.
           router.refresh();
         }
       }
     } catch {
       // A dropped poll is not worth surfacing; the next tick retries.
     }
-    timer.current = setTimeout(() => void poll(), delay);
+    if (alive.current) {
+      timer.current = setTimeout(() => void poll(), delay);
+    }
   }, [router]);
 
   useEffect(() => {
+    alive.current = true;
     void poll();
+
+    // Come back promptly when the tab is focused again, instead of waiting out
+    // a full idle interval.
+    const onVisible = () => {
+      if (!document.hidden && alive.current) {
+        if (timer.current) clearTimeout(timer.current);
+        void poll();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
+      alive.current = false;
+      document.removeEventListener('visibilitychange', onVisible);
       if (timer.current) clearTimeout(timer.current);
     };
   }, [poll]);
