@@ -152,6 +152,16 @@ export interface IntelligencePayload {
   /** The headline 0–100 marketing health score, or null with no data. */
   overallScore: number | null;
   overallBasis: string;
+  /**
+   * What the headline number is actually measuring.
+   *
+   * 'setup' means nothing beyond setup completeness could be measured yet, so
+   * the number is progress through onboarding — NOT a verdict on their
+   * marketing. Showing 15/100 in red to someone who has just finished
+   * onboarding would be accurate arithmetic and a discouraging lie about what
+   * it means. Optional so snapshots written by earlier builds still parse.
+   */
+  scoreKind?: 'setup' | 'marketing';
   performance: MarketingPerformance;
   content: ContentIntelligence;
   brand: BrandIntelligence;

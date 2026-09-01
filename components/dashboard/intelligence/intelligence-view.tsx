@@ -123,6 +123,8 @@ export function IntelligenceView({
   }
 
   const { performance, content, brand } = snapshot;
+  // Older snapshots predate scoreKind; treat a missing value as a real score.
+  const setupOnly = snapshot.scoreKind === 'setup';
   const previous = history.length > 1 ? history[history.length - 2]!.score : null;
   const delta =
     snapshot.overallScore !== null && previous !== null
@@ -138,22 +140,30 @@ export function IntelligenceView({
           <div className="min-w-0 flex-1 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-semibold text-foreground">
-                Overall marketing score
+                {setupOnly ? 'Setup progress' : 'Overall marketing score'}
               </h2>
-              {snapshot.overallScore !== null && (
-                <Badge
-                  variant={
-                    snapshot.overallScore >= 60
-                      ? 'success'
-                      : snapshot.overallScore >= 40
-                        ? 'warning'
-                        : 'destructive'
-                  }
-                >
-                  {scoreTone(snapshot.overallScore).label}
-                </Badge>
+              {/* A workspace still in setup is graded on setup, not on
+                  marketing it has not done yet — showing 15/100 in red to
+                  someone who just finished onboarding would be accurate
+                  arithmetic and a discouraging lie about what it means. */}
+              {setupOnly ? (
+                <Badge variant="secondary">Getting started</Badge>
+              ) : (
+                snapshot.overallScore !== null && (
+                  <Badge
+                    variant={
+                      snapshot.overallScore >= 60
+                        ? 'success'
+                        : snapshot.overallScore >= 40
+                          ? 'warning'
+                          : 'destructive'
+                    }
+                  >
+                    {scoreTone(snapshot.overallScore).label}
+                  </Badge>
+                )
               )}
-              {delta !== null && delta !== 0 && (
+              {!setupOnly && delta !== null && delta !== 0 && (
                 <Badge variant={delta > 0 ? 'success' : 'muted'}>
                   {delta > 0 ? '+' : ''}
                   {delta} since last run

@@ -370,9 +370,29 @@ export async function generateIntelligenceSnapshot(args: {
     },
   ]);
 
+  /**
+   * Has anything beyond setup been measured yet? Until it has, the headline
+   * number is setup progress and must be labelled as such.
+   */
+  const measuredBeyondSetup = [
+    content.quality,
+    content.performance,
+    perf.performance.contentOutput,
+    perf.performance.leadGeneration,
+    perf.performance.outreach,
+    perf.performance.campaign,
+    perf.performance.competitorVisibility,
+    brand.consistency,
+  ].some((block) => block.hasData);
+  const scoreKind: 'setup' | 'marketing' = measuredBeyondSetup ? 'marketing' : 'setup';
+
   const base = {
     overallScore: overall.score,
-    overallBasis: overall.basis,
+    overallBasis:
+      scoreKind === 'setup'
+        ? `This is your setup progress, not a verdict on your marketing — ${perf.performance.foundations.basis} Your marketing score starts once there is content, leads or campaigns to measure.`
+        : overall.basis,
+    scoreKind,
     performance: perf.performance,
     content,
     brand,
@@ -380,6 +400,21 @@ export async function generateIntelligenceSnapshot(args: {
   };
 
   let suggestions = ruleBasedSuggestions(base);
+
+  /**
+   * While a workspace is still in setup, setup leads.
+   *
+   * Unmeasured areas score their full gap, so "content quality" outranked
+   * "finish your setup" for a workspace with no content — advice nobody can
+   * act on, ahead of the prerequisite that unblocks it.
+   */
+  if (scoreKind === 'setup') {
+    suggestions = [
+      ...suggestions.filter((s) => s.area === 'setup'),
+      ...suggestions.filter((s) => s.area !== 'setup'),
+    ];
+  }
+
   let model = 'none';
 
   // The model reprioritizes and sharpens; it never produces the scores.
@@ -454,6 +489,12 @@ export async function generateIntelligenceSnapshot(args: {
             };
           })
           .sort((a, b) => (b.impact ?? 0) - (a.impact ?? 0));
+        if (scoreKind === 'setup') {
+          suggestions = [
+            ...suggestions.filter((s) => s.area === 'setup'),
+            ...suggestions.filter((s) => s.area !== 'setup'),
+          ];
+        }
         model = getModel();
       }
     } catch (err) {
