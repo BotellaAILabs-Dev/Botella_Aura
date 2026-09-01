@@ -13,7 +13,14 @@ export function captureException(
 ): void {
   const message = error instanceof Error ? error.message : String(error);
   const stack = error instanceof Error ? error.stack : undefined;
-  logger.error('captured exception', { message, ...(context ?? {}) });
+  // Log the stack too, not just the message. A one-word message like
+  // "unusable" says nothing about where it came from, and without a Sentry DSN
+  // this log line is the ONLY record — which turned a one-line bug into a hunt.
+  logger.error('captured exception', {
+    message,
+    ...(stack ? { stack } : {}),
+    ...(context ?? {}),
+  });
 
   const dsn = process.env.SENTRY_DSN;
   if (!dsn) return;

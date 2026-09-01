@@ -28,7 +28,13 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const user = await requireUser();
-    const input = createCompanySchema.parse(await req.json());
+
+    // Read the body ONCE. A request body is a single-use stream: consuming it
+    // and then calling req.clone() throws `TypeError: unusable`, which is a
+    // synchronous throw that a .catch() on the following .json() never sees —
+    // so every workspace creation failed with an opaque 500.
+    const raw = (await req.json()) as unknown;
+    const input = createCompanySchema.parse(raw);
 
     /**
      * Guard against accidentally creating the same workspace twice.
@@ -43,12 +49,11 @@ export async function POST(req: Request) {
      * of the same name proceed, so this blocks the accident without blocking
      * the intent.
      */
-    const body = (await req
-      .clone()
-      .json()
-      .catch(() => ({}))) as { confirmDuplicate?: boolean };
+    const confirmDuplicate = Boolean(
+      (raw as { confirmDuplicate?: unknown } | null)?.confirmDuplicate,
+    );
 
-    if (!body.confirmDuplicate) {
+    if (!confirmDuplicate) {
       const existing = await getCompaniesForUser(user.id);
       const clash = existing.find(
         (c) => c.name.trim().toLowerCase() === input.name.trim().toLowerCase(),
