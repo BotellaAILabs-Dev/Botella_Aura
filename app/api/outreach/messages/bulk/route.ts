@@ -4,6 +4,11 @@ import { db } from '@/lib/db';
 import { requireActiveCompany } from '@/lib/auth-helpers';
 import { can } from '@/lib/rbac';
 import { transitionMessage } from '@/server/outreach/outreach.service';
+import {
+  BULK_APPROVE_THRESHOLD,
+  isBulkApprovable,
+  scoreConfidence,
+} from '@/server/outreach/confidence';
 import { logger } from '@/lib/logger';
 import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
@@ -79,9 +84,13 @@ export async function POST(req: Request) {
 }
 
 /**
- * GET /api/outreach/messages/bulk?status=PENDING_APPROVAL — the ids eligible
- * for a bulk action, so the UI can offer "approve all N" without the client
- * having to know the rules.
+ * GET /api/outreach/messages/bulk?status=PENDING_APPROVAL — which messages are
+ * eligible for a bulk action, split by confidence.
+ *
+ * The split is the point. Approving everything unread is not review, so only
+ * drafts we can justify — grounded in a real signal, in the brand voice, aimed
+ * at a well-scored named contact, free of placeholders — are offered as a
+ * batch. Everything else is returned separately and stays for a human to read.
  */
 export async function GET(req: Request) {
   try {
@@ -95,9 +104,54 @@ export async function GET(req: Request) {
     const messages = await db.outreachMessage.findMany({
       where: { companyId: company.id, status: parsed.data },
       orderBy: { createdAt: 'asc' },
-      select: { id: true, createdAt: true },
+      select: {
+        id: true,
+        type: true,
+        draftText: true,
+        aiMetadata: true,
+        lead: {
+          select: { name: true, linkedInProfileUrl: true, fitScore: true },
+        },
+      },
     });
-    return jsonOk({ ids: messages.map((m) => m.id), count: messages.length });
+
+    const confident: string[] = [];
+    const needsReview: { id: string; score: number; concerns: string[] }[] = [];
+
+    for (const m of messages) {
+      const meta = (m.aiMetadata ?? {}) as {
+        model?: string;
+        signalId?: string | null;
+        brandVoiceApplied?: boolean;
+      };
+      const result = scoreConfidence({
+        model: meta.model,
+        brandVoiceApplied: meta.brandVoiceApplied,
+        hasSignal: Boolean(meta.signalId),
+        fitScore: m.lead.fitScore,
+        hasContactName: Boolean(m.lead.name),
+        hasLinkedInUrl: Boolean(m.lead.linkedInProfileUrl),
+        draftText: m.draftText,
+        type: m.type,
+      });
+      if (isBulkApprovable(result)) confident.push(m.id);
+      else
+        needsReview.push({
+          id: m.id,
+          score: result.score,
+          concerns: result.concerns,
+        });
+    }
+
+    return jsonOk({
+      // Every id, for a deliberate "approve all anyway".
+      ids: messages.map((m) => m.id),
+      count: messages.length,
+      threshold: BULK_APPROVE_THRESHOLD,
+      confidentIds: confident,
+      confidentCount: confident.length,
+      needsReview,
+    });
   } catch (error) {
     return handleRouteError(error);
   }

@@ -17,10 +17,15 @@ import { Button } from '@/components/ui/button';
  */
 export function OutreachQueueBar({
   pendingCount,
+  confidentCount,
+  threshold,
   staleApproved,
   canApprove,
 }: {
   pendingCount: number;
+  /** How many of those clear the confidence bar. */
+  confidentCount: number;
+  threshold: number;
   /** Approved messages that have been waiting long enough to flag. */
   staleApproved: { count: number; oldestDays: number };
   canApprove: boolean;
@@ -28,23 +33,40 @@ export function OutreachQueueBar({
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
 
-  async function bulk(action: 'approve' | 'reject') {
-    setBusy(action);
+  /**
+   * `scope: 'confident'` approves only drafts above the confidence threshold —
+   * grounded in a real signal, in the brand voice, aimed at a scored named
+   * contact, free of placeholders. `scope: 'all'` is the deliberate override.
+   */
+  async function bulk(action: 'approve' | 'reject', scope: 'confident' | 'all' = 'all') {
+    setBusy(`${action}:${scope}`);
     try {
       const listRes = await fetch(
         '/api/outreach/messages/bulk?status=PENDING_APPROVAL',
       );
-      const list = (await listRes.json().catch(() => ({}))) as { ids?: string[] };
-      const ids = list.ids ?? [];
+      const list = (await listRes.json().catch(() => ({}))) as {
+        ids?: string[];
+        confidentIds?: string[];
+        threshold?: number;
+      };
+      const ids =
+        scope === 'confident' ? (list.confidentIds ?? []) : (list.ids ?? []);
       if (ids.length === 0) {
-        toast('Nothing is waiting for approval.');
+        toast(
+          scope === 'confident'
+            ? 'None of the waiting messages clear the confidence bar — review them individually.'
+            : 'Nothing is waiting for approval.',
+        );
         return;
       }
       if (
         action === 'approve' &&
         !confirm(
-          `Approve ${ids.length} message${ids.length === 1 ? '' : 's'}? ` +
-            'They move to your extension queue — you still send each one yourself.',
+          `Approve ${ids.length} message${ids.length === 1 ? '' : 's'}` +
+            (scope === 'confident'
+              ? ` scoring ${list.threshold ?? 70}+ on confidence`
+              : ' — including ones we could not verify') +
+            '? They move to your extension queue — you still send each one yourself.',
         )
       ) {
         return;
@@ -119,24 +141,43 @@ export function OutreachQueueBar({
             {pendingCount} message{pendingCount === 1 ? '' : 's'} awaiting your
             review
           </span>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {confidentCount > 0 && (
+              <Button
+                size="sm"
+                onClick={() => void bulk('approve', 'confident')}
+                loading={busy === 'approve:confident'}
+                title={`Only messages scoring ${threshold}+ on confidence: grounded in a real signal, in your brand voice, to a scored named contact, no placeholders.`}
+              >
+                <Check className="h-4 w-4" /> Approve {confidentCount} high-confidence
+              </Button>
+            )}
             <Button
               size="sm"
-              onClick={() => void bulk('approve')}
-              loading={busy === 'approve'}
+              variant={confidentCount > 0 ? 'outline' : 'default'}
+              onClick={() => void bulk('approve', 'all')}
+              loading={busy === 'approve:all'}
             >
-              <Check className="h-4 w-4" /> Approve all {pendingCount}
+              Approve all {pendingCount}
             </Button>
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => void bulk('reject')}
-              loading={busy === 'reject'}
+              onClick={() => void bulk('reject', 'all')}
+              loading={busy === 'reject:all'}
             >
               <X className="h-4 w-4" /> Reject all
             </Button>
           </div>
         </div>
+      )}
+
+      {canApprove && pendingCount > 0 && confidentCount < pendingCount && (
+        <p className="px-1 text-xs text-muted-foreground">
+          {pendingCount - confidentCount} of these could not be verified
+          automatically (no public signal, unscored lead, or no named contact) —
+          those are worth reading before you send them.
+        </p>
       )}
     </div>
   );

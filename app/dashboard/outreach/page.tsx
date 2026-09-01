@@ -10,6 +10,11 @@ import { listLeads, listLeadCategories } from '@/server/outreach/lead.service';
 import { listOutreachHistory } from '@/server/outreach/outreach.service';
 import { db } from '@/lib/db';
 import { OutreachQueueBar } from '@/components/dashboard/outreach/outreach-queue-bar';
+import {
+  BULK_APPROVE_THRESHOLD,
+  isBulkApprovable,
+  scoreConfidence,
+} from '@/server/outreach/confidence';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
@@ -35,7 +40,7 @@ export default async function OutreachPage({
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const [membership, leads, categories, history, pendingCount, approvedWaiting] =
+  const [membership, leads, categories, history, pending, approvedWaiting] =
     await Promise.all([
     getMembership(user.id, active.id),
     // Same source of truth as the Leads page — a lead visible there is
@@ -43,8 +48,15 @@ export default async function OutreachPage({
     listLeads(active.id),
     listLeadCategories(active.id),
     listOutreachHistory(active.id),
-      db.outreachMessage.count({
+      db.outreachMessage.findMany({
         where: { companyId: active.id, status: 'PENDING_APPROVAL' },
+        select: {
+          id: true,
+          type: true,
+          draftText: true,
+          aiMetadata: true,
+          lead: { select: { name: true, linkedInProfileUrl: true, fitScore: true } },
+        },
       }),
       // Approved but not yet sent — the silent backlog the review flagged.
       db.outreachMessage.findMany({
@@ -53,6 +65,29 @@ export default async function OutreachPage({
         select: { updatedAt: true },
       }),
     ]);
+
+  // Split the review queue by confidence so bulk approval stays selective —
+  // "approve everything unread" is not review.
+  const pendingCount = pending.length;
+  const confidentCount = pending.filter((m) => {
+    const meta = (m.aiMetadata ?? {}) as {
+      model?: string;
+      signalId?: string | null;
+      brandVoiceApplied?: boolean;
+    };
+    return isBulkApprovable(
+      scoreConfidence({
+        model: meta.model,
+        brandVoiceApplied: meta.brandVoiceApplied,
+        hasSignal: Boolean(meta.signalId),
+        fitScore: m.lead.fitScore,
+        hasContactName: Boolean(m.lead.name),
+        hasLinkedInUrl: Boolean(m.lead.linkedInProfileUrl),
+        draftText: m.draftText,
+        type: m.type,
+      }),
+    );
+  }).length;
 
   const STALE_AFTER_DAYS = 3;
   const oldestApproved = approvedWaiting[0]?.updatedAt ?? null;
@@ -128,6 +163,8 @@ export default async function OutreachPage({
 
       <OutreachQueueBar
         pendingCount={pendingCount}
+        confidentCount={confidentCount}
+        threshold={BULK_APPROVE_THRESHOLD}
         staleApproved={staleApproved}
         canApprove={canManage}
       />

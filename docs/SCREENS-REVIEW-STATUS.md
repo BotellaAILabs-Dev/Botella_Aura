@@ -57,9 +57,16 @@ so these now run as **background jobs**:
 - **A failed run keeps your brief.** Retry re-runs the saved inputs; nothing is
   retyped. The planner also keeps a local draft, so a mid-run reload is safe.
 - Double-clicking Generate cannot start two runs.
+- **An app-wide indicator reports progress and completion from any page.** A
+  digest started on Trends announces itself even if you have navigated to
+  Settings, with a "View it" link. Without this, "moved to a background job"
+  would only be half true — you would still have to sit on the page that
+  started it to learn what happened.
 - A new sweep (every 5 min) restarts jobs whose instance was killed and fails
   anything past its retry budget with a message the UI can show. Previously an
   interrupted run stayed pending forever.
+- The daily pre-generated digest cron already existed and is unchanged, so most
+  users never trigger a cold generation at all.
 
 ### Connectors: Error 400 redirect_uri_mismatch
 
@@ -126,11 +133,17 @@ dropping every lead to the fallback, which is why the floor was so visible.
 now separate counts, with a task-type breakdown, a **Next up** card, and an
 explanation of why the review count is zero while tasks are pending.
 
-**Outreach.** **Approve all** / reject all in one action; a **backlog warning**
-when approved messages have sat unsent for 3+ days; and the reason sending is
-manual — LinkedIn's API does not permit automated connection requests, and
-anything that sent them would put your account at risk — now stated on the board
-itself, not only in Settings.
+**Outreach.** Bulk approval, but **selective**: "Approve N high-confidence"
+covers only drafts scoring 70+ — grounded in a real public signal, written in
+your brand voice, aimed at a well-scored named contact with a confirmed profile,
+and free of unfilled placeholders. Everything else stays in the queue with the
+reason named, and "Approve all" remains available as a deliberate override.
+Each factor is a **gate, not a point**: a draft missing one essential cannot
+clear the bar by being strong elsewhere, because approving in bulk means
+sending unread. Plus a **backlog warning** when approved messages have sat
+unsent for 3+ days, and the reason sending is manual — LinkedIn's API does not
+permit automated connection requests, and anything that sent them would put your
+account at risk — now stated on the board itself, not only in Settings.
 
 **Connectors catalog.** "Available now" (grouped by category) is separated from a
 single collapsed **Coming soon** list. Roadmap items are visibly non-functional
@@ -192,8 +205,9 @@ rather than implying a working sync.
 
 ## Verification
 
-- 190 tests pass (26 new), covering the empty-completion bug, the retry policy,
-  score differentiation, priority ranking, and the shared Google redirect URI.
+- 200 tests pass (36 new), covering the empty-completion bug, the retry policy,
+  score differentiation, priority ranking, the shared Google redirect URI, and
+  every draft that must never reach a bulk approval.
 - Production build and lint both clean.
 - One migration (20260827120000_screens_review). Additive only — a new table for
   the job queue, new columns with defaults. No existing data is rewritten.

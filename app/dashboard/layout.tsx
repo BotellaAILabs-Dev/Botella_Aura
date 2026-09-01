@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
 import { DashboardShell } from '@/components/dashboard/dashboard-shell';
+import { JobIndicator } from '@/components/dashboard/jobs/job-indicator';
 
 /**
  * Protected dashboard layout. Middleware already blocks unauthenticated users;
@@ -25,6 +26,9 @@ export default async function DashboardLayout({
       activeCompanyId={active.id}
     >
       {children}
+      {/* Background generations report progress and completion from anywhere,
+          so a long run does not require staying on the page that started it. */}
+      <JobIndicator />
     </DashboardShell>
   );
 }
