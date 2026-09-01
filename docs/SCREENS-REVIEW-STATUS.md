@@ -205,6 +205,28 @@ rather than implying a working sync.
 
 ## Verification
 
+Verified against a **real Postgres database and a running app**, not only unit
+tests:
+
+- All 14 migrations apply cleanly from an empty database; no schema drift.
+- **32 runtime checks pass** — job lifecycle (queue, single-winner claim,
+  progress, retry-with-inputs), first-run scoring, lead-score differentiation,
+  the shared Google redirect URI, email-code connections, manual metrics.
+- **Every dashboard page returns 200** when signed in.
+- A **live trend digest** ran end to end over HTTP: queued, then reported
+  `Scanning Hacker News, Reddit, News…` → `Ranking 172 items` → `Summarising
+  the week`, completing in 18 seconds with 20 items and no skipped sources.
+  This is the exact P0 that previously "read as hung".
+- Connector pre-flight correctly refused a localhost deployment with the fix
+  named, before any redirect to Google.
+- Manual result logging returned 201, and rejected an empty payload with 422.
+
+Running the real onboarding path this way caught a problem unit tests could
+not: a new user was being shown **"Overall marketing score 15/100" in red**,
+when the number actually meant "2 of 8 setup steps done". That is now labelled
+**Setup progress** with a neutral chip, and "Finish your setup" leads the
+priority list instead of "Content quality" for a workspace with no content.
+
 - 200 tests pass (36 new), covering the empty-completion bug, the retry policy,
   score differentiation, priority ranking, the shared Google redirect URI, and
   every draft that must never reach a bulk approval.
