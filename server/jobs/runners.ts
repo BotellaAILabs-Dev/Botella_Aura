@@ -112,6 +112,9 @@ const RUNNERS: Record<GenerationJobKind, Runner> = {
       ...(inputs.originalPrompt ? { originalPrompt: inputs.originalPrompt } : {}),
       ...(inputs.provider ? { provider: inputs.provider } : {}),
       ...(inputs.aspectRatio ? { aspectRatio: inputs.aspectRatio } : {}),
+      ...(inputs.customWidth && inputs.customHeight
+        ? { custom: { width: inputs.customWidth, height: inputs.customHeight } }
+        : {}),
       style: inputs.style,
       variations: inputs.variations,
     });

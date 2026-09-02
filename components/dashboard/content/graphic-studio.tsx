@@ -12,6 +12,8 @@ import {
   AlertTriangle,
   Wand2,
   History,
+  Upload,
+  Link as LinkIcon,
   X,
 } from 'lucide-react';
 
@@ -29,6 +31,8 @@ import {
 import {
   IMAGE_STYLES,
   type ImageStyleKey,
+  type FormatChoice,
+  CUSTOM_FORMAT,
   STYLE_LABELS,
   FORMAT_LABELS,
   FORMAT_HINTS,
@@ -157,7 +161,9 @@ export function GraphicStudio({
   const [subject, setSubject] = useState('');
   const [promptSource, setPromptSource] = useState<'ai' | 'heuristic' | null>(null);
 
-  const [ratio, setRatio] = useState<AspectRatioKey>(defaultRatio);
+  const [format, setFormat] = useState<FormatChoice>(defaultRatio);
+  const [customWidth, setCustomWidth] = useState(1080);
+  const [customHeight, setCustomHeight] = useState(1350);
   const [style, setStyle] = useState<ImageStyleKey>('professional');
   const [variations, setVariations] = useState(1);
 
@@ -177,6 +183,12 @@ export function GraphicStudio({
   /** null = not loaded yet. Company-wide, loaded lazily — see toggleHistory. */
   const [history, setHistory] = useState<GraphicAsset[] | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Supplying an existing graphic (file or URL) rather than generating one.
+  const [uploading, setUploading] = useState<'file' | 'url' | null>(null);
+  const [urlOpen, setUrlOpen] = useState(false);
+  const [imageUrl, setImageUrl] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
 
   /**
    * The in-flight guard.
@@ -306,7 +318,11 @@ export function GraphicStudio({
           negativePrompt: negativePrompt.trim() || undefined,
           originalPrompt: aiPrompt || undefined,
           provider: provider || undefined,
-          aspectRatio: ratio,
+          // Custom sends dimensions instead of a ratio; the backend maps them
+          // to the closest shape the chosen provider can draw.
+          ...(format === CUSTOM_FORMAT
+            ? { customWidth, customHeight }
+            : { aspectRatio: format }),
           style,
           variations,
         }),
@@ -419,6 +435,60 @@ export function GraphicStudio({
             remaining: Math.max(0, prev.remaining - produced.length),
           }
         : prev,
+    );
+  }
+
+  /**
+   * Add a graphic the user already has.
+   *
+   * Deliberately shares everything after the request with generation: the
+   * response is the same AssetView, so it lands in the same gallery, is
+   * selected the same way, and attaches through the same endpoint. Nothing
+   * downstream knows or cares that no model was involved.
+   */
+  async function addSuppliedImage(
+    kind: 'file' | 'url',
+    body: BodyInit,
+    headers?: HeadersInit,
+  ) {
+    if (uploading) return;
+    setUploading(kind);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/content/graphics/upload?draftId=${encodeURIComponent(draftId)}`,
+        { method: 'POST', body, ...(headers ? { headers } : {}) },
+      );
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(b.error ?? 'That image could not be added.');
+        return;
+      }
+      const data = (await res.json()) as { asset: GraphicAsset };
+      setAssets((prev) => [data.asset, ...prev]);
+      setSelected(data.asset.id);
+      setUrlOpen(false);
+      setImageUrl('');
+      toast.success('Image added. Select “Attach to post” to use it.');
+    } catch {
+      toast.error('Could not reach the server. Try again.');
+    } finally {
+      setUploading(null);
+    }
+  }
+
+  async function uploadFile(file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    // No content-type header: the browser must set the multipart boundary.
+    await addSuppliedImage('file', form);
+  }
+
+  async function importFromUrl() {
+    await addSuppliedImage(
+      'url',
+      JSON.stringify({ url: imageUrl.trim() }),
+      { 'Content-Type': 'application/json' },
     );
   }
 
@@ -618,8 +688,8 @@ export function GraphicStudio({
             <select
               id="image-format"
               className={selectCls}
-              value={ratio}
-              onChange={(e) => setRatio(e.target.value as AspectRatioKey)}
+              value={format}
+              onChange={(e) => setFormat(e.target.value as FormatChoice)}
               disabled={!canEdit}
             >
               {ASPECT_RATIOS.map((r) => (
@@ -627,8 +697,45 @@ export function GraphicStudio({
                   {FORMAT_LABELS[r]} ({r})
                 </option>
               ))}
+              <option value={CUSTOM_FORMAT}>Custom…</option>
             </select>
-            <p className="text-xs text-muted-foreground">{FORMAT_HINTS[ratio]}</p>
+
+            {format === CUSTOM_FORMAT ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    aria-label="Custom width"
+                    min={256}
+                    max={4096}
+                    value={customWidth}
+                    onChange={(e) => setCustomWidth(Number(e.target.value))}
+                    disabled={!canEdit}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs"
+                  />
+                  <span className="text-sm text-muted-foreground">×</span>
+                  <input
+                    type="number"
+                    aria-label="Custom height"
+                    min={256}
+                    max={4096}
+                    value={customHeight}
+                    onChange={(e) => setCustomHeight(Number(e.target.value))}
+                    disabled={!canEdit}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Image models only draw their own fixed sizes, so this is
+                  matched to the closest shape they support — we&apos;ll tell you
+                  which one was used.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {FORMAT_HINTS[format]}
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -675,13 +782,74 @@ export function GraphicStudio({
           </div>
         </div>
 
-        <Button
-          onClick={generate}
-          loading={phase === 'generating' || phase === 'preparing'}
-          disabled={busy || !canEdit || !anyConfigured || prompt.trim().length < 20}
-        >
-          <Sparkles className="h-4 w-4" /> Generate {variations > 1 ? `${variations} images` : 'image'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={generate}
+            loading={phase === 'generating' || phase === 'preparing'}
+            disabled={busy || !canEdit || !anyConfigured || prompt.trim().length < 20}
+          >
+            <Sparkles className="h-4 w-4" />
+            Generate {variations > 1 ? `${variations} images` : 'image'}
+          </Button>
+
+          {/* Already have a graphic? Adding it uses the same pipeline as a
+              generated one, so it behaves identically from here on. */}
+          <Button
+            variant="outline"
+            onClick={() => fileInput.current?.click()}
+            loading={uploading === 'file'}
+            disabled={busy || !canEdit || uploading !== null}
+          >
+            <Upload className="h-4 w-4" /> Upload image
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => setUrlOpen((v) => !v)}
+            disabled={busy || !canEdit || uploading !== null}
+          >
+            <LinkIcon className="h-4 w-4" /> From URL
+          </Button>
+
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              // Reset first: picking the same file twice must still fire.
+              e.target.value = '';
+              if (file) void uploadFile(file);
+            }}
+          />
+        </div>
+
+        {urlOpen && (
+          <div className="flex flex-wrap items-end gap-2 rounded-md border border-border p-3">
+            <div className="min-w-[240px] flex-1 space-y-1.5">
+              <Label htmlFor="image-url">Image URL</Label>
+              <input
+                id="image-url"
+                type="url"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                placeholder="https://example.com/graphic.png"
+                className={selectCls}
+              />
+            </div>
+            <Button
+              onClick={importFromUrl}
+              loading={uploading === 'url'}
+              disabled={!canEdit || imageUrl.trim().length === 0}
+            >
+              Add image
+            </Button>
+            <p className="w-full text-xs text-muted-foreground">
+              The image is downloaded and stored with your post — it won&apos;t
+              break if the original link goes away.
+            </p>
+          </div>
+        )}
 
         {busy && <ProgressSteps phase={phase} />}
 

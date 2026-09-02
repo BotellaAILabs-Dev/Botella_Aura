@@ -161,8 +161,11 @@ export function validateImageBytes(
   data: Buffer,
   claimed: { width: number; height: number },
 ): ValidatedImage {
+  // Wording stays source-neutral: this same function validates images from a
+  // provider AND images the user supplied, and "the provider returned…" is
+  // confusing when the user just dragged in their own file.
   if (data.byteLength === 0) {
-    throw new MediaValidationError('The provider returned an empty image.');
+    throw new MediaValidationError('That image is empty.');
   }
   if (data.byteLength > MAX_ASSET_BYTES) {
     throw new MediaValidationError(
@@ -175,7 +178,7 @@ export function validateImageBytes(
   const mimeType = sniffImageMime(data);
   if (!mimeType) {
     throw new MediaValidationError(
-      'The provider returned something that is not a PNG, JPEG or WEBP image.',
+      'That file is not a PNG, JPEG or WEBP image.',
     );
   }
 

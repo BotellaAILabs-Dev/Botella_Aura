@@ -112,6 +112,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         ...(input.originalPrompt ? { originalPrompt: input.originalPrompt } : {}),
         ...(input.provider ? { provider: input.provider } : {}),
         ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
+        ...(input.customWidth ? { customWidth: input.customWidth } : {}),
+        ...(input.customHeight ? { customHeight: input.customHeight } : {}),
         style: input.style,
         variations,
       },

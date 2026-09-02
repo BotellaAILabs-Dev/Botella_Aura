@@ -43,6 +43,17 @@ export const FORMAT_LABELS: Record<AspectRatioKey, string> = {
   '9:16': 'Story / Reel',
 };
 
+/**
+ * The format selector's options, including Custom.
+ *
+ * Custom is a UI concept, not a ratio: the user types dimensions and the
+ * backend maps them to the nearest shape the chosen provider can actually
+ * draw. It is kept out of AspectRatioKey so nothing downstream has to handle
+ * a "ratio" that has no fixed value.
+ */
+export const CUSTOM_FORMAT = 'custom' as const;
+export type FormatChoice = AspectRatioKey | typeof CUSTOM_FORMAT;
+
 /** Where each format is normally used — shown under the selector. */
 export const FORMAT_HINTS: Record<AspectRatioKey, string> = {
   '1:1': 'Feed posts everywhere',

@@ -378,6 +378,12 @@ none is set.
 | Stability AI | `STABILITY_API_KEY` | all four | Supports negative prompts. One image per call. |
 | Replicate | `REPLICATE_API_TOKEN` | all four | Point `REPLICATE_IMAGE_MODEL` at any hosted model — no code change. |
 
+**Formats:** Square (1:1), Portrait (4:5), Landscape (16:9), Story/Reel (9:16),
+and **Custom** — type any dimensions from 256 to 4096 and the backend maps them
+to the closest shape the chosen provider can actually draw, telling you which
+one it used. Image models only produce their own fixed sizes, so custom is
+honoured in shape rather than exact pixels.
+
 The model selector shows **every** implemented provider. An unconfigured one is
 disabled and names the variable to add, rather than being hidden or offered and
 then failing mid-generation.
@@ -410,6 +416,26 @@ closed, and `/api/cron/jobs` restarts anything a killed instance left behind.
 Everything that must fail fast — role, rate limit, plan allowance, whether any
 provider is configured — is checked **before** a job is created, so a request
 that was never going to succeed says so immediately.
+
+### Using your own graphic
+
+Not everything should be generated. Alongside **Generate**, the studio has
+**Upload image** (a file from your machine) and **From URL** (a remote image,
+which is downloaded and stored — so the post does not break if the original
+link disappears).
+
+A supplied image goes through the *same* pipeline as a generated one — validate,
+store, attach, platform-check, publish — so it is indistinguishable downstream.
+It is recorded with `provider = UPLOAD` so the history still shows where it came
+from.
+
+MIME type and dimensions are read from the **bytes**, never the filename or the
+remote `Content-Type`. Remote URLs are restricted to http(s) and blocked from
+loopback, private and cloud-metadata addresses (an "image URL" field is
+otherwise a request the server makes anywhere on the caller's behalf).
+
+Accepted: PNG, JPEG, WEBP. Uploads cap at 4 MB (the platform's own body limit),
+remote fetches at 15 MB.
 
 ### Where images are stored
 

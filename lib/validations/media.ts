@@ -73,6 +73,8 @@ export const imageJobInputsSchema = z.object({
   originalPrompt: z.string().max(1500).optional(),
   provider: z.enum(IMAGE_PROVIDERS).optional(),
   aspectRatio: z.enum(ASPECT_RATIOS).optional(),
+  customWidth: z.number().int().min(256).max(4096).optional(),
+  customHeight: z.number().int().min(256).max(4096).optional(),
   style: z.enum(IMAGE_STYLES).default('professional'),
   variations: z.number().int().min(1).max(4).default(1),
 });

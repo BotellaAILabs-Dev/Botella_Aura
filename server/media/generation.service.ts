@@ -51,6 +51,8 @@ export interface GenerateGraphicsArgs {
   negativePrompt?: string;
   provider?: ImageProvider | null;
   aspectRatio?: AspectRatioKey;
+  /** Explicit dimensions from the "Custom" format; mapped to the nearest shape. */
+  custom?: { width: number; height: number };
   style: ImageStyleKey;
   variations: number;
   /** The AI-written prompt, when the user edited it before generating. */
@@ -91,6 +93,7 @@ export async function generateGraphics(
   );
   const format = resolveFormat({
     ...(args.aspectRatio ? { requested: args.aspectRatio } : {}),
+    ...(args.custom ? { custom: args.custom } : {}),
     platform,
     providerRatios: provider.supportedRatios,
   });

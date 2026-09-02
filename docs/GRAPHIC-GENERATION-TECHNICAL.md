@@ -161,6 +161,25 @@ too, because providers report the size they were *asked* for.
 
 ---
 
+### Why a supplied image is the same model, not a new one
+
+Upload and "from URL" reuse `GeneratedAsset` with `provider = UPLOAD` rather
+than introducing a `MediaAsset` alongside it. Everything after the bytes arrive
+is identical — validation, storage, the gallery, attachment, per-platform
+checks, the LinkedIn upload, the Instagram fetch, the extension. A second model
+would have duplicated all of it to record one different origin.
+
+The remote-URL path copies the bytes instead of storing the link. A post
+scheduled for next week cannot depend on someone else's server, and LinkedIn
+needs the bytes to upload regardless.
+
+`isPrivateHost()` is the load-bearing part: an image-URL field is a server-side
+request to an arbitrary address on the caller's behalf. Loopback, RFC1918 and
+`169.254.169.254` (cloud instance metadata, which would return deployment
+credentials) are refused. Hostnames that are not literal IPs pass through —
+resolving them here would be a TOCTOU race, and egress rules are the right layer
+for that depth.
+
 ## What is NOT implemented, and why
 
 Stated plainly so nobody discovers it at publish time:
