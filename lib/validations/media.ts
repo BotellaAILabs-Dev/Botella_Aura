@@ -38,10 +38,24 @@ export const generateGraphicSchema = z.object({
   originalPrompt: z.string().trim().max(1500).optional(),
   provider: z.enum(IMAGE_PROVIDERS).optional(),
   aspectRatio: z.enum(ASPECT_RATIOS).optional(),
+  /**
+   * The studio's "Custom" format.
+   *
+   * Bounded on both ends: below 256 the result is unusable on every platform,
+   * and above 4096 it is larger than anything a feed displays — an unbounded
+   * box here is a way to ask a provider for something expensive by accident.
+   */
+  customWidth: z.number().int().min(256).max(4096).optional(),
+  customHeight: z.number().int().min(256).max(4096).optional(),
   style: z.enum(IMAGE_STYLES).default('professional'),
   // Capped here as well as in the service: cost control belongs at every layer
   // that can be reached from outside.
   variations: z.number().int().min(1).max(4).default(1),
+});
+
+/** Attach an image the user supplies by URL rather than generating one. */
+export const importImageUrlSchema = z.object({
+  url: z.string().url('That is not a valid URL.').max(2000),
 });
 
 /**

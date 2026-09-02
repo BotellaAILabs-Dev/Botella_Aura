@@ -214,13 +214,21 @@ enum SocialPlatform {
   FACEBOOK
 }
 
-/// Image-generation backends behind ImageGenerationService. Adding one here is
-/// additive — Content Studio talks to the abstraction, never to a provider.
+/// Where an image came from.
+///
+/// Mostly image-generation backends behind ImageGenerationService — adding one
+/// is additive, because Content Studio talks to the abstraction and never to a
+/// vendor. UPLOAD is the exception: a graphic the user supplied themselves,
+/// either from their machine or by URL. It lives in the same enum because the
+/// rest of the pipeline (validation, storage, attachment, publishing) treats a
+/// supplied image exactly like a generated one, and a separate model would
+/// duplicate all of it.
 enum ImageProvider {
   OPENAI
   GOOGLE
   STABILITY
   REPLICATE
+  UPLOAD
 }
 
 /// Where an asset's bytes actually live.

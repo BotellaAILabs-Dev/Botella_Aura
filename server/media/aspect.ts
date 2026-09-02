@@ -57,11 +57,26 @@ export function nearestSupportedRatio(
 ): AspectRatioKey {
   if (supported.length === 0) return requested;
   if (supported.includes(requested)) return requested;
+  return nearestRatioTo(ratioValue(requested), supported);
+}
 
-  const target = Math.log(ratioValue(requested));
-  let best = supported[0]!;
+/**
+ * The supported ratio closest to an arbitrary width/height.
+ *
+ * Two callers need this rather than the enum-to-enum version above: a CUSTOM
+ * format, where the user typed their own dimensions, and a supplied image,
+ * whose real shape is whatever the file happens to be. Both have to be filed
+ * under one of the ratios the rest of the system understands.
+ */
+export function nearestRatioTo(
+  value: number,
+  supported: readonly AspectRatioKey[] = ASPECT_RATIOS,
+): AspectRatioKey {
+  const pool = supported.length > 0 ? supported : ASPECT_RATIOS;
+  const target = Math.log(value);
+  let best = pool[0]!;
   let bestDistance = Infinity;
-  for (const candidate of supported) {
+  for (const candidate of pool) {
     const distance = Math.abs(Math.log(ratioValue(candidate)) - target);
     if (distance < bestDistance) {
       bestDistance = distance;
@@ -69,6 +84,12 @@ export function nearestSupportedRatio(
     }
   }
   return best;
+}
+
+/** The ratio bucket an image of these dimensions belongs to. */
+export function closestRatioFor(width: number, height: number): AspectRatioKey {
+  if (width <= 0 || height <= 0) return '1:1';
+  return nearestRatioTo(width / height);
 }
 
 export interface ResolvedFormat {
@@ -88,10 +109,37 @@ export interface ResolvedFormat {
  */
 export function resolveFormat(args: {
   requested?: AspectRatioKey;
+  /**
+   * Explicit pixel dimensions from the studio's "Custom" format.
+   *
+   * Providers accept only their own fixed sizes, so arbitrary dimensions cannot
+   * be honoured literally. They are honoured in SHAPE: the closest supported
+   * ratio is used and the substitution is reported, which is far better than
+   * refusing the request or silently drawing a square.
+   */
+  custom?: { width: number; height: number };
   platform: SocialPlatformKey;
   providerRatios: readonly AspectRatioKey[];
 }): ResolvedFormat {
   const spec = platformSpec(args.platform);
+
+  if (args.custom && args.custom.width > 0 && args.custom.height > 0) {
+    const ratio = nearestRatioTo(
+      args.custom.width / args.custom.height,
+      args.providerRatios,
+    );
+    const dims = dimensionsFor(ratio);
+    // Always flagged as substituted: the output is the nearest supported shape,
+    // not the exact pixels asked for, and the UI must be able to say so.
+    return {
+      ratio,
+      width: dims.width,
+      height: dims.height,
+      substituted: true,
+      requested: ratio,
+    };
+  }
+
   const wanted = args.requested ?? spec.defaultRatio;
   const ratio = nearestSupportedRatio(wanted, args.providerRatios);
   const dims = dimensionsFor(ratio);
