@@ -33,6 +33,18 @@ export type SupportedImageMime = (typeof SUPPORTED_IMAGE_MIME_TYPES)[number];
  */
 export const MAX_ASSET_BYTES = 12 * 1024 * 1024;
 
+/**
+ * Largest edge we will store, in pixels.
+ *
+ * 4096 is the most generous ceiling any supported platform has (X); every other
+ * one is lower. Since there is no image resizing in this stack, storing
+ * something larger would only defer the rejection to publish time — so it is
+ * refused here, where the message can tell the user to export it smaller.
+ *
+ * Generated images are unaffected: the largest canonical size is 1344px.
+ */
+export const MAX_ASSET_DIMENSION = 4096;
+
 export class MediaValidationError extends Error {
   readonly status = 422;
   constructor(message: string) {
@@ -183,12 +195,19 @@ export function validateImageBytes(
   }
 
   const real = readImageDimensions(data, mimeType);
-  return {
-    mimeType,
-    width: real?.width ?? claimed.width,
-    height: real?.height ?? claimed.height,
-    fileSize: data.byteLength,
-  };
+  const width = real?.width ?? claimed.width;
+  const height = real?.height ?? claimed.height;
+
+  // Checked on the REAL dimensions, so a small file that decodes to an enormous
+  // canvas is caught too — byte size alone does not bound this.
+  const longestEdge = Math.max(width, height);
+  if (longestEdge > MAX_ASSET_DIMENSION) {
+    throw new MediaValidationError(
+      `That image is ${width}x${height}. The largest supported edge is ${MAX_ASSET_DIMENSION}px — export it smaller and try again.`,
+    );
+  }
+
+  return { mimeType, width, height, fileSize: data.byteLength };
 }
 
 export interface PlatformMediaCheck {

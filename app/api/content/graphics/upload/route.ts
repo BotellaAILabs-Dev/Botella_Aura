@@ -73,7 +73,15 @@ export async function POST(req: Request) {
 
     // --- a file from the user's machine ---------------------------------
     if (contentType.includes('multipart/form-data')) {
-      const form = await req.formData();
+      let form: FormData;
+      try {
+        form = await req.formData();
+      } catch {
+        // A truncated or malformed body is the client's problem, not ours —
+        // a generic 500 here reads as "the server is broken" when the fix is
+        // to re-send the file.
+        return jsonError('Could not read the uploaded file. Try again.', 400);
+      }
       const file = form.get('file');
       if (!(file instanceof File)) {
         return jsonError('No file was provided.', 400);

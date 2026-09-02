@@ -120,6 +120,23 @@ describe('validateImageBytes', () => {
     ).toThrow(MediaValidationError);
   });
 
+  it('rejects an image whose pixel dimensions exceed every platform', () => {
+    // Byte size does not bound this: a flat-colour PNG compresses to almost
+    // nothing while decoding to an enormous canvas. Nothing in this stack
+    // resizes, so storing it would only defer the rejection to publish time.
+    expect(() =>
+      validateImageBytes(pngWith(9000, 9000), { width: 9000, height: 9000 }),
+    ).toThrow(/largest supported edge/i);
+  });
+
+  it('accepts an image right at the dimension ceiling', () => {
+    const result = validateImageBytes(pngWith(4096, 2048), {
+      width: 4096,
+      height: 2048,
+    });
+    expect(result.width).toBe(4096);
+  });
+
   it('rejects an image over the storage ceiling', () => {
     const huge = Buffer.concat([
       pngWith(10, 10),

@@ -5,6 +5,7 @@ import { rateLimit } from '@/lib/rate-limit';
 import { getDraft } from '@/server/content/content.service';
 import { generateGraphicSchema } from '@/lib/validations/media';
 import {
+  assetsThisMonth,
   attachedAssetIds,
   listAssets,
   toAssetView,
@@ -96,12 +97,31 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const input = generateGraphicSchema.parse(await req.json());
 
-    // The plan caps variations per request as well as per month — a Trial
-    // workspace asking for four gets two rather than a flat refusal.
+    /**
+     * Clamp to what is actually left, not just "is there any left".
+     *
+     * `requireEntitlement` above answers the second question. On its own that
+     * lets a workspace with one image remaining ask for four and get four —
+     * the allowance is a budget, so the request has to be sized against the
+     * remaining balance as well as the per-request cap.
+     */
     const plan = await getEffectivePlan(company.id);
-    const variations = Math.min(input.variations, plan.limits.maxImagesPerRequest);
+    const used = await assetsThisMonth(company.id);
+    const remainingThisMonth = Math.max(0, plan.limits.maxImagesPerMonth - used);
+    const variations = Math.min(
+      input.variations,
+      plan.limits.maxImagesPerRequest,
+      remainingThisMonth,
+    );
 
-    const { job, reused } = await enqueueJob({
+    if (variations < 1) {
+      return jsonError(
+        `Your ${plan.limits.label} plan includes ${plan.limits.maxImagesPerMonth} generated graphics per month, and you have used them all. Upgrade for more — your existing graphics stay available.`,
+        402,
+      );
+    }
+
+    const { job, reused, inputsDiffer } = await enqueueJob({
       companyId: company.id,
       userId: user.id,
       kind: 'IMAGE_GENERATION',
@@ -122,17 +142,36 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       dedupeOn: { draftId: draft.id },
     });
 
+    /**
+     * A run is already going for this post, but for something else.
+     *
+     * Reuse is right for a double-click — the same request twice. It is wrong
+     * here: the caller edited the prompt (or the model, or the format) and
+     * would silently be handed the PREVIOUS request's images with no sign that
+     * anything was ignored. Saying so is the only honest option, because the
+     * in-flight run cannot be replaced without discarding work already paid for.
+     */
+    if (reused && inputsDiffer) {
+      return jsonError(
+        'A different generation is already running for this post. Wait for it to finish (or reload to watch it), then generate again.',
+        409,
+      );
+    }
+
     return jsonOk(
       {
         jobId: job.id,
         status: job.status,
         progress: readProgress(job),
-        // True when a run for THIS draft was already in flight — the client
-        // attaches to it instead of reporting a second one it did not start.
+        // True when the SAME run for this draft was already in flight — the
+        // client attaches to it instead of reporting one it did not start.
         reused,
         ...(variations < input.variations
           ? {
-              planNote: `Your ${plan.limits.label} plan generates up to ${plan.limits.maxImagesPerRequest} variations at a time.`,
+              planNote:
+                variations === remainingThisMonth
+                  ? `Only ${remainingThisMonth} graphic${remainingThisMonth === 1 ? '' : 's'} left in your ${plan.limits.label} plan this month, so ${variations} will be generated.`
+                  : `Your ${plan.limits.label} plan generates up to ${plan.limits.maxImagesPerRequest} variations at a time.`,
             }
           : {}),
       },

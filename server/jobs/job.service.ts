@@ -64,7 +64,19 @@ export async function enqueueJob(args: {
    * protection while scoping it to the thing being generated.
    */
   dedupeOn?: Record<string, string>;
-}): Promise<{ job: GenerationJob; reused: boolean }> {
+}): Promise<{
+  job: GenerationJob;
+  reused: boolean;
+  /**
+   * True when a job was reused but the caller asked for something DIFFERENT.
+   *
+   * Reuse is the right answer for a double-click, where the request is
+   * identical. It is the wrong answer when the user edited the prompt and asked
+   * again: they would silently receive the previous prompt's output. Callers
+   * that care (graphic generation does) check this and say so instead.
+   */
+  inputsDiffer: boolean;
+}> {
   const { companyId, userId, kind, inputs, dedupeOn } = args;
 
   const active = await db.generationJob.findFirst({
@@ -83,7 +95,11 @@ export async function enqueueJob(args: {
     orderBy: { createdAt: 'desc' },
   });
   if (active && Date.now() - active.createdAt.getTime() < STUCK_AFTER_MS) {
-    return { job: active, reused: true };
+    return {
+      job: active,
+      reused: true,
+      inputsDiffer: !sameInputs(active.inputs, inputs),
+    };
   }
 
   const job = await db.generationJob.create({
@@ -95,7 +111,31 @@ export async function enqueueJob(args: {
       progress: { step: 'queued', message: 'Queued…', percent: 0 },
     },
   });
-  return { job, reused: false };
+  return { job, reused: false, inputsDiffer: false };
+}
+
+/**
+ * Structural comparison of two job input bags.
+ *
+ * Key order is not meaningful in JSON, and Postgres does not preserve it in a
+ * jsonb column anyway, so keys are sorted before comparing. Undefined values
+ * are dropped so an omitted optional field and an explicitly-undefined one
+ * compare equal — which is how the route builds these objects.
+ */
+function sameInputs(a: unknown, b: unknown): boolean {
+  return stableStringify(a) === stableStringify(b);
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(',')}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))
+    .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`);
+  return `{${entries.join(',')}}`;
 }
 
 /**
