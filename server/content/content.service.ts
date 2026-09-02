@@ -1,4 +1,10 @@
-import type { AuditAction, ContentDraft, ContentStatus, Prisma } from '@prisma/client';
+import type {
+  AuditAction,
+  ContentDraft,
+  ContentStatus,
+  Prisma,
+  SocialPlatform,
+} from '@prisma/client';
 import { db } from '@/lib/db';
 import { recordAudit } from '@/server/services/audit.service';
 import { bodySchemaFor, type ContentTypeKey } from '@/lib/validations/content';
@@ -178,6 +184,95 @@ export async function scheduleDraft(args: {
   return updated;
 }
 
+/**
+ * Push a composed post into the existing queue.
+ *
+ * "Add to queue" in the composer means: this post — its copy, its graphic, its
+ * platform and its time — is ready for a human to sign off. So it sets the
+ * target platform and the scheduled time, then moves the draft to
+ * PENDING_APPROVAL.
+ *
+ * It deliberately does NOT approve anything. The approval gate is the product's
+ * trust backbone (nothing publishes without a human Approve), and a convenience
+ * action that quietly walked around it would be the single most damaging change
+ * that could be made here. `runScheduledPublishes()` still only ever picks up
+ * APPROVED drafts, so a queued-but-unapproved post waits for a person.
+ *
+ * Already-APPROVED drafts keep their status — re-queueing to adjust the time
+ * must not force a second approval round.
+ */
+export async function queueDraft(args: {
+  companyId: string;
+  userId: string;
+  draftId: string;
+  platform?: SocialPlatform;
+  scheduledFor?: Date;
+}): Promise<ContentDraft> {
+  const draft = await loadOwned(args.companyId, args.draftId);
+  if (draft.status === 'PUBLISHED') {
+    throw Object.assign(
+      new Error('This post has already been published.'),
+      { status: 409 },
+    );
+  }
+
+  const data: Prisma.ContentDraftUpdateInput = {};
+  if (args.platform) data.platform = args.platform;
+  if (args.scheduledFor) data.scheduledFor = args.scheduledFor;
+
+  // DRAFT and REJECTED both mean "not yet in front of a reviewer"; queueing is
+  // what puts them there. APPROVED stays APPROVED.
+  const needsReview = draft.status === 'DRAFT' || draft.status === 'REJECTED';
+  if (needsReview) {
+    data.status = 'PENDING_APPROVAL';
+    data.rejectionReason = null;
+  }
+
+  const updated = await db.contentDraft.update({
+    where: { id: draft.id },
+    data,
+  });
+
+  await recordAudit({
+    action: 'CONTENT_QUEUED',
+    userId: args.userId,
+    companyId: args.companyId,
+    metadata: {
+      draftId: draft.id,
+      platform: updated.platform ?? undefined,
+      scheduledFor: updated.scheduledFor?.toISOString(),
+      from: draft.status,
+      to: updated.status,
+    },
+  });
+  return updated;
+}
+
+/**
+ * Set a draft's target platform on its own (the composer's platform selector).
+ *
+ * Kept separate from queueDraft so switching platform to preview a different
+ * format does not push the post into review as a side effect.
+ */
+export async function setDraftPlatform(args: {
+  companyId: string;
+  userId: string;
+  draftId: string;
+  platform: SocialPlatform;
+}): Promise<ContentDraft> {
+  const draft = await loadOwned(args.companyId, args.draftId);
+  if (draft.status === 'PUBLISHED') {
+    throw Object.assign(
+      new Error('Published content cannot be retargeted.'),
+      { status: 409 },
+    );
+  }
+  return db.contentDraft.update({
+    where: { id: draft.id },
+    data: { platform: args.platform },
+  });
+}
+
 // ---- Publish guard (the hard gate) -----------------------------------------
 
 /** Throws unless the draft is APPROVED. Every publish path MUST call this. */
@@ -222,7 +317,13 @@ export async function listDrafts(
   return db.contentDraft.findMany({
     where: { companyId, ...(filter?.status ? { status: filter.status } : {}) },
     orderBy: { updatedAt: 'desc' },
-    include: { campaign: { select: { id: true, name: true } } },
+    include: {
+      campaign: { select: { id: true, name: true } },
+      // Attached-media COUNT, not the media itself: the board only needs to
+      // show whether a post has a graphic, and one aggregate beats a per-card
+      // query on a page that lists every draft in the workspace.
+      _count: { select: { media: true } },
+    },
   });
 }
 

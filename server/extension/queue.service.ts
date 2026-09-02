@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { renderForManual } from '@/server/content/render';
 import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
+import { resolvePlatform, platformSpec } from '@/lib/platforms';
 import type { ContentTypeKey } from '@/lib/validations/content';
 
 /**
@@ -11,9 +12,10 @@ import type { ContentTypeKey } from '@/lib/validations/content';
  * compose/comment/message box, and a stable itemType+itemId the extension posts
  * back to /api/extension/actions/complete after the human clicks send.
  *
- * Module 2 populates the queue from APPROVED Content Studio drafts (the manual-
- * publish fallback for personal-profile posts). Outreach messages (Module 3)
- * and engagement comments (Module 4) extend `QueueItemType` + getQueue.
+ * Items now also carry their MEDIA as metadata — ids and dimensions, never
+ * bytes. A queue listing is fetched every time the panel opens, so inlining
+ * images would make it tens of megabytes; the extension fetches each image
+ * separately, and only when the human actually acts on that item.
  */
 export type QueueItemType =
   | 'content_draft'
@@ -24,6 +26,16 @@ export type InjectTarget =
   | 'linkedin_compose'
   | 'linkedin_comment'
   | 'linkedin_message';
+
+/** One image attached to a queue item. Bytes come from /api/extension/media/:id. */
+export interface QueueItemMedia {
+  assetId: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  fileSize: number;
+  altText?: string;
+}
 
 export interface QueueItem {
   /** Stable composite id for the extension list. */
@@ -37,6 +49,11 @@ export interface QueueItem {
   target: InjectTarget;
   /** Optional URL the human should be on to perform the action. */
   contextUrl?: string;
+  /** Where this post is aimed, so the panel can label it. */
+  platform?: string;
+  platformLabel?: string;
+  /** Attached graphics, in order. Empty for text-only items. */
+  media: QueueItemMedia[];
   createdAt: string;
 }
 
@@ -49,18 +66,50 @@ export async function getQueue(companyId: string): Promise<QueueItem[]> {
     where: { companyId, status: 'APPROVED' },
     orderBy: { updatedAt: 'desc' },
     take: 50,
+    // One query for drafts and their media rather than N+1 lookups: the panel
+    // opens on every LinkedIn page load, so this path stays cheap.
+    include: {
+      media: {
+        orderBy: { position: 'asc' },
+        include: {
+          asset: {
+            select: {
+              id: true,
+              mimeType: true,
+              width: true,
+              height: true,
+              fileSize: true,
+            },
+          },
+        },
+      },
+    },
   });
+
   for (const d of drafts) {
     const text = renderForManual(d);
     if (!text) continue;
+    const type = d.type as ContentTypeKey;
+    const platform = resolvePlatform(type, d.platform);
+
     items.push({
       id: `content_draft:${d.id}`,
       itemType: 'content_draft',
       itemId: d.id,
-      title: d.title ?? CONTENT_TYPE_LABELS[d.type as ContentTypeKey] ?? 'Post',
-      subtitle: CONTENT_TYPE_LABELS[d.type as ContentTypeKey],
+      title: d.title ?? CONTENT_TYPE_LABELS[type] ?? 'Post',
+      subtitle: CONTENT_TYPE_LABELS[type],
       text,
       target: 'linkedin_compose',
+      platform,
+      platformLabel: platformSpec(platform).label,
+      media: d.media.map((m) => ({
+        assetId: m.assetId,
+        mimeType: m.asset.mimeType,
+        width: m.asset.width,
+        height: m.asset.height,
+        fileSize: m.asset.fileSize,
+        ...(m.altText ? { altText: m.altText } : {}),
+      })),
       createdAt: d.updatedAt.toISOString(),
     });
   }
@@ -88,6 +137,9 @@ export async function getQueue(companyId: string): Promise<QueueItem[]> {
       text: m.draftText,
       target: 'linkedin_message',
       contextUrl: m.lead.linkedInProfileUrl ?? undefined,
+      // Outreach messages carry no media; the field stays present so the
+      // extension never has to check whether the key exists.
+      media: [],
       createdAt: m.updatedAt.toISOString(),
     });
   }

@@ -189,6 +189,56 @@ enum AuditAction {
   // --- Screens review — manual measurement + lead feedback ---
   PERFORMANCE_LOGGED_MANUALLY
   LEAD_MARKED_IRRELEVANT
+  // --- Graphic Generation — Content Studio visuals ---
+  GRAPHIC_PROMPT_GENERATED
+  GRAPHIC_GENERATED
+  GRAPHIC_GENERATION_FAILED
+  GRAPHIC_ATTACHED
+  GRAPHIC_DETACHED
+  GRAPHIC_DELETED
+  CONTENT_QUEUED
+}
+
+/// Which social network a post is aimed at.
+///
+/// Deliberately separate from ContentType: the type describes the SHAPE of the
+/// writing (a hook-first post, a carousel, a thread), the platform describes
+/// where it goes. The same carousel body can be aimed at LinkedIn or Instagram,
+/// and each wants a different image size and a different publisher. Null on a
+/// draft means "whatever this content type defaults to" (see lib/platforms.ts),
+/// so every pre-existing draft keeps behaving exactly as before.
+enum SocialPlatform {
+  LINKEDIN
+  INSTAGRAM
+  X
+  FACEBOOK
+}
+
+/// Image-generation backends behind ImageGenerationService. Adding one here is
+/// additive — Content Studio talks to the abstraction, never to a provider.
+enum ImageProvider {
+  OPENAI
+  GOOGLE
+  STABILITY
+  REPLICATE
+}
+
+/// Where an asset's bytes actually live.
+///
+/// DATABASE is the default and needs no infrastructure: providers hand back
+/// URLs that expire within the hour, so the bytes are pulled once and kept.
+/// EXTERNAL means they were copied to an S3-compatible bucket instead (see
+/// server/media/storage.ts) and `storageUrl` is authoritative.
+enum AssetStorageKind {
+  DATABASE
+  EXTERNAL
+}
+
+/// Media that can hang off a post. Only IMAGE is produced today; VIDEO exists so
+/// the attachment layer does not need reshaping when it arrives.
+enum MediaKind {
+  IMAGE
+  VIDEO
 }
 
 /// Sprint 3 — origin of an ingested knowledge chunk.
@@ -361,6 +411,7 @@ model User {
   auditLogs           AuditLog[]
   createdContent      ContentDraft[]       @relation("ContentCreatedBy")
   extensionTokens     ExtensionToken[]
+  generatedAssets     GeneratedAsset[]     @relation("AssetCreatedBy")
 
   @@index([email])
 }
@@ -475,6 +526,8 @@ model Company {
   marketingPlans        MarketingPlan[]
   intelligenceSnapshots IntelligenceSnapshot[]
   generationJobs        GenerationJob[]
+  generatedAssets       GeneratedAsset[]
+  contentMedia          ContentMedia[]
 
   @@index([slug])
 }
@@ -628,6 +681,9 @@ model ContentDraft {
   publishedAt     DateTime?
   /// LinkedIn post URN/URL after a successful official-API publish.
   publishedUrl    String?
+  /// Where this post is aimed. Null = derive from `type` (lib/platforms.ts), so
+  /// drafts created before platform targeting existed behave exactly as before.
+  platform        SocialPlatform?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -635,6 +691,11 @@ model ContentDraft {
   createdBy            User?                 @relation("ContentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   campaign             Campaign?             @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   performanceSnapshots PerformanceSnapshot[]
+  /// Media actually attached to this post, in carousel order.
+  media                ContentMedia[]
+  /// Every graphic ever generated FOR this draft — the graphic history, which
+  /// outlives any individual attachment.
+  generatedAssets      GeneratedAsset[]
 
   @@index([companyId, status])
   @@index([companyId, scheduledFor])
@@ -1346,6 +1407,10 @@ enum GenerationJobKind {
   MARKETING_PLAN
   INTELLIGENCE
   BRAND_VOICE_PREVIEW
+  /// Graphic generation. Several variations on a slow provider comfortably
+  /// exceed a serverless function budget run inline, which is exactly the
+  /// failure this queue exists to prevent.
+  IMAGE_GENERATION
 }
 
 enum GenerationJobStatus {
@@ -1413,4 +1478,95 @@ model ConnectorEmailVerification {
 
   @@index([companyId, connectorId])
   @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Graphic Generation — generated visuals + the post media attachment layer
+// ---------------------------------------------------------------------------
+
+/// A graphic produced by an image-generation provider.
+///
+/// Provider image URLs expire (OpenAI's within the hour, Replicate's within the
+/// day), so a post scheduled for next Tuesday cannot depend on one. The bytes
+/// are fetched once at generation time and stored — in this row by default, or
+/// in an S3-compatible bucket when one is configured. `sourceUrl` is kept only
+/// so a generation stays traceable back to the provider response.
+///
+/// Both prompts are retained on purpose: `originalPrompt` is what the content
+/// analysis produced, `prompt` is what the user actually sent after editing it,
+/// and `revisedPrompt` is the provider's own rewrite where it reports one. That
+/// is what makes "why did it draw that?" answerable later.
+model GeneratedAsset {
+  id             String           @id @default(cuid())
+  companyId      String
+  /// The draft this was generated for. SetNull rather than Cascade: deleting a
+  /// draft must not silently destroy a graphic the user reused elsewhere.
+  contentDraftId String?
+  createdById    String?
+  provider       ImageProvider
+  /// Provider-specific model id, recorded verbatim (e.g. "gpt-image-1").
+  model          String
+  kind           MediaKind        @default(IMAGE)
+  /// The exact prompt sent to the provider.
+  prompt         String           @db.Text
+  /// The AI-written prompt before any human edit.
+  originalPrompt String?          @db.Text
+  /// The provider's own rewritten prompt, when it returns one.
+  revisedPrompt  String?          @db.Text
+  negativePrompt String?          @db.Text
+  style          String?
+  aspectRatio    String
+  width          Int
+  height         Int
+  mimeType       String
+  fileSize       Int
+  storage        AssetStorageKind @default(DATABASE)
+  /// DATABASE storage — the image itself.
+  data           Bytes?
+  /// EXTERNAL storage — the durable URL in our own bucket.
+  storageUrl     String?
+  /// The provider's original (expiring) URL. Never relied on for publishing.
+  sourceUrl      String?
+  /// Which platform the generation was framed for (drives size + art direction).
+  platform       SocialPlatform?
+  /// { seed, providerRequestId, safety, ... } — provider-shaped extras.
+  metadata       Json             @default("{}")
+  createdAt      DateTime         @default(now())
+
+  company      Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contentDraft ContentDraft?  @relation(fields: [contentDraftId], references: [id], onDelete: SetNull)
+  createdBy    User?          @relation("AssetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  attachments  ContentMedia[]
+
+  /// The history view: this company's graphics, newest first.
+  @@index([companyId, createdAt])
+  @@index([contentDraftId, createdAt])
+}
+
+/// The generic media attachment layer: a post has ordered media, and any asset
+/// can hang off more than one post (that is what "reuse this graphic" means).
+///
+/// Kept as a join rather than a column on ContentDraft so carousels — several
+/// images in a defined order — need no further schema work, and so an asset's
+/// generation history stays independent of where it ended up being used.
+model ContentMedia {
+  id             String    @id @default(cuid())
+  companyId      String
+  contentDraftId String
+  assetId        String
+  kind           MediaKind @default(IMAGE)
+  /// Order within the post's media set (0 = the first/only image).
+  position       Int       @default(0)
+  /// Accessibility text sent to platforms that accept it (LinkedIn, Instagram).
+  altText        String?
+  createdAt      DateTime  @default(now())
+
+  company      Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contentDraft ContentDraft   @relation(fields: [contentDraftId], references: [id], onDelete: Cascade)
+  asset        GeneratedAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  /// Attaching the same graphic twice to one post is a no-op, not a duplicate.
+  @@unique([contentDraftId, assetId])
+  @@index([contentDraftId, position])
+  @@index([assetId])
 }

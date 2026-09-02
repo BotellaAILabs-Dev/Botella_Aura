@@ -1,6 +1,13 @@
+import { z } from 'zod';
+
 import { requireActiveCompany } from '@/lib/auth-helpers';
 import { updateDraftSchema } from '@/lib/validations/content';
-import { getDraft, updateDraftBody } from '@/server/content/content.service';
+import {
+  getDraft,
+  setDraftPlatform,
+  updateDraftBody,
+} from '@/server/content/content.service';
+import { SOCIAL_PLATFORMS } from '@/lib/platforms';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
 /** GET — a single draft (scoped to the active company). */
@@ -15,14 +22,41 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   }
 }
 
-/** PATCH — save manual edits to the draft body (validated per type). */
+/**
+ * Retargeting is its own payload shape.
+ *
+ * Changing where a post is aimed is not an edit to its content, and must not go
+ * through the body path — that would send an APPROVED draft back to DRAFT for
+ * re-approval just because someone switched the platform selector to preview a
+ * different image format.
+ */
+const retargetSchema = z
+  .object({ platform: z.enum(SOCIAL_PLATFORMS) })
+  // Strict, so a payload carrying BOTH a body and a platform falls through to
+  // the body path rather than silently applying only half of it.
+  .strict();
+
+/** PATCH — save manual edits to the draft body, or retarget its platform. */
 export async function PATCH(
   req: Request,
   { params }: { params: { id: string } },
 ) {
   try {
     const { company, user } = await requireActiveCompany();
-    const input = updateDraftSchema.parse(await req.json());
+    const payload = await req.json();
+
+    const retarget = retargetSchema.safeParse(payload);
+    if (retarget.success) {
+      const draft = await setDraftPlatform({
+        companyId: company.id,
+        userId: user.id,
+        draftId: params.id,
+        platform: retarget.data.platform,
+      });
+      return jsonOk({ id: draft.id, platform: draft.platform, status: draft.status });
+    }
+
+    const input = updateDraftSchema.parse(payload);
     const draft = await updateDraftBody({
       companyId: company.id,
       userId: user.id,

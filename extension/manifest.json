@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Botella Aura — Action Layer",
-  "version": "0.2.0",
-  "description": "Review and send your approved Botella Aura items on LinkedIn — one human click per action. No automation.",
+  "version": "0.3.0",
+  "description": "Review and send your approved Botella Aura posts — text and generated graphics — on LinkedIn. One human click per action. No automation.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "http://localhost:3000/*",

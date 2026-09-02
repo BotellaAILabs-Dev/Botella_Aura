@@ -187,3 +187,37 @@
   margin-bottom: 8px;
   box-sizing: border-box;
 }
+
+/* --- Attached graphics on a queued post --------------------------------- */
+.aura-media-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.aura-media-cell {
+  width: 56px;
+  height: 56px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #f6f4ff;
+  overflow: hidden;
+  font-size: 14px;
+  color: #667085;
+}
+.aura-media-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.aura-media-hint {
+  flex: 1 1 100%;
+  margin: 2px 0 0;
+  font-size: 11px;
+}

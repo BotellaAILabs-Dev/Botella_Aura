@@ -228,7 +228,7 @@ with an `Authorization: Bearer $CRON_SECRET` header. Suggested cadence:
 | `DATABASE_URL` / `DIRECT_URL` | Postgres (pooled runtime / direct for migrations) |
 | `NEXTAUTH_URL` / `NEXTAUTH_SECRET` | Auth base URL + JWT signing |
 | `ENCRYPTION_KEY` | AES-256-GCM key for tokens at rest (32 bytes base64) |
-| `CRON_SECRET` | Protects every `/api/cron/*` job |
+| `CRON_SECRET` | Protects every `/api/cron/*` job | 
 
 ### Optional (features degrade honestly without them)
 
@@ -353,6 +353,145 @@ swallowed.
 
 ---
 
+## Graphic Generation (Content Studio)
+
+Content Studio can read a generated post, work out what it is about, and produce
+a matching graphic — then attach it to the post and push the whole thing into the
+existing publishing queue.
+
+```
+Create content → AI generates post → Generate graphic → AI writes an image prompt
+  → image model draws it → you pick one → post preview → Add to queue
+  → approve → schedule → LinkedIn / Instagram API, or the browser extension
+```
+
+### Configuring image providers
+
+Set the API key for whichever provider(s) you want available (see
+`.env.example`). At least one is required; the rest of the app is unaffected if
+none is set.
+
+| Provider | Variable | Native formats | Notes |
+| --- | --- | --- | --- |
+| OpenAI (`gpt-image-1`) | `OPENAI_API_KEY` | 1:1, 4:5, 16:9 | Best prompt adherence. 9:16 substitutes to 4:5. |
+| Google Imagen | `GOOGLE_AI_API_KEY` (or the existing `GEMINI_API_KEY`) | all four | Only provider with native 9:16. |
+| Stability AI | `STABILITY_API_KEY` | all four | Supports negative prompts. One image per call. |
+| Replicate | `REPLICATE_API_TOKEN` | all four | Point `REPLICATE_IMAGE_MODEL` at any hosted model — no code change. |
+
+The model selector shows **every** implemented provider. An unconfigured one is
+disabled and names the variable to add, rather than being hidden or offered and
+then failing mid-generation.
+
+Adding a fifth provider is one file in `server/media/providers/` plus one line in
+that directory's `index.ts`. Content Studio talks to the
+`ImageGenerationProvider` interface and never to a vendor.
+
+### How generation works
+
+1. **Prompt writing** (`server/media/image-prompt.service.ts`) — the post is
+   rendered to text, combined with the company's existing brand-voice profile
+   (translated into *visual* direction), the target platform's art direction and
+   the chosen style, then Claude/Gemini writes an image prompt. **No AI key?**
+   A deterministic composer builds a usable prompt from the post's own hook and
+   the UI labels it as such. Nothing is faked.
+2. **The user edits it.** Always. The prompt box is the point of the split
+   between this step and the next — nothing is paid for until you press Generate.
+3. **Generation** (`server/media/generation.service.ts`) — resolve provider →
+   resolve format → generate → validate bytes → store → persist → audit.
+
+Generation runs as a **background job**, not inline. Four variations on a
+provider that returns one image per call is four sequential round-trips, which
+outlives a serverless function budget — the same failure `GenerationJob` was
+introduced to solve for the trend digest and the monthly planner. The request
+queues a job and returns immediately; the browser kicks `POST /api/jobs/:id/run`
+and polls `GET /api/jobs/:id`. The run finishes server-side even if the tab is
+closed, and `/api/cron/jobs` restarts anything a killed instance left behind.
+
+Everything that must fail fast — role, rate limit, plan allowance, whether any
+provider is configured — is checked **before** a job is created, so a request
+that was never going to succeed says so immediately.
+
+### Where images are stored
+
+By default, **in Postgres** (`GeneratedAsset.data`), served through an
+authenticated route. This is deliberate: the app deploys to platforms with no
+writable filesystem, and every provider's image URL expires within hours — a
+post scheduled for next week cannot depend on one.
+
+Set the four `ASSET_S3_*` variables to use an S3-compatible bucket (R2, B2, S3,
+MinIO) instead. Each asset records where its own bytes live, so switching does
+not strand existing images. SigV4 is implemented directly in
+`server/media/storage.ts` — no AWS SDK dependency.
+
+Assets are **private**. They are readable by a session belonging to the asset's
+company, or through a **signed, 15-minute URL** — which exists because Instagram
+publishes by URL and Meta's servers fetch the image themselves.
+
+### How images reach the queue
+
+There is **one** queue, and this feature uses it. "Add to queue" in the post
+composer sets the target platform and scheduled time and moves the draft to
+`PENDING_APPROVAL`. It does **not** approve anything — `runScheduledPublishes()`
+still only ever picks up `APPROVED` drafts. The human approval gate is untouched.
+
+### Publishing
+
+- **LinkedIn** — the graphic is uploaded through the official Images API
+  (`initializeUpload` → `PUT` bytes → wait for `AVAILABLE` → reference the URN),
+  then attached to the post. Uses the **existing** LinkedIn connection; no second
+  OAuth flow. Needs `w_member_social` (self-serve "Share on LinkedIn") for
+  personal profiles, or `w_organization_social` + `LINKEDIN_ORG_URN` for a
+  Company Page.
+- **Instagram** — via the official Graph API (create media container → poll →
+  publish). Requires `META_CLIENT_ID`/`META_CLIENT_SECRET`, an Instagram
+  **Business** account linked to a Facebook Page, and `instagram_content_publish`
+  App Review approval. Connect it at `/dashboard/connectors` — it reuses the
+  existing connector framework, and the Instagram account id is discovered once
+  at connect time. Without those, publishing routes to the manual fallback
+  **saying exactly what is missing**.
+- **X / Facebook** — no publishing integration exists in this codebase. Posts
+  aimed there get the manual/extension path with an honest explanation.
+
+### Browser extension
+
+The extension queue now carries media **metadata** (ids and dimensions, never
+bytes — the panel opens on every LinkedIn page load). When the human presses
+"Insert text + image", the content script fetches that one image through
+`/api/extension/media/:assetId` using the **existing** bearer token, rebuilds it
+as a `File`, and places it in LinkedIn's own file input via `DataTransfer`.
+
+The safety model is unchanged: nothing is auto-submitted. The human reviews the
+composer, clicks LinkedIn's own Post button, then confirms — which syncs status
+back through the existing `/api/extension/actions/complete` endpoint.
+
+### Cost control
+
+- Per-plan monthly image allowance (`PLAN_LIMITS.maxImagesPerMonth`) enforced in
+  `requireEntitlement(companyId, 'imageGeneration')` before any provider is
+  touched.
+- Per-plan and per-provider caps on variations per request, plus a hard ceiling
+  of 4.
+- Rate limits: 6 generations and 20 prompt-writes per user per minute.
+- The UI shows the remaining allowance before you spend it, and an in-flight
+  guard means a double click cannot become a double charge.
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| "No image model is configured" | No provider key set | Add one of the four keys and redeploy. |
+| Model shows "not configured" | That provider's key is missing | Add the named variable, or pick another model. |
+| Format silently changed | The provider cannot draw that ratio | Expected — the toast names the substitution. Use Google Imagen for native 9:16. |
+| "Google's safety filter blocked every image" | Prompt tripped content policy | Reword the prompt; it is fully editable. |
+| LinkedIn post published without the image | Image still processing, or no posting scope | Check the connection has `w_member_social`; reconnect and approve "Share on LinkedIn". |
+| "Instagram could not fetch the image" | Meta cannot reach this deployment | `APP_URL` must be publicly reachable. Instagram cannot publish from localhost. |
+| Instagram posts need an image | Correct — IG has no text-only feed post | Attach a graphic before queueing. |
+| Extension shows "graphic could not be loaded" | Token revoked, or asset deleted | Re-pair the extension in Settings → Extension. |
+| Progress stops after a page reload | The studio polls by job id and does not reattach across reloads | The run still completes server-side. Reload again in a moment and the graphic is in the history. |
+| "This is taking longer than expected" | Poll gave up; the run has not | Reload the page — a finished graphic appears in the history. Check `/api/cron/jobs` is scheduled. |
+
+---
+
 ## Shipped in Sprint 3
 
 - **Content Studio** — the flagship. Knowledge-base ingestion
@@ -395,8 +534,8 @@ beyond `ANTHROPIC_API_KEY`; `LINKEDIN_ORG_URN` is optional/pending.
   Developer Platform / Community Management approval; scaffolded + flagged.
 - **Content Studio (Sprint 3)** — the "Generate content from this" button on
   each trend card links to the reserved `/dashboard/content/new?trendId=…`.
-- **Real email delivery** — `lib/email.ts` logs to console; swap in Resend with
-  no call-site changes.
+- **Real email delivery** — `lib/email.ts` logs to console; swap in Resend with 
+  no call-site changes.  
 - **Outreach, Engagement, Analytics** — nav items render "Coming in Sprint N"
   placeholders driven by `lib/nav.ts`.
 - **Team invitations / billing** — the RBAC pattern (`lib/rbac.ts`) exists;

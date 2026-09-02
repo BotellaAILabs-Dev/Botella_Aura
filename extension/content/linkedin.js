@@ -140,12 +140,17 @@
     preview.textContent = item.text;
     card.appendChild(preview);
 
+    const media = item.media || [];
+    if (media.length > 0) {
+      card.appendChild(renderMediaStrip(item, media));
+    }
+
     const actions = document.createElement('div');
     actions.className = 'aura-actions';
 
     const insertBtn = document.createElement('button');
     insertBtn.className = 'aura-btn aura-btn-primary';
-    insertBtn.textContent = 'Insert into composer';
+    insertBtn.textContent = media.length > 0 ? 'Insert text + image' : 'Insert into composer';
     insertBtn.addEventListener('click', () => onInsert(item, card));
     actions.appendChild(insertBtn);
 
@@ -163,7 +168,110 @@
     return card;
   }
 
-  function onInsert(item, card) {
+  /**
+   * Thumbnails of the graphics attached to a queued post.
+   *
+   * The images are fetched one at a time, on demand, through the background
+   * worker — the queue listing carries only metadata, so opening the panel does
+   * not pull megabytes of pictures the user may never look at.
+   */
+  function renderMediaStrip(item, media) {
+    const strip = document.createElement('div');
+    strip.className = 'aura-media-strip';
+
+    for (const m of media) {
+      const cell = document.createElement('div');
+      cell.className = 'aura-media-cell';
+      cell.textContent = '…';
+      strip.appendChild(cell);
+
+      loadMedia(m.assetId).then((file) => {
+        if (!file) {
+          cell.textContent = '⚠';
+          cell.title = 'This graphic could not be loaded.';
+          return;
+        }
+        const img = document.createElement('img');
+        img.className = 'aura-media-thumb';
+        img.src = file.objectUrl;
+        img.alt = m.altText || 'Attached graphic';
+        cell.textContent = '';
+        cell.appendChild(img);
+      });
+    }
+
+    const hint = document.createElement('p');
+    hint.className = 'aura-muted aura-media-hint';
+    hint.textContent =
+      media.length === 1
+        ? '1 graphic attached'
+        : `${media.length} graphics attached`;
+    strip.appendChild(hint);
+    return strip;
+  }
+
+  /**
+   * Fetch one graphic and turn it into a real File.
+   *
+   * LinkedIn's uploader is a plain <input type="file">, so a File plus a
+   * DataTransfer is all it takes to fill it — the same object the browser would
+   * hand it if the human had picked the file themselves. Results are cached per
+   * panel session so re-rendering does not re-download.
+   */
+  const mediaCache = new Map();
+
+  async function loadMedia(assetId) {
+    if (mediaCache.has(assetId)) return mediaCache.get(assetId);
+
+    const res = await msg({ type: 'AURA_MEDIA', assetId });
+    if (!res || !res.ok || !res.data || !res.data.data) {
+      mediaCache.set(assetId, null);
+      return null;
+    }
+    try {
+      const binary = atob(res.data.data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const mimeType = res.data.mimeType || 'image/png';
+      const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/webp' ? 'webp' : 'png';
+      const blob = new Blob([bytes], { type: mimeType });
+      const entry = {
+        file: new File([blob], `aura-graphic-${assetId}.${extension}`, { type: mimeType }),
+        objectUrl: URL.createObjectURL(blob),
+      };
+      mediaCache.set(assetId, entry);
+      return entry;
+    } catch {
+      mediaCache.set(assetId, null);
+      return null;
+    }
+  }
+
+  /**
+   * Put the graphic into LinkedIn's own image picker.
+   *
+   * This fills the file input the human would have used; it does NOT submit
+   * anything. The safety model is unchanged — the human still reviews the
+   * composer and clicks LinkedIn's own Post button.
+   */
+  function attachImageToComposer(file) {
+    const input = document.querySelector(
+      'input[type="file"][accept*="image"], .share-box input[type="file"], ' +
+        'input[type="file"][name*="image" i]',
+    );
+    if (!input) return false;
+    try {
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      input.files = transfer.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function onInsert(item, card) {
     const inserted = insertIntoComposer(item.text);
     if (!inserted) {
       navigator.clipboard.writeText(item.text).catch(() => {});
@@ -174,18 +282,38 @@
       );
       return;
     }
-    // Text is now in LinkedIn's composer. The HUMAN reviews and clicks
-    // LinkedIn's own Post button, then confirms here to sync status.
+
+    // Text is in. Now try the graphic, if there is one.
+    let mediaNote = '';
+    const media = item.media || [];
+    if (media.length > 0) {
+      const loaded = await loadMedia(media[0].assetId);
+      if (!loaded) {
+        mediaNote = ' The graphic could not be loaded — download it from Content Studio and add it by hand.';
+      } else if (attachImageToComposer(loaded.file)) {
+        mediaNote = ' The graphic was added to the composer too.';
+      } else {
+        // No file input on screen: LinkedIn only renders it once the human
+        // clicks the photo button, so tell them that rather than failing.
+        mediaNote =
+          ' Click the photo icon in LinkedIn’s composer, then press "Insert text + image" again to add the graphic.';
+      }
+    }
+
+    // The HUMAN reviews and clicks LinkedIn's own Post button, then confirms
+    // here to sync status.
     note(
       card,
-      'Inserted. Review it, click LinkedIn’s Post button yourself, then mark it posted below.',
+      `Inserted.${mediaNote} Review it, click LinkedIn’s Post button yourself, then mark it posted below.`,
       'ok',
     );
-    const confirm = document.createElement('button');
-    confirm.className = 'aura-btn aura-btn-primary aura-mt';
-    confirm.textContent = 'I posted it — mark as posted';
-    confirm.addEventListener('click', () => onComplete(item, card));
-    card.querySelector('.aura-actions').appendChild(confirm);
+    if (!card.querySelector('.aura-confirm')) {
+      const confirm = document.createElement('button');
+      confirm.className = 'aura-btn aura-btn-primary aura-mt aura-confirm';
+      confirm.textContent = 'I posted it — mark as posted';
+      confirm.addEventListener('click', () => onComplete(item, card));
+      card.querySelector('.aura-actions').appendChild(confirm);
+    }
   }
 
   async function onComplete(item, card) {

@@ -9,13 +9,27 @@ import { getMembership } from '@/server/services/company.service';
 import { can } from '@/lib/rbac';
 import { getDraft } from '@/server/content/content.service';
 import { renderForManual } from '@/server/content/render';
-import { canAutoPublish } from '@/server/content/publish.service';
+import { canAutoPublishTo } from '@/server/content/publish.service';
 import { CONTENT_TYPE_LABELS, CONTENT_STATUS_LABELS } from '@/lib/content-ui';
+import {
+  resolvePlatform,
+  platformSpec,
+  platformsForType,
+} from '@/lib/platforms';
+import {
+  attachedAssetIds,
+  getAttachedMedia,
+  listAssets,
+  toAssetView,
+} from '@/server/media/asset.service';
+import { findActiveImageJob } from '@/server/jobs/job.service';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { Badge, statusBadgeVariant } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { DraftPreview } from '@/components/dashboard/content/draft-preview';
 import { DraftActions } from '@/components/dashboard/content/draft-actions';
+import { GraphicStudio } from '@/components/dashboard/content/graphic-studio';
+import { PostComposer } from '@/components/dashboard/content/post-composer';
 import type { ContentTypeKey } from '@/lib/validations/content';
 
 export const metadata: Metadata = { title: 'Content draft' };
@@ -34,11 +48,35 @@ export default async function DraftDetailPage({
 
   const membership = await getMembership(user.id, active.id);
   const canPublish = membership ? can(membership.role, 'content:publish') : false;
+  // Editing covers the graphic studio and the composer: a MEMBER who can draft
+  // content can also make its graphic and queue it for review.
+  const canEdit =
+    membership !== null &&
+    can(membership.role, 'content:create') &&
+    draft.status !== 'PUBLISHED';
+
   const type = draft.type as ContentTypeKey;
+  const platform = resolvePlatform(type, draft.platform);
   const meta = (draft.aiMetadata ?? {}) as {
     source?: { kind?: string; brief?: string | null };
   };
   const sourceKind = meta.source?.kind;
+
+  // Graphics and attachments are loaded server-side so the panel renders with
+  // its history already present — no spinner on a page that has been visited.
+  const [assets, attached, media, activeJob] = await Promise.all([
+    listAssets(active.id, { draftId: draft.id }),
+    attachedAssetIds(active.id, draft.id),
+    getAttachedMedia({
+      companyId: active.id,
+      draftId: draft.id,
+      type,
+      platform: draft.platform,
+    }),
+    // A generation still running for this draft, so a reload reattaches to it
+    // rather than showing an idle panel while images are still being made.
+    findActiveImageJob(active.id, draft.id),
+  ]);
 
   return (
     <div>
@@ -62,6 +100,30 @@ export default async function DraftDetailPage({
         {/* Preview + actions */}
         <div className="space-y-5">
           <DraftPreview type={type} body={draft.body} />
+
+          {/* Content → graphic → post → queue, in the order the user works. */}
+          <GraphicStudio
+            draftId={draft.id}
+            platform={platform}
+            platformLabel={platformSpec(platform).label}
+            defaultRatio={platformSpec(platform).defaultRatio}
+            initialAssets={assets.map((a) => toAssetView(a, attached))}
+            attachedAssetIds={[...attached]}
+            activeJobId={activeJob?.id ?? null}
+            canEdit={canEdit}
+          />
+
+          <PostComposer
+            draftId={draft.id}
+            status={draft.status}
+            contentPreview={renderForManual(draft)}
+            platform={platform}
+            platformOptions={platformsForType(type)}
+            media={media}
+            scheduledFor={draft.scheduledFor ? draft.scheduledFor.toISOString() : null}
+            canEdit={canEdit}
+          />
+
           <Card>
             <CardContent className="p-4">
               <DraftActions
@@ -83,6 +145,11 @@ export default async function DraftDetailPage({
             <CardContent className="space-y-3 p-4 text-sm">
               <Row label="Type" value={CONTENT_TYPE_LABELS[type]} />
               <Row label="Status" value={CONTENT_STATUS_LABELS[draft.status]} />
+              <Row label="Platform" value={platformSpec(platform).label} />
+              <Row
+                label="Graphic"
+                value={media.length === 0 ? 'None attached' : `${media.length} attached`}
+              />
               {sourceKind && (
                 <Row label="Source" value={sourceKind.toLowerCase()} />
               )}
@@ -102,22 +169,24 @@ export default async function DraftDetailPage({
             <CardContent className="flex items-start gap-2 p-4 text-xs text-muted-foreground">
               <Info className="mt-0.5 h-4 w-4 shrink-0" />
               <p>
-                {canAutoPublish(type) ? (
+                {canAutoPublishTo(type, platform) ? (
                   <>
-                    LinkedIn posts auto-publish to a connected Company Page{' '}
+                    Approved posts publish to{' '}
                     <span className="font-medium text-foreground">
-                      once LinkedIn Community Management API access is approved
-                    </span>
-                    . Until then, use “Copy for manual posting”.
+                      {platformSpec(platform).label}
+                    </span>{' '}
+                    through its official API, with the attached graphic. If the
+                    connection lacks posting permission, you get the “copy for
+                    manual posting” fallback instead — never a false “published”.
                   </>
                 ) : (
                   <>
-                    This content type isn&apos;t natively publishable via
-                    LinkedIn&apos;s API — use{' '}
+                    This content type isn&apos;t natively publishable to{' '}
+                    {platformSpec(platform).label} via API — use{' '}
                     <span className="font-medium text-foreground">
                       “Copy for manual posting”
                     </span>{' '}
-                    and paste it into LinkedIn / X.
+                    or the browser extension, which carries the graphic too.
                   </>
                 )}
               </p>

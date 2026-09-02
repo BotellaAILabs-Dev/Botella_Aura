@@ -6,6 +6,7 @@ import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
 import { listDrafts } from '@/server/content/content.service';
 import { draftSnippet } from '@/lib/content-ui';
+import { resolvePlatform, platformSpec } from '@/lib/platforms';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -24,16 +25,22 @@ export default async function ContentPage() {
   const drafts = await listDrafts(active.id);
   const cards: DraftCard[] = drafts.map((d) => {
     const meta = (d.aiMetadata ?? {}) as { source?: { kind?: string } };
+    const type = d.type as ContentTypeKey;
+    const platform = resolvePlatform(type, d.platform);
     return {
       id: d.id,
-      type: d.type as ContentTypeKey,
+      type,
       status: d.status,
       title: d.title,
-      snippet: draftSnippet(d.type as ContentTypeKey, d.body),
+      snippet: draftSnippet(type, d.body),
       sourceKind: meta.source?.kind ?? null,
       campaignName: d.campaign?.name ?? null,
       scheduledFor: d.scheduledFor ? d.scheduledFor.toISOString() : null,
       updatedAt: d.updatedAt.toISOString(),
+      platformLabel: platformSpec(platform).label,
+      // Counted in the same query as the drafts (see listDrafts) rather than
+      // one lookup per card — this board routinely renders dozens of rows.
+      mediaCount: d._count.media,
     };
   });
 

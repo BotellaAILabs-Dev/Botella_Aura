@@ -13,6 +13,7 @@ const { tables } = vi.hoisted(() => ({
     lead: [] as any[],
     contentDraft: [] as any[],
     subscription: [] as any[],
+    generatedAsset: [] as any[],
   },
 }));
 
@@ -46,6 +47,7 @@ vi.mock('@/lib/db', () => ({
     lead: model('lead'),
     contentDraft: model('contentDraft'),
     subscription: model('subscription'),
+    generatedAsset: model('generatedAsset'),
   },
 }));
 
@@ -53,6 +55,7 @@ import { getCampaign, CampaignNotFoundError } from '@/server/campaigns/campaign.
 import { getLeadDetail } from '@/server/leads/detail.service';
 import { getDraft } from '@/server/content/content.service';
 import { getSubscription } from '@/server/billing/subscription.service';
+import { getAsset, AssetNotFoundError } from '@/server/media/asset.service';
 
 const A = 'company_A';
 const B = 'company_B';
@@ -63,6 +66,12 @@ tables.lead.push({ id: 'lead_A', companyId: A, companyName: 'A lead' });
 tables.contentDraft.push({ id: 'draft_A', companyId: A, title: 'A draft' });
 tables.subscription.push({ id: 'sub_A', companyId: A, plan: 'GROWTH' });
 tables.subscription.push({ id: 'sub_B', companyId: B, plan: 'STARTER' });
+tables.generatedAsset.push({
+  id: 'asset_A',
+  companyId: A,
+  storage: 'DATABASE',
+  mimeType: 'image/png',
+});
 
 describe('multi-tenant isolation', () => {
   it('campaigns: company B cannot read company A campaign', async () => {
@@ -84,5 +93,14 @@ describe('multi-tenant isolation', () => {
   it('billing: each company only sees its own subscription', async () => {
     expect(await getSubscription(A)).toMatchObject({ plan: 'GROWTH' });
     expect(await getSubscription(B)).toMatchObject({ plan: 'STARTER' });
+  });
+
+  it('graphics: company B cannot read company A generated asset', async () => {
+    // Generated graphics can be commercially sensitive (unreleased campaigns,
+    // unannounced products), so they get the same scoping as everything else.
+    // Note this throws NotFound rather than Forbidden on purpose: confirming
+    // that an asset id exists is itself a leak.
+    await expect(getAsset(B, 'asset_A')).rejects.toBeInstanceOf(AssetNotFoundError);
+    await expect(getAsset(A, 'asset_A')).resolves.toMatchObject({ id: 'asset_A' });
   });
 });

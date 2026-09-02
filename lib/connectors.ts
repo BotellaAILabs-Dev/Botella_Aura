@@ -94,9 +94,15 @@ export const CONNECTORS: Connector[] = [
     id: 'meta',
     name: 'Meta (Facebook & Instagram)',
     category: 'Social & Publishing',
-    description: 'Page insights and scheduled publishing to FB & IG.',
-    status: 'coming_soon',
+    description:
+      'Publish approved posts with their generated graphic to an Instagram Business account.',
+    // The integration exists (server/connectors/providers.ts + the Instagram
+    // publisher). Whether a deployment can USE it depends on META_CLIENT_ID /
+    // META_CLIENT_SECRET, which providerReadiness() reports by name — that is
+    // the difference between "not built" and "not configured here".
+    status: 'available',
     color: '#1877F2',
+    connectHref: '/dashboard/connectors',
   },
   {
     id: 'x',

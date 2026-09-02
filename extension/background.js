@@ -205,6 +205,17 @@ async function handle(msg) {
     case 'AURA_RATE': {
       return await rateUsage();
     }
+    case 'AURA_MEDIA': {
+      // Fetch one attached graphic so the content script can hand it to
+      // LinkedIn's own file picker. Not an outbound action — reading an image
+      // the user already approved is not a "send", so it is not counted against
+      // the rate cap, which exists to keep POSTING human-paced.
+      if (!msg.assetId) return { ok: false, error: 'No asset id.' };
+      const r = await apiFetch(
+        `/api/extension/media/${encodeURIComponent(msg.assetId)}`,
+      );
+      return { ok: r.ok, status: r.status, data: r.data };
+    }
     case 'AURA_SYNC_METRICS': {
       // Sync REAL metrics the user can see on their own post page. Not an
       // outbound action, so it is not counted against the send rate cap.

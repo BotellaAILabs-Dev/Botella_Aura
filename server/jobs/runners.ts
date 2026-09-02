@@ -1,9 +1,12 @@
 import type { GenerationJob, GenerationJobKind } from '@prisma/client';
 
 import { planInputsSchema } from '@/lib/validations/planner';
+import { imageJobInputsSchema } from '@/lib/validations/media';
 import { generateDigestForCompany } from '@/server/trends/digest.service';
 import { generateMarketingPlan } from '@/server/planner/plan.service';
 import { generateIntelligenceSnapshot } from '@/server/intelligence/intelligence.service';
+import { getDraft } from '@/server/content/content.service';
+import { generateGraphics } from '@/server/media/generation.service';
 import { reportProgress, type JobProgress } from '@/server/jobs/job.service';
 
 /**
@@ -71,6 +74,51 @@ const RUNNERS: Record<GenerationJobKind, Runner> = {
       suggestions: payload.suggestions.length,
       model: payload.model,
     };
+  },
+
+  /**
+   * Graphic generation.
+   *
+   * Here rather than inline for the reason this queue exists: four variations
+   * on a provider that generates one image per call is four sequential HTTP
+   * round-trips, which comfortably outlives a serverless function budget. Run
+   * as a job it survives that, and the studio's staged progress readout gets
+   * real progress instead of an animation.
+   */
+  IMAGE_GENERATION: async (job, report) => {
+    const inputs = imageJobInputsSchema.parse(job.inputs ?? {});
+
+    await report('Loading your post…', 10);
+    const draft = await getDraft(job.companyId, inputs.draftId);
+    if (!draft) {
+      throw new Error('That draft no longer exists, so there is nothing to illustrate.');
+    }
+
+    await report(
+      inputs.variations > 1
+        ? `Generating ${inputs.variations} images…`
+        : 'Generating your image…',
+      35,
+    );
+    const result = await generateGraphics({
+      draft,
+      userId: job.userId,
+      // Makes the run resumable: a retry after a timeout generates only the
+      // images the interrupted attempt did not finish, rather than all of them
+      // again at full cost.
+      jobId: job.id,
+      prompt: inputs.prompt,
+      ...(inputs.negativePrompt ? { negativePrompt: inputs.negativePrompt } : {}),
+      ...(inputs.originalPrompt ? { originalPrompt: inputs.originalPrompt } : {}),
+      ...(inputs.provider ? { provider: inputs.provider } : {}),
+      ...(inputs.aspectRatio ? { aspectRatio: inputs.aspectRatio } : {}),
+      style: inputs.style,
+      variations: inputs.variations,
+    });
+
+    await report('Preparing previews…', 90);
+    // Serializable as-is: AssetView carries URLs and an ISO date, never bytes.
+    return { ...result };
   },
 
   // Kept out of the queue on purpose: the onboarding preview is short and the

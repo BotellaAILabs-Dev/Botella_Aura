@@ -164,10 +164,14 @@ export async function completeOAuth(args: {
   const tokens = await exchangeCode(connectorId, code);
 
   let accountLabel = connectorId;
+  // Non-secret provider details discovered during verification (e.g. which
+  // Instagram account this token may publish to). Stored so downstream features
+  // read one connection row instead of re-deriving it per call.
+  let verifiedMetadata: Record<string, unknown> = {};
   try {
-    ({ accountLabel } = await provider.verify({
-      accessToken: tokens.accessToken,
-    }));
+    const verified = await provider.verify({ accessToken: tokens.accessToken });
+    accountLabel = verified.accountLabel;
+    verifiedMetadata = verified.metadata ?? {};
   } catch (err) {
     // The token is valid enough to store; surface the verification problem
     // rather than pretending the connection is healthy.
@@ -189,6 +193,7 @@ export async function completeOAuth(args: {
       expiresAt: tokens.expiresAt ?? null,
       scope: tokens.scope ?? provider.oauth.scopes.join(' '),
       accountLabel,
+      metadata: verifiedMetadata as object,
       connectedById: userId,
       lastSyncedAt: new Date(),
     },
@@ -202,6 +207,11 @@ export async function completeOAuth(args: {
       expiresAt: tokens.expiresAt ?? null,
       scope: tokens.scope ?? provider.oauth.scopes.join(' '),
       accountLabel,
+      // Only overwrite when verification actually produced something, so a
+      // reconnect whose verify() call failed does not wipe working metadata.
+      ...(Object.keys(verifiedMetadata).length > 0
+        ? { metadata: verifiedMetadata as object }
+        : {}),
       errorMessage: null,
       connectedById: userId,
       lastSyncedAt: new Date(),
@@ -386,7 +396,7 @@ export async function testConnection(args: {
   }
 
   try {
-    const { accountLabel } = await provider.verify({
+    const { accountLabel, metadata } = await provider.verify({
       apiKey: cred.apiKey,
       accessToken: cred.accessToken,
       metadata: cred.metadata,
@@ -397,6 +407,12 @@ export async function testConnection(args: {
         data: {
           status: 'CONNECTED',
           accountLabel,
+          // "Test connection" doubles as a repair: re-running discovery here is
+          // how a connection whose metadata is stale or missing gets fixed
+          // without disconnecting and starting the OAuth flow again.
+          ...(metadata && Object.keys(metadata).length > 0
+            ? { metadata: { ...cred.metadata, ...metadata } as object }
+            : {}),
           errorMessage: null,
           lastSyncedAt: new Date(),
         },

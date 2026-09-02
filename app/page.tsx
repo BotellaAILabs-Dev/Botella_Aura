@@ -133,6 +133,7 @@ export default async function HomePage() {
                   <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" /> {p.limits.maxActiveCampaigns} active campaign{p.limits.maxActiveCampaigns === 1 ? '' : 's'}</li>
                   <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" /> {p.limits.maxDiscoveryRunsPerMonth} discovery runs / month</li>
                   <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" /> {p.limits.maxLinkedInAccounts} connected account{p.limits.maxLinkedInAccounts === 1 ? '' : 's'}</li>
+                  <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" /> {p.limits.maxImagesPerMonth} generated graphics / month</li>
                   <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" /> All AI features + extension</li>
                 </ul>
                 <Button asChild className="mt-6 w-full" variant={p.featured ? 'default' : 'outline'}>

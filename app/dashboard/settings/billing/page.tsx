@@ -48,6 +48,7 @@ export default async function BillingPage() {
         `${l.maxActiveCampaigns} active campaign${l.maxActiveCampaigns === 1 ? '' : 's'}`,
         `${l.maxDiscoveryRunsPerMonth} discovery runs / month`,
         `${l.maxLinkedInAccounts} connected account${l.maxLinkedInAccounts === 1 ? '' : 's'}`,
+        `${l.maxImagesPerMonth} generated graphics / month`,
         'All AI features + Chrome extension',
       ],
     };

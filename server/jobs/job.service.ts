@@ -52,11 +52,34 @@ export async function enqueueJob(args: {
   userId?: string | null;
   kind: GenerationJobKind;
   inputs?: Prisma.InputJsonValue;
+  /**
+   * Narrow the "already running?" check to jobs whose `inputs` match these
+   * values.
+   *
+   * The default — one job of a kind per company — is right for the digest and
+   * the monthly plan, where a second run genuinely is the same work. It is
+   * wrong for image generation: two people making graphics for two different
+   * posts are doing different work, and the second must not silently attach to
+   * the first one's run. Passing `{ draftId }` keeps the double-click
+   * protection while scoping it to the thing being generated.
+   */
+  dedupeOn?: Record<string, string>;
 }): Promise<{ job: GenerationJob; reused: boolean }> {
-  const { companyId, userId, kind, inputs } = args;
+  const { companyId, userId, kind, inputs, dedupeOn } = args;
 
   const active = await db.generationJob.findFirst({
-    where: { companyId, kind, status: { in: ['QUEUED', 'RUNNING'] } },
+    where: {
+      companyId,
+      kind,
+      status: { in: ['QUEUED', 'RUNNING'] },
+      ...(dedupeOn
+        ? {
+            AND: Object.entries(dedupeOn).map(([key, value]) => ({
+              inputs: { path: [key], equals: value },
+            })),
+          }
+        : {}),
+    },
     orderBy: { createdAt: 'desc' },
   });
   if (active && Date.now() - active.createdAt.getTime() < STUCK_AFTER_MS) {
@@ -152,6 +175,29 @@ export async function getJob(
   jobId: string,
 ): Promise<GenerationJob | null> {
   return db.generationJob.findFirst({ where: { id: jobId, companyId } });
+}
+
+/**
+ * An image-generation run still in flight for one draft, if there is one.
+ *
+ * Powers reattachment: reloading the page mid-generation should pick the run
+ * back up rather than showing an idle panel while images are still being made.
+ * Scoped by the draft id inside `inputs` for the same reason `dedupeOn` is —
+ * a run for a different post is not this page's business.
+ */
+export async function findActiveImageJob(
+  companyId: string,
+  draftId: string,
+): Promise<GenerationJob | null> {
+  return db.generationJob.findFirst({
+    where: {
+      companyId,
+      kind: 'IMAGE_GENERATION',
+      status: { in: ['QUEUED', 'RUNNING'] },
+      inputs: { path: ['draftId'], equals: draftId },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
 }
 
 /** Latest job of a kind — how a page reattaches to a run already in flight. */

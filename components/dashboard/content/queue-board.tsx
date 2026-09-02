@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { CheckCheck, X, CalendarClock } from 'lucide-react';
+import { CheckCheck, X, CalendarClock, Image as ImageIcon } from 'lucide-react';
 import { Badge, statusBadgeVariant } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toaster';
@@ -20,6 +20,10 @@ export interface DraftCard {
   campaignName: string | null;
   scheduledFor: string | null;
   updatedAt: string;
+  /** Where this post is aimed, so the board shows LinkedIn vs Instagram at a glance. */
+  platformLabel: string;
+  /** How many graphics are attached. Zero renders no badge. */
+  mediaCount: number;
 }
 
 const COLUMNS: DraftCard['status'][] = [
@@ -190,7 +194,17 @@ function Card({
         {draft.snippet || draft.title || 'Untitled'}
       </Link>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        {draft.sourceKind && <span>from {draft.sourceKind.toLowerCase()}</span>}
+        <span>{draft.platformLabel}</span>
+        {draft.mediaCount > 0 && (
+          <span
+            className="inline-flex items-center gap-1"
+            title={`${draft.mediaCount} graphic${draft.mediaCount > 1 ? 's' : ''} attached`}
+          >
+            <ImageIcon className="h-3 w-3" />
+            {draft.mediaCount > 1 ? draft.mediaCount : ''}
+          </span>
+        )}
+        {draft.sourceKind && <span>· from {draft.sourceKind.toLowerCase()}</span>}
         {draft.campaignName && <span>· {draft.campaignName}</span>}
         {draft.scheduledFor && (
           <span className="inline-flex items-center gap-1 text-primary">

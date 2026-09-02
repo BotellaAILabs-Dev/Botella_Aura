@@ -67,8 +67,15 @@ export interface ConnectorProvider {
   /**
    * Verify credentials against the provider and return a display label.
    * Throws with a human-readable message when the credentials are rejected.
+   *
+   * May also return non-secret `metadata` to store on the connection. Meta uses
+   * this to record which Instagram Business account the token can publish to,
+   * discovered once at connect time rather than re-derived on every post.
    */
-  verify: (creds: ProviderCredentials) => Promise<{ accountLabel: string }>;
+  verify: (creds: ProviderCredentials) => Promise<{
+    accountLabel: string;
+    metadata?: Record<string, unknown>;
+  }>;
 }
 
 export interface ProviderCredentials {
@@ -218,6 +225,79 @@ export const PROVIDERS: Record<string, ConnectorProvider> = {
         accountLabel: String(
           login?.login_email ?? data.accountname ?? 'Mailchimp account',
         ),
+      };
+    },
+  },
+
+  // --- Social & Publishing -------------------------------------------------
+  /**
+   * Meta (Facebook Pages + Instagram Business).
+   *
+   * This is what makes Instagram publishing real rather than a stub. Instagram
+   * has no self-serve posting API: the token comes from a Facebook Login flow,
+   * and the account that posts is an Instagram Business account linked to a
+   * Page the connected user administers.
+   *
+   * verify() does the discovery once, at connect time, and stores the resulting
+   * Instagram account id in the connection's non-secret metadata. Doing it here
+   * means the publisher needs one credential lookup instead of three Graph
+   * calls per post, and — more importantly — a workspace whose Instagram is not
+   * actually linked to a Page finds out while connecting rather than when a
+   * scheduled post fails.
+   */
+  meta: {
+    id: 'meta',
+    auth: 'oauth',
+    unlocks:
+      'Publishes approved posts with their generated graphic to an Instagram Business account, and reads Page insights.',
+    oauth: {
+      authorizeUrl: 'https://www.facebook.com/v21.0/dialog/oauth',
+      tokenUrl: 'https://graph.facebook.com/v21.0/oauth/access_token',
+      scopes: [
+        'pages_show_list',
+        'business_management',
+        'instagram_basic',
+        'instagram_content_publish',
+        'pages_read_engagement',
+      ],
+      clientIdEnv: 'META_CLIENT_ID',
+      clientSecretEnv: 'META_CLIENT_SECRET',
+    },
+    async verify({ accessToken }) {
+      const version = process.env.META_GRAPH_VERSION || 'v21.0';
+      const data = await getJsonOrThrow(
+        `https://graph.facebook.com/${version}/me/accounts?fields=name,instagram_business_account{id,username}&access_token=${encodeURIComponent(
+          String(accessToken),
+        )}`,
+        {},
+        'Meta',
+      );
+
+      const pages = (data.data ?? []) as Array<{
+        name?: string;
+        instagram_business_account?: { id?: string; username?: string };
+      }>;
+      const linked = pages.find((p) => p.instagram_business_account?.id);
+
+      if (!linked) {
+        throw new Error(
+          pages.length === 0
+            ? 'This Facebook account manages no Pages. Instagram publishing needs a Page with a linked Instagram Business account.'
+            : 'No Instagram Business account is linked to your Facebook Page. Link one in Meta Business Suite, then reconnect.',
+        );
+      }
+
+      const ig = linked.instagram_business_account!;
+      return {
+        accountLabel: ig.username
+          ? `@${ig.username} (${linked.name ?? 'Facebook Page'})`
+          : (linked.name ?? 'Meta account'),
+        // Non-secret. server/media/publishers/instagram.ts reads igUserId here.
+        metadata: {
+          igUserId: ig.id,
+          ...(ig.username ? { igUsername: ig.username } : {}),
+          ...(linked.name ? { pageName: linked.name } : {}),
+        },
       };
     },
   },
