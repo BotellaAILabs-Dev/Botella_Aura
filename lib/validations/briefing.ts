@@ -128,6 +128,10 @@ export const briefingPayloadSchema = z.object({
 export const briefingActivitySchema = z.object({
   draftsWritten: z.number().int().min(0).default(0),
   graphicsGenerated: z.number().int().min(0).default(0),
+  /** Posts Aura put on the calendar at a recommended time. */
+  scheduled: z.number().int().min(0).default(0),
+  /** Of those, how many it also approved to go out on its own. */
+  autoPublishScheduled: z.number().int().min(0).default(0),
   /** Things the agent deliberately did not do, and why. Shown to the user. */
   skipped: z.array(z.string().max(300)).default([]),
   /** Non-fatal failures during the run. */

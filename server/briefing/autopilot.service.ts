@@ -15,7 +15,8 @@ import { isAnyProviderConfigured } from '@/server/media/providers';
 import { getEffectivePlan } from '@/server/billing/entitlements';
 import { assetsThisMonth } from '@/server/media/asset.service';
 import { startOfIsoWeekUTC } from '@/server/competitors/report.service';
-import { resolvePlatform } from '@/lib/platforms';
+import { defaultPlatformFor, resolvePlatform } from '@/lib/platforms';
+import { recommendSlot } from '@/server/publishing/schedule.service';
 import { generateBriefing } from '@/server/briefing/briefing.service';
 import type { BriefingActivity } from '@/lib/validations/briefing';
 import type { ContentTypeKey } from '@/lib/validations/content';
@@ -38,9 +39,11 @@ import type { DigestPayload } from '@/server/trends/types';
  *     graphics, and the briefing says so.
  *   · It is idempotent per week. A second run in the same week produces
  *     nothing new, so a retried cron cannot double-bill.
- *   · Everything it produces lands in DRAFT. The approval gate is untouched;
- *     an autonomous agent that could publish would be a different, much more
- *     dangerous product.
+ *   · What happens to the posts it writes is a per-workspace setting, and the
+ *     default is still that everything lands in DRAFT and waits for a human.
+ *     Automatic publishing is opt-in, capped per week, requires a connected
+ *     channel, and every branch that is not explicitly allowed to publish
+ *     falls back to leaving the post for a person — see PublishMode.
  */
 
 /** How many posts to write per workspace per week, absent a plan. */
@@ -48,12 +51,34 @@ const DEFAULT_WEEKLY_POSTS = 3;
 /** Hard ceiling regardless of plan, so a bad config cannot run away. */
 const MAX_WEEKLY_POSTS = 5;
 
+/**
+ * What Aura is allowed to do with the posts it writes.
+ *
+ *   review    Write drafts and leave them. Nothing gets a date, nothing goes
+ *             out. This is the default and the historical behaviour.
+ *   schedule  Also put each post on the calendar at a recommended time. Still
+ *             needs a human to approve before it can publish — the scheduled
+ *             publisher only ever picks up APPROVED drafts.
+ *   auto      Approve and publish on that schedule without asking.
+ *
+ * `auto` is the only setting here that can do something irreversible in
+ * public, so it is opt-in, capped per week, requires a connected channel, and
+ * is the one mode that is never the default for anyone.
+ */
+export const PUBLISH_MODES = ['review', 'schedule', 'auto'] as const;
+export type PublishMode = (typeof PUBLISH_MODES)[number];
+
+/** Ceiling on posts auto-published per week, regardless of configuration. */
+export const MAX_AUTO_PUBLISH_PER_WEEK = 5;
+
 export interface AutopilotSettings {
   enabled: boolean;
   /** Posts to write per week. */
   postsPerWeek: number;
   /** Whether to also generate a graphic for each post. */
   generateGraphics: boolean;
+  /** What happens to those posts once written. */
+  publishMode: PublishMode;
 }
 
 /**
@@ -73,11 +98,48 @@ export function readAutopilotSettings(company: Pick<Company, 'preferences'>): Au
       ? Math.max(0, Math.min(MAX_WEEKLY_POSTS, Math.floor(raw.postsPerWeek)))
       : DEFAULT_WEEKLY_POSTS;
 
+  // Anything unrecognised — including a value written by an older build, or
+  // hand-edited in the database — falls back to 'review'. The failure mode of
+  // a bad publishMode must be "does nothing", never "publishes".
+  const publishMode: PublishMode = PUBLISH_MODES.includes(raw.publishMode as PublishMode)
+    ? (raw.publishMode as PublishMode)
+    : 'review';
+
   return {
     enabled: raw.enabled !== false,
     postsPerWeek,
     generateGraphics: raw.generateGraphics !== false,
+    publishMode,
   };
+}
+
+/**
+ * Whether this workspace may actually publish without a human.
+ *
+ * Separate from the setting itself, because "the user ticked auto" is not
+ * sufficient: publishing needs somewhere to publish TO. A workspace in auto
+ * mode with no connected channel would otherwise approve posts that then sit
+ * there, which looks like they went out when they did not.
+ *
+ * Returns the reason when it cannot, so the briefing can say why rather than
+ * silently degrading.
+ */
+export async function canPublishAutomatically(
+  companyId: string,
+  settings: AutopilotSettings,
+): Promise<{ allowed: boolean; reason?: string }> {
+  if (settings.publishMode !== 'auto') {
+    return { allowed: false, reason: 'This workspace reviews posts before they go out.' };
+  }
+  const connected = await db.linkedInConnection.count({ where: { companyId } });
+  if (connected === 0) {
+    return {
+      allowed: false,
+      reason:
+        'Automatic publishing is on, but no channel is connected — posts were scheduled for approval instead.',
+    };
+  }
+  return { allowed: true };
 }
 
 export interface AutopilotResult {
@@ -105,6 +167,8 @@ export async function runAutopilot(args: {
   const activity: BriefingActivity = {
     draftsWritten: 0,
     graphicsGenerated: 0,
+    scheduled: 0,
+    autoPublishScheduled: 0,
     skipped: [],
     errors: [],
     startedAt: startedAt.toISOString(),
@@ -225,6 +289,17 @@ async function writeWeeklyContent(args: {
 
   let graphicsRemaining = imageBudget.allowed;
 
+  // What Aura may do with these once written. Resolved ONCE, before anything
+  // is created, so a week's posts are all treated the same way and the
+  // briefing can state a single reason rather than a different one per post.
+  const auto = await canPublishAutomatically(company.id, settings);
+  if (settings.publishMode === 'auto' && !auto.allowed && auto.reason) {
+    activity.skipped.push(auto.reason);
+  }
+  const scheduling = settings.publishMode !== 'review';
+  let autoPublishRemaining = auto.allowed ? MAX_AUTO_PUBLISH_PER_WEEK : 0;
+  const takenSlots: Date[] = [];
+
   for (const brief of briefs) {
     try {
       const draft = await generateDraft({
@@ -245,6 +320,47 @@ async function writeWeeklyContent(args: {
           activity.graphicsGenerated++;
           graphicsRemaining--;
         }
+      }
+
+      if (scheduling) {
+        const slot = await recommendSlot({
+          companyId: company.id,
+          platform: defaultPlatformFor(brief.contentType),
+          taken: takenSlots,
+        });
+        takenSlots.push(slot.at);
+
+        // Approval is granted ONLY when auto mode is on, allowed, and under
+        // the weekly cap. Everything else lands on the calendar as a DRAFT,
+        // which the scheduled publisher will never pick up — so the failure
+        // mode of every branch here is "waits for a human".
+        const approve = autoPublishRemaining > 0;
+        if (approve) autoPublishRemaining -= 1;
+
+        await db.contentDraft.update({
+          where: { id: draft.id },
+          data: {
+            scheduledFor: slot.at,
+            ...(approve ? { status: 'APPROVED' as const } : {}),
+          },
+        });
+
+        if (approve) {
+          activity.autoPublishScheduled = (activity.autoPublishScheduled ?? 0) + 1;
+          // Approving on a machine's behalf is a decision worth a record.
+          await recordAudit({
+            action: 'CONTENT_APPROVED',
+            userId: userId ?? null,
+            companyId: company.id,
+            metadata: {
+              draftId: draft.id,
+              by: 'autopilot',
+              scheduledFor: slot.at.toISOString(),
+              reason: slot.reason,
+            },
+          });
+        }
+        activity.scheduled = (activity.scheduled ?? 0) + 1;
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

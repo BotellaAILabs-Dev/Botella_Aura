@@ -12,6 +12,7 @@ import {
   Users,
   Palette,
   ListChecks,
+  Bot,
 } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
@@ -107,6 +108,24 @@ export default async function SettingsPage() {
 
       {/* Sub-settings navigation (Sprint 2) */}
       <div className="grid gap-4 sm:grid-cols-2">
+        <Link href="/dashboard/settings/autopilot" className="group">
+          <Card className="h-full transition-shadow group-hover:shadow-md">
+            <CardHeader>
+              <div className="mb-1 flex items-center gap-2">
+                <Bot className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">What Aura does on its own</CardTitle>
+              </div>
+              <CardDescription>
+                How much Aura writes each week, and whether it publishes without
+                you.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
+              Set the limits <ChevronRight className="h-4 w-4" />
+            </CardContent>
+          </Card>
+        </Link>
+
         <Link href="/dashboard/settings/audience" className="group">
           <Card className="h-full transition-shadow group-hover:shadow-md">
             <CardHeader>
