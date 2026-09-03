@@ -21,6 +21,7 @@
     "test:watch": "vitest",
     "verify:graphics": "tsx scripts/verify-graphics.ts",
     "verify:briefing": "tsx scripts/verify-briefing.ts",
+    "verify:pages": "tsx scripts/verify-pages.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",

@@ -353,6 +353,29 @@ swallowed.
 
 ---
 
+## Verifying a running instance
+
+Unit tests do not render pages, and the type checker cannot see through a cast
+over a JSON column — which is how two pages once shipped returning 500s. These
+load the real thing against real data:
+
+```bash
+pnpm verify:pages      # loads EVERY dashboard page, reports the broken ones
+pnpm verify:graphics    # generation pipeline: validate → store → attach → queue
+pnpm verify:briefing    # the autonomous weekly cycle, end to end
+```
+
+`verify:pages` needs the app running (`pnpm dev`, or `pnpm build && pnpm start`)
+and the demo workspace seeded (`pnpm db:seed:demo`). It DISCOVERS routes from the
+filesystem rather than a hard-coded list, so a page added next month is covered
+without anyone remembering to add it, and it fills `[id]` segments from real rows
+so it exercises the page rather than the not-found path.
+
+It exits non-zero on the first broken page, so it drops straight into CI. Point
+it elsewhere with `VERIFY_BASE_URL`, `VERIFY_EMAIL` and `VERIFY_PASSWORD`.
+
+---
+
 ## Aura as an autonomous agent
 
 Aura is not a set of AI tools you operate. It works on your workspace in the
