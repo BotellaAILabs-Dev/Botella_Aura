@@ -1,5 +1,6 @@
-import type { KnowledgeChunk } from '@prisma/client';
+import type { KnowledgeChunk, MaterialCategory } from '@prisma/client';
 import { db } from '@/lib/db';
+import { materialCategory } from '@/lib/materials';
 
 /**
  * Knowledge retrieval — selects the most relevant chunks to ground a generation
@@ -44,14 +45,31 @@ function scoreChunk(chunk: KnowledgeChunk, queryTerms: string[], now: number): n
   if (overlap === 0) return 0;
 
   const relevance = overlap / Math.max(1, queryTerms.length); // 0..1
-  const ageDays = Math.max(
-    0,
-    (now - new Date(chunk.createdAt).getTime()) / 86_400_000,
-  );
-  const recency = 0.5 ** (ageDays / 30); // 30-day half-life
-  const sourceBoost = SOURCE_WEIGHT[chunk.sourceType] ?? 1;
+  const category = materialCategory(chunk.category);
 
-  return relevance * sourceBoost * (0.7 + 0.3 * recency);
+  // Reference material does not go stale. A 30-day half-life is right for a
+  // product announcement and wrong for positioning — brand guidelines written
+  // two years ago are exactly as binding today, and decaying them meant the
+  // rules Aura is supposed to follow quietly lost to whatever was posted last
+  // week. Timeless material is scored on relevance alone.
+  const decay = category?.timeless
+    ? 1
+    : (() => {
+        const ageDays = Math.max(
+          0,
+          (now - new Date(chunk.createdAt).getTime()) / 86_400_000,
+        );
+        const recency = 0.5 ** (ageDays / 30); // 30-day half-life
+        return 0.7 + 0.3 * recency;
+      })();
+
+  // What a document IS outranks where it came from: a pitch deck matters
+  // because it is the company's own pitch, not because it arrived as an upload.
+  // Uncategorised chunks (everything ingested before categories existed) fall
+  // back to the source weighting they have always had.
+  const weight = category?.weight ?? SOURCE_WEIGHT[chunk.sourceType] ?? 1;
+
+  return relevance * weight * decay;
 }
 
 export interface RetrievedChunk {
@@ -59,6 +77,8 @@ export interface RetrievedChunk {
   title: string | null;
   content: string;
   sourceType: string;
+  /** What kind of business material this came from; null on older chunks. */
+  category: MaterialCategory | null;
   score: number;
 }
 
@@ -94,19 +114,49 @@ export async function retrieve(
     title: chunk.title,
     content: chunk.content,
     sourceType: chunk.sourceType,
+    category: chunk.category,
     score: Math.round(score * 1000) / 1000,
   }));
 
   return chosen;
 }
 
-/** Compact context block injected into generation prompts. */
+/**
+ * Compact context block injected into generation prompts.
+ *
+ * Every excerpt is labelled with WHAT IT IS, because the same paragraph demands
+ * opposite treatment depending on where it came from. Brand guidelines are
+ * rules to obey; a competitor battlecard is context to position against and
+ * must never be echoed as our own claim. Handing a model an unlabelled excerpt
+ * of each gets neither right — and the competitor case fails silently, in the
+ * worst possible way: fluent copy that repeats a rival's marketing as ours.
+ *
+ * Excerpts are grouped by category rather than interleaved by score so a whole
+ * instruction ("follow these exactly") covers a block, instead of being
+ * repeated on every line and diluted.
+ */
 export function chunksToContext(chunks: RetrievedChunk[]): string {
   if (chunks.length === 0) return '(No company knowledge base content available.)';
-  return chunks
-    .map(
-      (c, i) =>
-        `[${i + 1}] ${c.title ? c.title + ' — ' : ''}${c.content.slice(0, 800)}`,
-    )
+
+  const groups = new Map<string, RetrievedChunk[]>();
+  for (const chunk of chunks) {
+    const label =
+      materialCategory(chunk.category)?.promptLabel ?? 'COMPANY MATERIAL';
+    const bucket = groups.get(label);
+    if (bucket) bucket.push(chunk);
+    else groups.set(label, [chunk]);
+  }
+
+  let index = 0;
+  return [...groups.entries()]
+    .map(([label, group]) => {
+      const body = group
+        .map((c) => {
+          index += 1;
+          return `[${index}] ${c.title ? c.title + ' — ' : ''}${c.content.slice(0, 800)}`;
+        })
+        .join('\n\n');
+      return `${label}:\n${body}`;
+    })
     .join('\n\n');
 }

@@ -109,7 +109,7 @@ export function BrandVoiceCard({ initial }: { initial: BrandVoiceProfile | null 
       <CardContent className="space-y-4">
         {!exists && !editing ? (
           <p className="py-4 text-center text-sm text-muted-foreground">
-            No brand voice profile yet. Sync your knowledge base, then click
+            No brand voice profile yet. Add your business materials, then click
             &ldquo;Analyze voice&rdquo;.
           </p>
         ) : editing ? (

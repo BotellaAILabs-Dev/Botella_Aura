@@ -23,6 +23,7 @@
     "verify:briefing": "tsx scripts/verify-briefing.ts",
     "verify:pages": "tsx scripts/verify-pages.ts",
     "verify:onboarding": "tsx scripts/verify-onboarding.ts",
+    "verify:materials": "tsx scripts/verify-materials.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",

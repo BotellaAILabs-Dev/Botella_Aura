@@ -182,14 +182,14 @@ export default async function SettingsPage() {
             <CardHeader>
               <div className="mb-1 flex items-center gap-2">
                 <BookOpen className="h-5 w-5 text-primary" />
-                <CardTitle className="text-base">Knowledge base &amp; brand voice</CardTitle>
+                <CardTitle className="text-base">Business materials</CardTitle>
               </div>
               <CardDescription>
-                Ingest your content so AI writes in your voice.
+                Decks, brand guidelines, product docs and competitor notes — what Aura learns from.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
-              Manage knowledge base <ChevronRight className="h-4 w-4" />
+              Add materials <ChevronRight className="h-4 w-4" />
             </CardContent>
           </Card>
         </Link>

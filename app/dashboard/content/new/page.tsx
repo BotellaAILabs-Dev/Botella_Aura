@@ -89,7 +89,7 @@ export default function NewFromSourcePage() {
         <CardHeader>
           <CardTitle className="text-base">Choose a format</CardTitle>
           <CardDescription>
-            We&apos;ll ground it in your knowledge base and brand voice.
+            We&apos;ll ground it in your business materials and brand voice.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

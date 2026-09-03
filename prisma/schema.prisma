@@ -261,6 +261,29 @@ enum KnowledgeSourceType {
   PAST_POST
 }
 
+/// What KIND of business material a document is.
+///
+/// `KnowledgeSourceType` says where a chunk came from (a website, an upload);
+/// this says what it IS. The two answer different questions and both matter:
+/// a PDF upload could be a pitch deck, a competitor teardown, or the brand
+/// guidelines, and each of those should be used differently — guidelines steer
+/// voice, differentiators steer claims, competitor intel steers positioning.
+///
+/// Without this every uploaded document was an undifferentiated blob scored
+/// only on keyword overlap, so the one page stating what makes the company
+/// different competed on equal terms with a stale blog post.
+enum MaterialCategory {
+  COMPANY_INFO
+  PITCH_DECK
+  BRAND_GUIDELINES
+  AUDIENCE_ICP
+  PRODUCT_DOCS
+  DIFFERENTIATORS
+  PAST_CAMPAIGN
+  COMPETITOR_INTEL
+  OTHER
+}
+
 /// Sprint 3 — sync lifecycle of a tracked knowledge source.
 enum KnowledgeSourceStatus {
   PENDING
@@ -725,6 +748,9 @@ model KnowledgeSource {
   id           String                @id @default(cuid())
   companyId    String
   type         KnowledgeSourceType
+  /// What kind of business material this is. Null on sources ingested before
+  /// categories existed, and on crawled pages where we have no basis to guess.
+  category     MaterialCategory?
   url          String?
   label        String
   status       KnowledgeSourceStatus @default(PENDING)
@@ -744,6 +770,9 @@ model KnowledgeChunk {
   id         String              @id @default(cuid())
   companyId  String
   sourceType KnowledgeSourceType
+  /// Denormalised from KnowledgeSource so retrieval can weight by material
+  /// kind without a join on the hot path — retrieve() scans up to 400 rows.
+  category   MaterialCategory?
   sourceUrl  String?
   title      String?
   content    String              @db.Text

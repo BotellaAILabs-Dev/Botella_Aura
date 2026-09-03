@@ -1,4 +1,4 @@
-import type { KnowledgeSourceType, Prisma } from '@prisma/client';
+import type { KnowledgeSourceType, MaterialCategory, Prisma } from '@prisma/client';
 import { XMLParser } from 'fast-xml-parser';
 import { parse as parseHtml } from 'node-html-parser';
 import { db } from '@/lib/db';
@@ -8,6 +8,7 @@ import { recordAudit } from '@/server/services/audit.service';
 import { politeFetchHtml, KB_USER_AGENT } from '@/server/knowledge/robots';
 import { htmlToText, pdfToText, stripHtml } from '@/server/knowledge/extract';
 import { chunkText, estimateTokens } from '@/server/knowledge/chunk';
+import { officeToText, OfficeParseError } from '@/server/knowledge/office';
 
 /**
  * Knowledge-base ingestion. Turns a company's own public content into
@@ -25,6 +26,7 @@ async function replaceChunks(
   sourceType: KnowledgeSourceType,
   sourceUrl: string | null,
   pieces: Array<{ title: string | null; content: string }>,
+  category: MaterialCategory | null = null,
 ): Promise<number> {
   const rows: Prisma.KnowledgeChunkCreateManyInput[] = [];
   for (const p of pieces) {
@@ -33,6 +35,7 @@ async function replaceChunks(
         companyId,
         sourceType,
         sourceUrl,
+        category,
         title: p.title,
         content,
         tokenCount: estimateTokens(content),
@@ -204,6 +207,24 @@ interface UploadInput {
   filename: string;
   mime: string;
   data: ArrayBuffer;
+  /** What kind of business material this is. See lib/materials.ts. */
+  category?: MaterialCategory | null;
+}
+
+/**
+ * Which extractor to use, decided from the extension rather than the MIME type.
+ *
+ * Browsers report Office MIME types inconsistently — a .pptx can arrive as
+ * application/octet-stream, or with no type at all — and picking the wrong
+ * extractor would decode a ZIP archive as UTF-8 text and store the garbage.
+ * The extension is what the user actually chose.
+ */
+function extractorFor(filename: string, mime: string): 'pdf' | 'docx' | 'pptx' | 'text' {
+  const name = filename.toLowerCase();
+  if (name.endsWith('.pdf') || mime === 'application/pdf') return 'pdf';
+  if (name.endsWith('.docx')) return 'docx';
+  if (name.endsWith('.pptx')) return 'pptx';
+  return 'text';
 }
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -214,15 +235,16 @@ export async function ingestUpload({
   filename,
   mime,
   data,
+  category = null,
 }: UploadInput): Promise<{ chunks: number }> {
   if (data.byteLength > MAX_UPLOAD_BYTES) {
     throw Object.assign(new Error('File too large (max 10 MB).'), { status: 413 });
   }
 
-  const isPdf =
-    mime === 'application/pdf' || filename.toLowerCase().endsWith('.pdf');
+  const kind = extractorFor(filename, mime);
   let text: string;
-  if (isPdf) {
+
+  if (kind === 'pdf') {
     try {
       text = await pdfToText(data);
     } catch (err) {
@@ -239,13 +261,35 @@ export async function ingestUpload({
         { status: 422 },
       );
     }
+  } else if (kind === 'docx' || kind === 'pptx') {
+    try {
+      text = officeToText(data, kind);
+    } catch (err) {
+      // OfficeParseError messages are written for the user and say what to do
+      // about it; anything else gets a generic message rather than leaking a
+      // parser internal.
+      logger.warn('ingestUpload: Office parse failed', {
+        filename,
+        kind,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw Object.assign(
+        new Error(
+          err instanceof OfficeParseError
+            ? err.message
+            : `Could not read this ${kind === 'docx' ? 'Word document' : 'presentation'}. Re-save it from ${kind === 'docx' ? 'Word' : 'PowerPoint'} and try again, or export it as PDF.`,
+        ),
+        { status: 422 },
+      );
+    }
   } else {
     text = new TextDecoder().decode(data);
   }
+
   if (text.trim().length < 20) {
     throw Object.assign(
       new Error(
-        isPdf
+        kind === 'pdf'
           ? 'No selectable text found in this PDF — it looks scanned or image-based. Export a text-based PDF, or paste the text directly.'
           : 'Could not extract readable text from this file.',
       ),
@@ -254,14 +298,18 @@ export async function ingestUpload({
   }
 
   // Each upload is its own source (keyed by filename) so re-uploading replaces it.
-  const chunks = await replaceChunks(companyId, 'UPLOAD', filename, [
-    { title: filename, content: text },
-  ]);
+  const chunks = await replaceChunks(
+    companyId,
+    'UPLOAD',
+    filename,
+    [{ title: filename, content: text }],
+    category,
+  );
   await recordAudit({
     action: 'KNOWLEDGE_DOCUMENT_UPLOADED',
     userId,
     companyId,
-    metadata: { filename, chunks },
+    metadata: { filename, chunks, category },
   });
   return { chunks };
 }
@@ -299,8 +347,14 @@ export interface KnowledgeStatus {
     lastSyncedAt: Date | null;
     error: string | null;
     chunkCount: number;
+    category: MaterialCategory | null;
   }>;
-  uploads: Array<{ filename: string; chunkCount: number }>;
+  /** Uploaded documents, each labelled with the kind of material it is. */
+  uploads: Array<{
+    filename: string;
+    chunkCount: number;
+    category: MaterialCategory | null;
+  }>;
   totalChunks: number;
 }
 
@@ -317,8 +371,10 @@ export async function getKnowledgeStatus(
       where: { companyId },
       _count: { _all: true },
     }),
+    // Grouped by category as well as filename, because uploads have no
+    // KnowledgeSource row to read the category from — an upload IS its chunks.
     db.knowledgeChunk.groupBy({
-      by: ['sourceUrl'],
+      by: ['sourceUrl', 'category'],
       where: { companyId, sourceType: 'UPLOAD' },
       _count: { _all: true },
     }),
@@ -339,10 +395,12 @@ export async function getKnowledgeStatus(
       lastSyncedAt: s.lastSyncedAt,
       error: s.error,
       chunkCount: countFor(s.type, s.url),
+      category: s.category,
     })),
     uploads: uploadGroups.map((g) => ({
       filename: g.sourceUrl ?? 'document',
       chunkCount: g._count._all,
+      category: g.category,
     })),
     totalChunks: total,
   };
