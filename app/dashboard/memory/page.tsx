@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { Metadata } from 'next';
 import { Brain, TrendingUp, TrendingDown, Info } from 'lucide-react';
 
@@ -14,13 +15,14 @@ import {
 import { PageHeader } from '@/components/dashboard/page-header';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AnalyzeButton } from '@/components/dashboard/memory/analyze-button';
 import { InsightCard } from '@/components/dashboard/memory/insight-card';
 import { TrendChart } from '@/components/dashboard/memory/trend-chart';
 import { MIN_SAMPLE_FOR_INSIGHTS } from '@/server/memory/metrics';
 
-export const metadata: Metadata = { title: 'Marketing Memory' };
+export const metadata: Metadata = { title: 'What works for you' };
 
 export default async function MemoryPage() {
   const user = await requireUser();
@@ -45,7 +47,7 @@ export default async function MemoryPage() {
   return (
     <div>
       <PageHeader
-        title="Marketing Memory"
+        title="What works for you"
         description="What we've learned about your audience — data-backed patterns that make every future draft smarter."
         actions={canManage ? <AnalyzeButton /> : undefined}
       />
@@ -66,9 +68,21 @@ export default async function MemoryPage() {
             // "Not enough data" with no number reads as "come back never".
             // Say exactly what the gate is and how far off it is, and that
             // it is posts-with-numbers — not elapsed time — that moves it.
-            `Marketing Memory needs results from at least ${MIN_SAMPLE_FOR_INSIGHTS} published posts before it will claim a pattern — you have ${publishedWithMetrics}. This is a count of posts with real numbers attached, not a waiting period: publish, then sync metrics via the extension, connect Google Analytics, or log the numbers by hand on the Analytics page.`
+            `Aura needs results from at least ${MIN_SAMPLE_FOR_INSIGHTS} published posts before it will claim a pattern — you have ${publishedWithMetrics}. This is a count of posts with real numbers attached, not a waiting period: publish, then sync metrics via the extension, connect Google Analytics, or log the numbers by hand on the Results page.`
           }
-          action={canManage ? <AnalyzeButton firstRun /> : undefined}
+          // Everyone gets a next step. A manager can run the analysis; anyone
+          // else was previously left with an explanation and nowhere to click,
+          // so they get the one action that always moves the gate — putting a
+          // real number against a post.
+          action={
+            canManage ? (
+              <AnalyzeButton firstRun />
+            ) : (
+              <Button asChild variant="outline">
+                <Link href="/dashboard/analytics">Log results from a post</Link>
+              </Button>
+            )
+          }
         />
       )}
 

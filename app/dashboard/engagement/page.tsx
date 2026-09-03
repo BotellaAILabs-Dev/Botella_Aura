@@ -95,6 +95,16 @@ export default async function EngagementPage() {
                 ? `You're monitoring ${targets.length} profile${targets.length === 1 ? '' : 's'} (listed above). Browse LinkedIn with the extension installed — when one of them posts, the extension offers to draft an on-brand comment, and every draft appears here.`
                 : 'Add a profile to monitor above, then browse LinkedIn — the extension will offer to draft a thoughtful, on-brand comment on their posts you are viewing.'
             }
+            // Both paths through this screen depend on the browser extension,
+            // and the copy said so without offering a way to get it. Whichever
+            // branch the reader is on, installing it is the next step.
+            action={
+              <Button asChild variant="outline">
+                <Link href="/dashboard/settings/extension">
+                  <Settings2 className="h-4 w-4" /> Set up the browser extension
+                </Link>
+              </Button>
+            }
           />
         ) : (
           <div className="space-y-3">

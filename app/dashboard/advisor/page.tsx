@@ -11,7 +11,7 @@ import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
 import { AdvisorView } from '@/components/dashboard/advisor/advisor-view';
 
-export const metadata: Metadata = { title: 'AI Marketing Advisor' };
+export const metadata: Metadata = { title: 'Opportunities' };
 export const dynamic = 'force-dynamic';
 
 export default async function AdvisorPage() {
@@ -28,7 +28,7 @@ export default async function AdvisorPage() {
   return (
     <div>
       <PageHeader
-        title="AI Marketing Advisor"
+        title="Opportunities"
         description="Campaign opportunities drawn from what your competitors actually did and what your market is discussing — each one traceable to the observation behind it."
         actions={
           <div className="flex flex-wrap items-center gap-2">

@@ -28,12 +28,12 @@ export default async function HomePage() {
   if (user) redirect('/dashboard');
 
   const features = [
-    { icon: Radar, title: 'AI Trend Insights', body: 'A daily digest of what your market is talking about, with a suggested angle for each.' },
+    { icon: Radar, title: 'Market trends', body: 'A daily digest of what your market is talking about, with a suggested angle for each.' },
     { icon: PenLine, title: 'Content Studio', body: 'On-brand posts, carousels, and threads generated in your voice — you approve every one.' },
     { icon: Target, title: 'Lead Discovery & Outreach', body: 'Find qualified prospects from legitimate public sources and draft personalized outreach.' },
     { icon: MessageCircle, title: 'Engagement Copilot', body: 'Thoughtful, on-brand comments drafted for posts you’re already reading.' },
     { icon: Megaphone, title: 'Campaign Orchestrator', body: 'One goal in, a full reviewable 30-day plan out — content, outreach, and discovery, scheduled.' },
-    { icon: Brain, title: 'Marketing Memory', body: 'It learns what works from your real results and makes every future draft smarter.' },
+    { icon: Brain, title: 'What works for you', body: 'It learns what works from your real results and makes every future draft smarter.' },
   ];
 
   const plans = (['STARTER', 'GROWTH', 'AGENCY'] as const).map((p) => ({

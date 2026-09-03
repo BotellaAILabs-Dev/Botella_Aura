@@ -529,7 +529,7 @@ function MessageBlock({
         </div>
       )}
 
-      {/* Sprint 5 — manual "did it work" outcome (feeds Marketing Memory) */}
+      {/* Sprint 5 — manual "did it work" outcome (feeds what Aura learns) */}
       {canManage && message.status === 'SENT' && (
         <OutcomeToggles message={message} />
       )}

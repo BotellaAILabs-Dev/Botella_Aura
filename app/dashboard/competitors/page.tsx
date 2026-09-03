@@ -63,7 +63,7 @@ export default async function CompetitorsPage() {
         }
       />
       {/* Comparison needs more than one point of reference — and with a single
-          competitor both this page and Marketing Memory stay permanently thin,
+          competitor both this page and “What works for you” stay permanently thin,
           which reads as the feature being broken rather than under-fed. */}
       {canManage && rows.length < 3 && (
         <div className="mb-5 rounded-lg border border-primary/30 bg-primary/[0.04] p-3 text-sm">

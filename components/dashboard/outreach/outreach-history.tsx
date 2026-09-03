@@ -56,7 +56,7 @@ export function OutreachHistory({
         <CardTitle>Outreach history &amp; connection status</CardTitle>
         <CardDescription>
           Every message and how it landed. Connection and reply outcomes feed
-          your Marketing Memory (confirmed by you — no platform API exposes these).
+          what Aura learns works for you (confirmed by you — no platform API exposes these).
         </CardDescription>
         <div className="flex flex-wrap gap-2 pt-2">
           <Stat icon={Send} label="Sent" value={summary.sent} />

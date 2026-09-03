@@ -84,7 +84,7 @@ export default async function AnalyticsPage({
         <EmptyState
           icon={BarChart3}
           title="Not enough data for this period"
-          description="Nothing has reported a number yet. Connect Google Analytics, sync metrics through the extension, or use “Log results” to type them in by hand — Analytics and Marketing Memory treat all three the same, so you are never blocked waiting on an integration."
+          description="Nothing has reported a number yet. Connect Google Analytics, sync metrics through the extension, or use “Log results” to type them in by hand — Results and “What works for you” treat all three the same, so you are never blocked waiting on an integration."
           action={
             canManage ? (
               <LogResultDialog drafts={loggableDrafts} />

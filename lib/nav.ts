@@ -24,11 +24,26 @@ import {
  * placeholder pages, and breadcrumbs never drift.
  */
 export interface NavItem {
+  /**
+   * What a marketer would call this, not what the team building it calls it.
+   *
+   * Labels used to be product names — "Marketing Memory", "AI Trend Insights",
+   * "Connectors". Those describe the machinery. A user scanning a sidebar is
+   * asking "which of these gets me what I need right now", and a name that only
+   * makes sense once you already know the feature cannot answer that.
+   */
   label: string;
   href: string;
   icon: LucideIcon;
   ready: boolean;
   sprint?: number;
+  /**
+   * One line, in the second person, describing what the USER gets.
+   *
+   * Rendered as the sidebar tooltip and available to page headers. Written as
+   * an outcome ("what your market is talking about") rather than a mechanism
+   * ("daily digests aggregated from four sources").
+   */
   description?: string;
   /** Which sidebar section this belongs to. */
   section: NavSection;
@@ -45,10 +60,10 @@ export interface NavItem {
  */
 export const NAV_SECTIONS = [
   { id: 'overview', label: '' },
-  { id: 'intelligence', label: 'Understand' },
-  { id: 'create', label: 'Create' },
-  { id: 'grow', label: 'Grow' },
-  { id: 'measure', label: 'Measure' },
+  { id: 'intelligence', label: 'Know your market' },
+  { id: 'create', label: 'Create content' },
+  { id: 'grow', label: 'Find customers' },
+  { id: 'measure', label: 'See what worked' },
   { id: 'setup', label: 'Setup' },
 ] as const;
 
@@ -56,46 +71,46 @@ export type NavSection = (typeof NAV_SECTIONS)[number]['id'];
 
 export const NAV_ITEMS: NavItem[] = [
   {
-    label: 'Dashboard',
+    label: 'Home',
     href: '/dashboard',
     icon: LayoutDashboard,
     ready: true,
     section: 'overview',
   },
   {
-    label: 'Marketing Intelligence',
+    label: 'Marketing health',
     href: '/dashboard/intelligence',
     section: 'intelligence',
     icon: Gauge,
     ready: true,
     description:
-      'Overall marketing health, content quality, and brand consistency in one score.',
+      'One score for how your marketing is doing, and what to fix first.',
   },
   {
-    label: 'AI Trend Insights',
+    label: 'Market trends',
     href: '/dashboard/trends',
     section: 'intelligence',
     icon: Radar,
     ready: true,
     sprint: 2,
-    description: 'Daily digests of what your market is talking about.',
+    description: 'What your market is talking about right now, and an angle for each topic.',
   },
   {
-    label: 'Marketing Advisor',
+    label: 'Opportunities',
     href: '/dashboard/advisor',
     section: 'intelligence',
     icon: Lightbulb,
     ready: true,
     description:
-      'Campaign opportunities inspired by competitor activity and market trends.',
+      'Campaign ideas worth your time, with the evidence behind each one.',
   },
   {
-    label: 'Marketing Planner',
+    label: 'Content plan',
     href: '/dashboard/planner',
     section: 'create',
     icon: CalendarRange,
     ready: true,
-    description: 'Turn your goals into a dated monthly content calendar.',
+    description: 'Turn your goals into a month of dated, ready-to-write posts.',
   },
   {
     label: 'Content Studio',
@@ -104,7 +119,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: PenLine,
     ready: true,
     sprint: 3,
-    description: 'Generate on-brand posts, carousels, and threads.',
+    description: 'Write posts in your voice, add a graphic, and queue them up.',
   },
   {
     label: 'Campaigns',
@@ -113,7 +128,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Megaphone,
     ready: true,
     sprint: 6,
-    description: 'Orchestrate content, outreach, and discovery into one plan.',
+    description: 'Run one of your goals across content, outreach and leads at once.',
   },
   {
     label: 'Leads',
@@ -122,7 +137,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Target,
     ready: true,
     sprint: 5,
-    description: 'Discover and qualify prospects from public sources.',
+    description: 'Find people worth contacting, scored against who you sell to.',
   },
   {
     label: 'Outreach',
@@ -131,16 +146,16 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Send,
     ready: true,
     sprint: 4,
-    description: 'Draft personalized outreach — reviewed before it sends.',
+    description: 'Personalised messages to those people — you approve every one.',
   },
   {
-    label: 'Engagement',
+    label: 'Comments & replies',
     href: '/dashboard/engagement',
     section: 'grow',
     icon: MessageCircle,
     ready: true,
     sprint: 4,
-    description: 'Suggested replies and comments, approved by you.',
+    description: 'Suggested replies for posts you want to be seen commenting on.',
   },
   {
     label: 'Competitors',
@@ -149,33 +164,33 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Users,
     ready: true,
     sprint: 4,
-    description: 'Track competitor activity and positioning.',
+    description: 'What your competitors changed this week, and what it means for you.',
   },
   {
-    label: 'Marketing Memory',
+    label: 'What works for you',
     href: '/dashboard/memory',
     section: 'measure',
     icon: Brain,
     ready: true,
     sprint: 5,
-    description: 'What we’ve learned about your audience — smarter every week.',
+    description: 'Patterns learned from your own results — what to do more of.',
   },
   {
-    label: 'Analytics',
+    label: 'Results',
     href: '/dashboard/analytics',
     section: 'measure',
     icon: BarChart3,
     ready: true,
     sprint: 6,
-    description: 'Measure what your marketing is actually doing.',
+    description: 'Real numbers from what you published — reach, replies, and trends.',
   },
   {
-    label: 'Connectors',
+    label: 'Your tools',
     href: '/dashboard/connectors',
     section: 'setup',
     icon: Plug,
     ready: true,
-    description: 'Connect your marketing tools and data sources.',
+    description: 'Connect LinkedIn, analytics and your CRM so Aura uses real data.',
   },
   {
     label: 'Settings',

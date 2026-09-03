@@ -16,8 +16,8 @@ import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
 /**
  * Single hand-off point into Content Studio.
  *
- * `?trendId=` comes from AI Trend Insights; `?brief=` comes from the AI
- * Marketing Advisor and the Marketing Planner calendar, so a suggested idea can
+ * `?trendId=` comes from Market trends; `?brief=` comes from
+ * Opportunities and the Content plan calendar, so a suggested idea can
  * be turned into a real draft without retyping it. The brief stays editable —
  * the suggestion is a starting point, not a instruction.
  */
@@ -73,7 +73,7 @@ export default function NewFromSourcePage() {
         className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />{' '}
-        {trendId ? 'AI Trend Insights' : 'Content Studio'}
+        {trendId ? 'Market trends' : 'Content Studio'}
       </Link>
       <PageHeader
         title="Generate content"

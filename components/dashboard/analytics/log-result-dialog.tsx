@@ -22,7 +22,7 @@ import {
  * Log measured results by hand.
  *
  * Until a connector is approved there is no automatic source of truth, and
- * without one Analytics reads as broken and Marketing Memory can never reach
+ * without one Results reads as broken and "what works for you" can never reach
  * the sample size it needs to say anything. Typed numbers are stored as the
  * same kind of snapshot a connector writes, so the loop closes today and
  * nothing has to be re-plumbed when the API arrives.
@@ -79,7 +79,7 @@ export function LogResultDialog({
         toast.error(body.error ?? 'Could not save those numbers.');
         return;
       }
-      toast.success('Results logged — they feed Analytics and Marketing Memory.');
+      toast.success('Results logged — they feed Results and “What works for you”.');
       setValues({});
       setDraftId('');
       setOpen(false);

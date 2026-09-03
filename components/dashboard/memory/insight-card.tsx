@@ -47,7 +47,7 @@ function confidenceVariant(c: string): BadgeProps['variant'] {
 
 /**
  * A single learned insight — with controls to correct its wording or dismiss it.
- * Marketing Memory belongs to the user: if a pattern is wrong, they fix it here
+ * What Aura learned belongs to the user: if a pattern is wrong, they fix it here
  * and it stops (or starts) shaping future drafts accordingly.
  */
 export function InsightCard({ memory }: { memory: InsightCardData }) {

@@ -38,7 +38,7 @@ export default async function TrendSettingsPage() {
         </Link>
         <PageHeader
           title="Trend sources"
-          description="Tune what your daily AI Trend Insights digest watches."
+          description="Tune what your daily market-trends digest watches."
         />
       </div>
 

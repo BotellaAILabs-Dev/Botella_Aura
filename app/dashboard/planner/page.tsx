@@ -17,7 +17,7 @@ import {
   type PlannerInputsView,
 } from '@/components/dashboard/planner/planner-view';
 
-export const metadata: Metadata = { title: 'AI Marketing Planner' };
+export const metadata: Metadata = { title: 'Content plan' };
 export const dynamic = 'force-dynamic';
 
 function monthKey(d: Date): string {
@@ -65,7 +65,7 @@ export default async function PlannerPage({
   return (
     <div>
       <PageHeader
-        title="AI Marketing Planner"
+        title="Content plan"
         description="State your goals, objectives, topics, and brand rules — Aura turns them into a dated monthly content calendar you can draft straight from."
         actions={
           <Button asChild variant="ghost" size="sm">
