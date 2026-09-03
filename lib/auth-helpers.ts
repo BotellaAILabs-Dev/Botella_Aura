@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
 import type { CompanyRole } from '@prisma/client';
@@ -13,15 +14,38 @@ import { ForbiddenError } from '@/lib/rbac';
  * access to the session and enforce company-scoped RBAC where data is loaded.
  */
 
-export async function getSession() {
+/**
+ * Deduplicated per request via React `cache`.
+ *
+ * A single dashboard navigation resolves the session in the layout, again in
+ * the page, and again in any route handler it triggers. Decoding the JWT is
+ * cheap, but `getServerSession` is not free — and on the paths where the jwt
+ * callback backfills a role it hits the database. Memoising for the request
+ * makes every extra call after the first cost nothing.
+ */
+export const getSession = cache(async function getSession() {
   return getServerSession(authOptions);
-}
+});
 
 /** Session user or null. */
 export async function getCurrentUser() {
   const session = await getSession();
   return session?.user ?? null;
 }
+
+/**
+ * Per-request memoised membership lookup.
+ *
+ * `requireCompanyMembership`, `requireActiveCompany` and `requireCompanyRole`
+ * all funnel through here, and a single request commonly calls two of them.
+ * Same key, same request, one query.
+ */
+const cachedMembership = cache(async function cachedMembership(
+  userId: string,
+  companyId: string,
+) {
+  return getMembership(userId, companyId);
+});
 
 /**
  * Require an authenticated user in a Server Component. Redirects to /login if
@@ -40,7 +64,7 @@ export async function requireUser() {
  */
 export async function requireCompanyMembership(companyId: string) {
   const user = await requireUser();
-  const membership = await getMembership(user.id, companyId);
+  const membership = await cachedMembership(user.id, companyId);
   if (!membership) {
     throw new ForbiddenError('You do not have access to this company.');
   }
@@ -57,12 +81,9 @@ export async function requireActiveCompany() {
   // Imported lazily to avoid a server-only (next/headers) import in the edge
   // middleware bundle that also pulls this module.
   const { resolveActiveCompany } = await import('@/lib/active-company');
-  const { getMembership } = await import(
-    '@/server/services/company.service'
-  );
   const { active } = await resolveActiveCompany(user.id);
   if (!active) throw new ForbiddenError('No active company.');
-  const membership = await getMembership(user.id, active.id);
+  const membership = await cachedMembership(user.id, active.id);
   if (!membership) throw new ForbiddenError('You do not have access to this company.');
   return { user, company: active, membership };
 }
