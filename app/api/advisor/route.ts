@@ -7,7 +7,7 @@ import {
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
 // Reads competitor + trend history, then makes one high-effort model call.
-export const maxDuration = 300;
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 /** GET /api/advisor — the latest advisor report (no generation). */

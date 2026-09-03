@@ -17,7 +17,7 @@ import type { DigestPayload } from '@/server/trends/types';
  * bare "Something went wrong" — the exact symptom reported in review. Every
  * other long-running route in the app already declares this.
  */
-export const maxDuration = 300;
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {

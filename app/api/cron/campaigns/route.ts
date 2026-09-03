@@ -2,7 +2,7 @@ import { executeDueCampaignTasks } from '@/server/campaigns/executor.service';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 import { logger } from '@/lib/logger';
 
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 /**
  * POST /api/cron/campaigns — the daily campaign conductor. Finds due PENDING

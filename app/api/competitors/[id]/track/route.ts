@@ -5,7 +5,7 @@ import { trackCompetitor } from '@/server/competitors/tracking.service';
 import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
 // Website fetch + diff + AI summary can take a while.
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 /** POST /api/competitors/:id/track — run a tracking pass for one competitor now. */
 export async function POST(

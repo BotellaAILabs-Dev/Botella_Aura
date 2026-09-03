@@ -5,7 +5,7 @@ import { generateWeeklyReport } from '@/server/competitors/report.service';
 import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
 // Tracks all competitors then generates the report — network-heavy.
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 /**
  * POST /api/competitors/reports — "Generate now" (for demos).

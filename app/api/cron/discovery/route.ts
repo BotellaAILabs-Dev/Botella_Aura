@@ -3,7 +3,7 @@ import { logger } from '@/lib/logger';
 import { runDiscovery } from '@/server/leads/discovery/discovery.service';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 /**
  * POST /api/cron/discovery — weekly auto-run of DiscoveryProfiles flagged

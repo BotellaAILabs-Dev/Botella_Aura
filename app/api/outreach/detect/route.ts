@@ -3,7 +3,7 @@ import { can } from '@/lib/rbac';
 import { detectForCompany } from '@/server/outreach/detect.service';
 import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 /** POST /api/outreach/detect — run lead-signal detection now (OWNER/ADMIN). */
 export async function POST(req: Request) {

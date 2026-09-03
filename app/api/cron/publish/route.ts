@@ -9,7 +9,7 @@ import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
  *   Vercel Cron: run every 15 minutes (cron "0,15,30,45 * * * *").
  *   Local:  curl -X POST localhost:3000/api/cron/publish -H "authorization: Bearer $CRON_SECRET"
  */
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {

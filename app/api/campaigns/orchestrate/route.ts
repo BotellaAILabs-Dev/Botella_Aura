@@ -5,7 +5,7 @@ import { createCampaign } from '@/server/campaigns/campaign.service';
 import { requireEntitlement } from '@/server/billing/entitlements';
 import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 /**
  * POST /api/campaigns/orchestrate — create an orchestrated campaign: generate

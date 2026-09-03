@@ -14,7 +14,7 @@ import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
  * Safe to call more than once — claimJob() only succeeds for whoever moves the
  * row out of QUEUED, so a duplicate kick from the cron reaper is a no-op.
  */
-export const maxDuration = 300;
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 export async function POST(

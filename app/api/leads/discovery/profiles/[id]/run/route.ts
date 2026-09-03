@@ -5,7 +5,7 @@ import { requireEntitlement } from '@/server/billing/entitlements';
 import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
 // Multi-source network calls + AI scoring.
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 /** POST /api/leads/discovery/profiles/:id/run — run discovery now (OWNER/ADMIN). */
 export async function POST(

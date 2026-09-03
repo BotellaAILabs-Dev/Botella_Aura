@@ -11,7 +11,7 @@ import { runAutopilot } from '@/server/briefing/autopilot.service';
 
 export const dynamic = 'force-dynamic';
 /** A manual run writes posts and images; it needs the same budget as the cron. */
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 /**
  * GET /api/briefing — the latest weekly briefing for the active workspace.

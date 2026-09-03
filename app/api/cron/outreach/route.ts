@@ -3,7 +3,7 @@ import { logger } from '@/lib/logger';
 import { detectForCompany } from '@/server/outreach/detect.service';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 /**
  * POST /api/cron/outreach — scheduled lead-signal detection across companies.

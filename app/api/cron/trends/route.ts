@@ -20,7 +20,10 @@ import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
  *
  * Idempotent per company/day (upsert on companyId+date), so a double-fire is safe.
  */
-export const maxDuration = 300; // allow up to 5 min for many companies (Vercel hint)
+// 60s is the ceiling on every Vercel plan including Hobby. Companies are
+// processed one at a time and each is committed as it finishes, so a timeout
+// part-way through loses no completed work — the next run picks up the rest.
+export const maxDuration = 60;
 
 function isAuthorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET;

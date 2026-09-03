@@ -3,7 +3,7 @@ import { logger } from '@/lib/logger';
 import { generateAnalyticsReport } from '@/server/analytics/report.service';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 /**
  * POST /api/cron/analytics — weekly written report per company. Protect with

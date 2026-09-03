@@ -3,7 +3,7 @@ import { logger } from '@/lib/logger';
 import { generateMemories } from '@/server/memory/extraction.service';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 /**
  * POST /api/cron/memory — weekly per-company pattern extraction. Protect with

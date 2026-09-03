@@ -4,7 +4,7 @@ import { trackCompany } from '@/server/competitors/tracking.service';
 import { generateWeeklyReport } from '@/server/competitors/report.service';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 /**
  * POST /api/cron/competitors — weekly competitor tracking + report job.

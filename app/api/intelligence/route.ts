@@ -7,7 +7,7 @@ import {
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
 // Scores every recent draft, then makes one high-effort advisory call.
-export const maxDuration = 300;
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 /** GET /api/intelligence — the latest computed snapshot (no recomputation). */

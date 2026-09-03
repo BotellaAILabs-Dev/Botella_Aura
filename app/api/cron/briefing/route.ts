@@ -3,7 +3,7 @@ import { logger } from '@/lib/logger';
 import { runAutopilot } from '@/server/briefing/autopilot.service';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 /**
  * POST /api/cron/briefing — the weekly autonomous cycle.

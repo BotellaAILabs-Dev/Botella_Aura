@@ -3,7 +3,7 @@ import { can } from '@/lib/rbac';
 import { draftForLead } from '@/server/outreach/drafting.service';
 import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 /** POST /api/outreach/leads/:id/draft — AI-draft connection note + follow-up. */
 export async function POST(

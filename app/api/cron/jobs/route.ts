@@ -22,7 +22,7 @@ import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
  *   Vercel Cron example (vercel.json):
  *     { "crons": [{ "path": "/api/cron/jobs", "schedule": "*\/5 * * * *" }] }
  */
-export const maxDuration = 300;
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 /** Keep one sweep inside the function budget; the next tick takes the rest. */

@@ -3,7 +3,7 @@ import { can } from '@/lib/rbac';
 import { generateMemories } from '@/server/memory/extraction.service';
 import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 /**
  * POST /api/memory/generate — run pattern extraction now ("Analyze" button).

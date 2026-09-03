@@ -5,7 +5,7 @@ import { generateMarketingPlan } from '@/server/planner/plan.service';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
 // A month of calendar items is a large, high-effort generation.
-export const maxDuration = 300;
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 /**

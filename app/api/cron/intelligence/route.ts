@@ -14,7 +14,7 @@ import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
  *   Vercel Cron example (vercel.json):
  *     { "crons": [{ "path": "/api/cron/intelligence", "schedule": "0 5 * * *" }] }
  */
-export const maxDuration = 300;
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 function isAuthorized(req: Request): boolean {
