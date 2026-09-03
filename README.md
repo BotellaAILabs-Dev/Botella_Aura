@@ -353,6 +353,65 @@ swallowed.
 
 ---
 
+## Aura as an autonomous agent
+
+Aura is not a set of AI tools you operate. It works on your workspace in the
+background and reports back — the dashboard home IS that report.
+
+```
+Monday 05:00  →  Autopilot writes the week's posts
+                 generates a graphic for each
+                 assembles the briefing
+                        ↓
+You open Aura →  what it did · what needs you · this week's calendar
+                 competitor moves · recommendations · insights
+```
+
+### What the weekly cycle does
+
+`POST /api/cron/briefing`, protected by the shared `CRON_SECRET`, once a week:
+
+1. **Writes the week's posts.** Topics come from your marketing plan when you
+   have one, and from the latest trend digest when you do not. With neither, it
+   writes nothing and says so — it never invents topics.
+2. **Illustrates them.** One graphic per post, through the same pipeline
+   Content Studio uses.
+3. **Assembles the briefing.** Pure aggregation over what already exists — trend
+   digests, competitor reports, advisor opportunities, intelligence snapshots,
+   marketing memory, your drafts. No model calls, so it is instant and free, and
+   a briefing can be rebuilt any time without re-paying for the work it
+   summarises.
+
+Everything it produces lands in **DRAFT**. The approval gate is untouched —
+nothing publishes without a human, and an agent that could publish would be a
+different and far more dangerous product.
+
+### Cost control
+
+Autopilot spends money, so:
+
+- **It is opt-out per workspace.** `Company.preferences.autopilot` takes
+  `{ "enabled": false }`, `{ "postsPerWeek": 0-5 }`, `{ "generateGraphics": false }`.
+- **It never exceeds the plan's monthly image allowance**, and degrades instead
+  of failing: out of images means posts still get written, without graphics, and
+  the briefing says exactly that.
+- **It is idempotent per week.** A retried cron produces nothing new, so it
+  cannot double-bill.
+- **It leaves room for you.** It takes what is left of the allowance, so a
+  person clicking Generate never finds it already spent overnight.
+
+### Honesty
+
+A section with no real data is an empty section plus a line saying why — never a
+plausible-looking placeholder. `coverage.skipped` is what lets the UI
+distinguish "no competitors tracked yet" from "competitor tracking failed",
+which otherwise look identical.
+
+Run it by hand any time with **Catch me up** on the dashboard, or
+`pnpm verify:briefing` to exercise the whole cycle against your database.
+
+---
+
 ## Graphic Generation (Content Studio)
 
 Content Studio can read a generated post, work out what it is about, and produce

@@ -69,7 +69,8 @@ const TYPE_SPECS: Record<ContentTypeKey, TypeSpec> = {
 
 interface GenerateArgs {
   companyId: string;
-  userId: string;
+  /** Null when Autopilot wrote this unattended — createdById is nullable. */
+  userId: string | null;
   type: ContentTypeKey;
   source: GenerationSource;
   campaignId?: string;

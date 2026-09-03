@@ -69,7 +69,7 @@ interface BuildArgs {
 }
 
 export async function generateImagePrompt(
-  args: BuildArgs & { userId: string },
+  args: BuildArgs & { userId: string | null },
 ): Promise<ImagePromptResult> {
   const { draft, platform, style, guidance, userId } = args;
 

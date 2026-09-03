@@ -230,7 +230,8 @@ export async function getAttachedMedia(args: {
  */
 export async function attachAsset(args: {
   companyId: string;
-  userId: string;
+  /** Null when Autopilot attached it unattended — audit userId is nullable. */
+  userId: string | null;
   draftId: string;
   assetId: string;
   altText?: string;

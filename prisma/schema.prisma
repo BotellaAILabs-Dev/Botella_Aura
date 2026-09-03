@@ -197,6 +197,10 @@ enum AuditAction {
   GRAPHIC_DETACHED
   GRAPHIC_DELETED
   CONTENT_QUEUED
+  // --- Autonomous agent — the weekly briefing ---
+  BRIEFING_GENERATED
+  BRIEFING_FAILED
+  AUTOPILOT_RUN
 }
 
 /// Which social network a post is aimed at.
@@ -536,6 +540,7 @@ model Company {
   generationJobs        GenerationJob[]
   generatedAssets       GeneratedAsset[]
   contentMedia          ContentMedia[]
+  briefings             WorkspaceBriefing[]
 
   @@index([slug])
 }
@@ -1577,4 +1582,62 @@ model ContentMedia {
   @@unique([contentDraftId, assetId])
   @@index([contentDraftId, position])
   @@index([assetId])
+}
+
+// ---------------------------------------------------------------------------
+// Autonomous agent — the weekly briefing
+// ---------------------------------------------------------------------------
+
+/// Lifecycle of a weekly briefing.
+enum BriefingStatus {
+  /// The autonomous cycle is still producing this week's work.
+  WORKING
+  /// Assembled and ready to read.
+  READY
+  /// The cycle failed outright. `error` explains it; the UI never shows a
+  /// half-built briefing as if it were finished.
+  FAILED
+}
+
+/// What Aura did for a workspace this week, as one artifact.
+///
+/// This is the difference between "a dashboard with twelve AI tools" and "an AI
+/// marketing employee". Every input already existed — trend digests, competitor
+/// reports, advisor opportunities, intelligence scores, marketing memory,
+/// content drafts. What did not exist was anything that ASSEMBLED them into a
+/// single thing a person could open on Monday morning and act on.
+///
+/// `payload` is the assembled briefing, validated by lib/validations/briefing.ts.
+/// It is a snapshot on purpose: it records what was true that week, so a
+/// briefing read later still reflects the week it describes rather than
+/// silently re-rendering against today's data.
+model WorkspaceBriefing {
+  id        String         @id @default(cuid())
+  companyId String
+  /// Monday 00:00 UTC of the week this covers — the idempotency key, matching
+  /// how CompetitorReport already keys its weeks.
+  weekStart DateTime
+  weekEnd   DateTime
+  status    BriefingStatus @default(WORKING)
+  /// The assembled briefing (see briefingPayloadSchema).
+  payload   Json           @default("{}")
+  /// What the autonomous cycle actually did this week: drafts written,
+  /// graphics generated, what it skipped and why. Kept separate from `payload`
+  /// so the record of the agent's own actions survives a payload reshape.
+  activity  Json           @default("{}")
+  /// Human-readable failure reason when status = FAILED.
+  error     String?        @db.Text
+  model     String         @default("none")
+
+  generatedAt DateTime  @default(now())
+  /// When the human last opened it — drives the "new since you were away" mark.
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// One briefing per company per week; a re-run replaces rather than duplicates.
+  @@unique([companyId, weekStart])
+  @@index([companyId, weekStart])
 }
