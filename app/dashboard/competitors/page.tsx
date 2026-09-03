@@ -13,7 +13,7 @@ import {
   CompetitorManager,
   type CompetitorRow,
 } from '@/components/dashboard/competitors/competitor-manager';
-import type { ChangesSummary } from '@/server/competitors/types';
+import { readChangesSummary } from '@/server/competitors/types';
 
 export const metadata: Metadata = { title: 'Competitors' };
 
@@ -42,7 +42,8 @@ export default async function CompetitorsPage() {
       latest: snap
         ? {
             capturedAt: snap.capturedAt.toISOString(),
-            summary: snap.changesSummary as unknown as ChangesSummary,
+            // Normalised, not cast: stored snapshots predate some fields.
+            summary: readChangesSummary(snap.changesSummary),
           }
         : null,
     };

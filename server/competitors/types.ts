@@ -68,6 +68,34 @@ export interface ChangesSummary {
   };
 }
 
+/**
+ * Read a stored `changesSummary` safely.
+ *
+ * The column is JSON, so casting it to ChangesSummary is an ASSERTION, not a
+ * guarantee — and it was a wrong one. Snapshots written before `skipped` and
+ * `news` existed (and the seeded fixtures) have neither, so a render that did
+ * `summary.skipped.length` crashed the entire Competitors page with
+ * "Cannot read properties of undefined (reading 'length')".
+ *
+ * Normalising once, here at the boundary, means every consumer gets the arrays
+ * the type promises rather than each one needing its own defensive check.
+ */
+export function readChangesSummary(raw: unknown): ChangesSummary {
+  const s = (raw ?? {}) as Partial<ChangesSummary>;
+  return {
+    hasChanges: s.hasChanges === true,
+    ...(s.homepage ? { homepage: s.homepage } : {}),
+    ...(s.pricing ? { pricing: s.pricing } : {}),
+    news: Array.isArray(s.news) ? s.news : [],
+    github: s.github ?? null,
+    skipped: Array.isArray(s.skipped) ? s.skipped : [],
+    model: typeof s.model === 'string' ? s.model : 'none',
+    capturedAt: typeof s.capturedAt === 'string' ? s.capturedAt : '',
+    ...(s.isBaseline ? { isBaseline: true } : {}),
+    ...(s.baseline ? { baseline: s.baseline } : {}),
+  };
+}
+
 /** One competitor's section within a weekly report. */
 export interface CompetitorReportEntry {
   competitorId: string;

@@ -5,12 +5,28 @@ import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { DigestItem, TrendSourceId } from '@/server/trends/types';
 
-const SOURCE_STYLES: Record<TrendSourceId, { label: string; variant: BadgeProps['variant'] }> = {
+type SourceStyle = { label: string; variant: BadgeProps['variant'] };
+
+const SOURCE_STYLES: Record<TrendSourceId, SourceStyle> = {
   reddit: { label: 'Reddit', variant: 'warning' },
   hackernews: { label: 'Hacker News', variant: 'default' },
   news: { label: 'News', variant: 'secondary' },
   twitter: { label: 'X', variant: 'muted' },
 };
+
+/**
+ * Fallback for a source this build does not recognise.
+ *
+ * `item.source` is TYPED as TrendSourceId but arrives from a stored JSON
+ * payload, so the type is an assertion rather than a guarantee. Digests written
+ * by an older build, seeded fixtures, or a source added later all produce
+ * values outside the union — and indexing the map with one returned undefined,
+ * so reading `.variant` crashed the whole page.
+ *
+ * A trend card is not worth a 500. An unknown source renders with a neutral
+ * badge and whatever label the payload carries.
+ */
+const UNKNOWN_SOURCE: SourceStyle = { label: 'Source', variant: 'muted' };
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -21,7 +37,7 @@ function timeAgo(iso: string): string {
 }
 
 export function TrendCard({ item }: { item: DigestItem }) {
-  const style = SOURCE_STYLES[item.source];
+  const style = SOURCE_STYLES[item.source] ?? UNKNOWN_SOURCE;
   return (
     <Card className="transition-shadow hover:shadow-md">
       <CardContent className="p-5">
