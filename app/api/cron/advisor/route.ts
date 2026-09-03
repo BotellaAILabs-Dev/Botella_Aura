@@ -50,3 +50,13 @@ export async function POST(req: Request) {
     return handleRouteError(error);
   }
 }
+
+/**
+ * Vercel Cron invokes schedules with GET, never POST, so a POST-only handler
+ * returns 405 and the job silently never runs. Vercel also attaches
+ * `Authorization: Bearer $CRON_SECRET` itself when that variable is set, which
+ * is exactly what `isAuthorized` already checks — so the same handler serves
+ * both without weakening the guard. Manual/curl invocation over POST keeps
+ * working unchanged.
+ */
+export const GET = POST;
