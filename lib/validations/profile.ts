@@ -46,7 +46,29 @@ export const brandAssetsSchema = z.object({
 
 export type BrandAssets = z.infer<typeof brandAssetsSchema>;
 
+/**
+ * Who the buyer is: a business, or a person spending their own money.
+ *
+ * This is the single largest fork in how marketing is written, and Aura had it
+ * hard-coded to B2B — "connect every claim to revenue, cost or risk" is right
+ * for a procurement decision and actively destructive for a consumer brand,
+ * where the reason someone buys is how it tastes, looks, or makes them feel.
+ *
+ * A company can be both. SIPN is the case in point: SIPN Bourbon sells bottles
+ * to drinkers, SIPN Enterprises sells to distributors and venues. Those are two
+ * workspaces, each with its own mode — not one workspace trying to average two
+ * opposite voices.
+ */
+export const MARKET_MODES = ['B2C', 'B2B'] as const;
+export type MarketMode = (typeof MARKET_MODES)[number];
+
 export const marketingProfileSchema = z.object({
+  /**
+   * Undefined means "never chosen", which is treated as B2B downstream —
+   * exactly the behaviour every existing workspace already has, so adding this
+   * field changes nothing until someone actually picks.
+   */
+  marketMode: z.enum(MARKET_MODES).optional(),
   /**
    * Who the marketing is for, in the user's own words.
    *

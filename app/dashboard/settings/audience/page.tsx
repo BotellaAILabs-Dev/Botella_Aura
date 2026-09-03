@@ -43,6 +43,9 @@ export default async function AudienceSettingsPage() {
           audience: marketing?.audience ?? '',
           goals: marketing?.goals ?? '',
           channels: marketing?.channels ?? [],
+          // Unset means never chosen, which behaves as B2B everywhere else —
+          // so the form must show B2B rather than silently implying a choice.
+          marketMode: marketing?.marketMode ?? 'B2B',
         }}
         canManage={canManage}
       />

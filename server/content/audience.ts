@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { readMarketingProfile } from '@/server/company/profile.service';
+import type { MarketMode } from '@/lib/validations/profile';
 
 /**
  * Who the content is for.
@@ -34,6 +35,11 @@ export interface AudienceProfile {
   stated?: string;
   /** What the business is trying to achieve, so content can aim at it. */
   goals?: string;
+  /**
+   * Whether the reader is buying for a business or for themselves. Decides
+   * which writing rules apply and how the reader is framed below.
+   */
+  mode?: MarketMode;
   /** Where the description came from, for transparency in the UI later. */
   sources: string[];
 }
@@ -95,12 +101,18 @@ export async function getAudienceProfile(
 
   // Nothing anywhere — the generator says so plainly rather than inventing a
   // persona nobody described.
+  //
+  // The market mode counts as something. A workspace that has only said "we
+  // sell to consumers" has told us the most important thing about its reader,
+  // and returning null here would throw that away and fall back to writing for
+  // a business buyer — the exact mistake this field exists to prevent.
   if (
     roleTitles.size === 0 &&
     industries.size === 0 &&
     companyStages.size === 0 &&
     !marketing?.audience &&
-    !marketing?.goals
+    !marketing?.goals &&
+    !marketing?.marketMode
   ) {
     return null;
   }
@@ -111,6 +123,7 @@ export async function getAudienceProfile(
     companyStages: [...companyStages].slice(0, 5),
     ...(marketing?.audience ? { stated: marketing.audience } : {}),
     ...(marketing?.goals ? { goals: marketing.goals } : {}),
+    ...(marketing?.marketMode ? { mode: marketing.marketMode } : {}),
     sources,
   };
 }
@@ -132,6 +145,7 @@ export function audienceToPrompt(audience: AudienceProfile | null): string {
     ].join('\n');
   }
 
+  const consumer = audience.mode === 'B2C';
   const lines = ['WHO YOU ARE WRITING FOR:'];
 
   // A sentence the user wrote themselves goes in verbatim and goes in FIRST.
@@ -142,9 +156,15 @@ export function audienceToPrompt(audience: AudienceProfile | null): string {
   }
 
   if (!audience.stated || audience.roleTitles.length || audience.industries.length) {
+    // The generic fallback differs by mode. Calling a bourbon drinker a
+    // "business decision-maker" is not a small inaccuracy — it is the single
+    // instruction the model leans on hardest when nothing else is specified.
+    const fallback = consumer
+      ? 'someone choosing this for themselves'
+      : 'business decision-makers';
     const who = audience.roleTitles.length
       ? audience.roleTitles.slice(0, 4).join(', ')
-      : 'business decision-makers';
+      : fallback;
     const where = audience.industries.length
       ? ` working in ${audience.industries.slice(0, 4).join(', ')}`
       : '';
@@ -158,11 +178,25 @@ export function audienceToPrompt(audience: AudienceProfile | null): string {
     );
   }
 
-  lines.push(
-    'Write TO that person. Every claim should connect to something they are',
-    'measured on — revenue, cost, risk, time, or team capacity. If a sentence',
-    'would not change how they spend their week, cut it.',
-  );
+  if (consumer) {
+    // A consumer is not accountable to anyone for this purchase. Asking the
+    // model to justify every sentence against a metric — which is what the
+    // B2B instruction below does — strips out the sensory, story-led writing
+    // that is the entire reason someone buys a bottle rather than a licence.
+    lines.push(
+      'Write TO that person, the way you would talk to someone standing in',
+      'front of you. They are spending their own money on something they want,',
+      'not signing off a budget. Nothing here has to be justified to a boss.',
+      'What earns their attention is a real detail, a story, or something worth',
+      'looking at — not a business case.',
+    );
+  } else {
+    lines.push(
+      'Write TO that person. Every claim should connect to something they are',
+      'measured on — revenue, cost, risk, time, or team capacity. If a sentence',
+      'would not change how they spend their week, cut it.',
+    );
+  }
 
   // The goal is what the writing is FOR. Stated as the job the post has to do,
   // not as a target to mention — a post that recites "we want 15 demos" is
@@ -182,32 +216,79 @@ export function audienceToPrompt(audience: AudienceProfile | null): string {
 }
 
 /**
- * Rules that keep output business-focused rather than generic or technical.
+ * Rules that keep output specific rather than generic.
  *
  * These are stated as prohibitions with concrete examples because that is what
  * actually moves a model. "Be specific" is advice a model already agrees with
  * and ignores; "never open with 'In today's fast-paced world'" is a rule it can
  * follow.
+ *
+ * Split by market mode, because the single biggest fork in how marketing is
+ * written is whether the reader is spending a budget or their own money. These
+ * rules used to be one B2B-only block applied to everything, which meant a
+ * consumer brand was told to justify every sentence against revenue and cost —
+ * the surest way to make a bourbon post read like a procurement memo.
  */
-export const BUSINESS_FOCUS_RULES = [
-  'HOW TO WRITE THIS:',
-  '',
-  '· Lead with the business consequence, not the technology. "Support tickets',
-  '  drop 40%" beats "we implemented a vector database".',
+const SHARED_RULES = [
   '· One concrete, checkable detail beats three adjectives. Prefer a number, a',
   '  timeframe, a named situation, or a real trade-off.',
-  '· Explain the SO WHAT. If you describe a capability, say what it changes for',
-  '  the reader — what they can now do, stop doing, or stop worrying about.',
   '· Write like a knowledgeable person talking, not a brochure. Short sentences.',
-  '  Plain words. No hype adjectives (revolutionary, cutting-edge, seamless,',
-  '  game-changing, robust, leverage, unlock, elevate, supercharge).',
+  '  Plain words.',
   '· Never open with a throat-clearing generality. Banned openings: "In today\'s',
   '  fast-paced world", "In an era of", "Businesses everywhere are", "It is no',
   '  secret that", "We are excited to announce".',
   '· No rhetorical question as a hook unless the answer is genuinely surprising.',
-  '· Technical detail is allowed ONLY where it explains a business outcome the',
-  '  reader cares about. Never as evidence of sophistication.',
   '· If you cannot say something specific from the company knowledge provided,',
   '  say something narrower rather than something vague. A smaller true claim',
   '  beats a broad empty one.',
-].join('\n');
+];
+
+const B2B_RULES = [
+  '· Lead with the business consequence, not the technology. "Support tickets',
+  '  drop 40%" beats "we implemented a vector database".',
+  '· Explain the SO WHAT. If you describe a capability, say what it changes for',
+  '  the reader — what they can now do, stop doing, or stop worrying about.',
+  '· Technical detail is allowed ONLY where it explains a business outcome the',
+  '  reader cares about. Never as evidence of sophistication.',
+  '· No hype adjectives: revolutionary, cutting-edge, seamless, game-changing,',
+  '  robust, leverage, unlock, elevate, supercharge.',
+];
+
+const B2C_RULES = [
+  '· Lead with the experience, not the spec sheet. What does it taste, look,',
+  '  sound or feel like? Give the reader something they can picture.',
+  '· Craft detail is welcome — it is often exactly why an enthusiast follows a',
+  '  brand — but always tie it to what it DOES. Not "aged four years in char',
+  '  #3 oak" alone, but what those four years put in the glass.',
+  '· Write to one person, never about an audience. Never use the words',
+  '  "consumers", "users", "customers" or "the target audience" in the copy.',
+  '· No corporate voice. Never "our solution", "our offering", "we leverage",',
+  '  "we are pleased to". You are a person talking about something you made.',
+  '· No hype adjectives, and no category clichés: revolutionary, game-changing,',
+  '  elevate, unlock, premium, artisanal, hand-crafted, smooth, bold flavour,',
+  '  "a journey", "an experience like no other".',
+  '· End with ONE clear thing to do, phrased as a human would ask it. Never',
+  '  "Click the link in bio to learn more today!".',
+  '· Never invent tasting notes, awards, or provenance. If the company material',
+  '  does not say it, do not claim it — this is a regulated category and an',
+  '  invented age statement or award is a real problem, not a stylistic one.',
+];
+
+/**
+ * The writing rules for one market mode.
+ *
+ * Defaults to B2B when the workspace has not chosen, which is exactly the
+ * behaviour every existing workspace already had before modes existed.
+ */
+export function contentRulesFor(mode: MarketMode | null | undefined): string {
+  const specific = mode === 'B2C' ? B2C_RULES : B2B_RULES;
+  return ['HOW TO WRITE THIS:', '', ...specific, ...SHARED_RULES].join('\n');
+}
+
+/**
+ * Back-compat alias for the B2B rules.
+ *
+ * @deprecated Prefer contentRulesFor(mode) — a caller using this constant is
+ * applying business-buyer rules to a consumer brand.
+ */
+export const BUSINESS_FOCUS_RULES = contentRulesFor('B2B');

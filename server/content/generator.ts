@@ -13,7 +13,7 @@ import {
 import {
   getAudienceProfile,
   audienceToPrompt,
-  BUSINESS_FOCUS_RULES,
+  contentRulesFor,
 } from '@/server/content/audience';
 import { getActiveMemories, memoriesToPrompt } from '@/server/memory/memory.service';
 import {
@@ -32,7 +32,7 @@ import type { DigestPayload } from '@/server/trends/types';
 // Bumped when the prompt changes materially, so a draft's aiMetadata records
 // which set of instructions produced it. s4 added the audience block and the
 // business-focus rules.
-const PROMPT_VERSION = 's4.audience';
+const PROMPT_VERSION = 's5.market-mode';
 
 interface TypeSpec {
   label: string;
@@ -125,7 +125,7 @@ export async function generateDraft({
     brandVoiceToPrompt(voice),
     memoryBlock,
     '',
-    BUSINESS_FOCUS_RULES,
+    contentRulesFor(audience?.mode),
     '',
     'Ground your writing in the company knowledge below — reflect their real ',
     'products, positioning, and facts. Do not invent product names or claims.',
@@ -223,7 +223,7 @@ export async function refineDraft({
     '',
     brandVoiceToPrompt(voice),
     '',
-    BUSINESS_FOCUS_RULES,
+    contentRulesFor(audience?.mode),
     '',
     'Revise the existing draft per the feedback. Keep what works.',
     'Respond with ONLY valid JSON matching the schema.',

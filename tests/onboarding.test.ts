@@ -7,7 +7,11 @@ import {
   hasBrandAssets,
   hasMarketingProfile,
 } from '@/lib/validations/profile';
-import { audienceToPrompt } from '@/server/content/audience';
+import {
+  audienceToPrompt,
+  contentRulesFor,
+  BUSINESS_FOCUS_RULES,
+} from '@/server/content/audience';
 
 /**
  * Onboarding has one job: at every moment, the user knows what to do next.
@@ -151,5 +155,75 @@ describe('audienceToPrompt', () => {
     expect(audienceToPrompt({ ...base, roleTitles: ['CFO'] })).not.toContain(
       'WHAT THIS CONTENT IS FOR',
     );
+  });
+});
+
+describe('market mode — B2C vs B2B', () => {
+  const base = { roleTitles: [], industries: [], companyStages: [], sources: [] };
+  const flat = (s: string) => s.replace(/\s+/g, ' ');
+
+  it('defaults to the behaviour every existing workspace already had', () => {
+    // Adding this field must not silently change output for anyone who has not
+    // chosen, so an unset mode is exactly the old B2B rule set.
+    expect(contentRulesFor(undefined)).toBe(contentRulesFor('B2B'));
+    expect(contentRulesFor(null)).toBe(BUSINESS_FOCUS_RULES);
+  });
+
+  it('does not ask a consumer to justify a purchase to a boss', () => {
+    // The single worst line to apply to a consumer brand: it strips out the
+    // sensory, story-led writing that is the reason someone buys a bottle.
+    const b2c = flat(audienceToPrompt({ ...base, mode: 'B2C' }));
+    expect(b2c).not.toContain('measured on — revenue, cost, risk');
+    expect(b2c).toContain('spending their own money');
+  });
+
+  it('still holds a business reader to a business case', () => {
+    const b2b = flat(audienceToPrompt({ ...base, mode: 'B2B' }));
+    expect(b2b).toContain('measured on — revenue, cost, risk');
+  });
+
+  it('describes an unnamed consumer reader as a person, not a decision-maker', () => {
+    const b2c = audienceToPrompt({ ...base, mode: 'B2C' });
+    expect(b2c).toContain('choosing this for themselves');
+    expect(b2c).not.toContain('business decision-makers');
+  });
+
+  it('asks a consumer brand for the experience and one human ask', () => {
+    const rules = flat(contentRulesFor('B2C'));
+    expect(rules).toMatch(/taste, look, sound or feel/i);
+    expect(rules).toContain('ONE clear thing to do');
+  });
+
+  it('bans the clichés specific to each market', () => {
+    const b2c = flat(contentRulesFor('B2C'));
+    const b2b = flat(contentRulesFor('B2B'));
+    // "smooth" and "artisanal" are consumer-category clichés; "leverage" and
+    // "robust" are the business ones. Neither list is right for both.
+    expect(b2c).toContain('smooth');
+    expect(b2c).toContain('artisanal');
+    expect(b2b).toContain('leverage');
+    expect(b2b).not.toContain('artisanal');
+  });
+
+  it('forbids inventing an age statement or award for a consumer brand', () => {
+    // In a regulated category this is a legal problem, not a stylistic one.
+    expect(flat(contentRulesFor('B2C'))).toMatch(/regulated category/i);
+  });
+
+  it('keeps the rules that are true for everyone in both', () => {
+    for (const mode of ['B2C', 'B2B'] as const) {
+      const rules = flat(contentRulesFor(mode));
+      expect(rules).toContain('In today\u2019s fast-paced world'.replace('\u2019', "'"));
+      expect(rules).toContain('A smaller true claim');
+    }
+  });
+
+  it('produces genuinely different instructions for the two modes', () => {
+    expect(contentRulesFor('B2C')).not.toBe(contentRulesFor('B2B'));
+  });
+
+  it('rejects a market mode that is not one of the two', () => {
+    expect(() => marketingProfileSchema.parse({ marketMode: 'B2G' })).toThrow();
+    expect(marketingProfileSchema.parse({ marketMode: 'B2C' }).marketMode).toBe('B2C');
   });
 });
