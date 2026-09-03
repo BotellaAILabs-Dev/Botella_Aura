@@ -199,6 +199,7 @@ async function generateDefaultsWithClaude(
     prompt,
     maxTokens: 1024,
     effort: 'medium',
+    tier: 'standard',
   });
 }
 

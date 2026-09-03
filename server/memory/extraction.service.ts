@@ -133,6 +133,7 @@ async function extractWithClaude(perf: ContentPerf[]): Promise<RawInsight[]> {
     prompt: `Posts (engagement is a weighted score):\n${JSON.stringify(rows)}`,
     maxTokens: 1200,
     effort: 'medium',
+    tier: 'standard',
   });
   return result.insights;
 }

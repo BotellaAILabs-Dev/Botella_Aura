@@ -1,7 +1,7 @@
 import type { Company, ContentDraft, Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { recordAudit } from '@/server/services/audit.service';
-import { completeStructured } from '@/server/ai/claude';
+import { completeStructured, getModel } from '@/server/ai/claude';
 import { retrieve, chunksToContext } from '@/server/knowledge/retrieve';
 import { politeFetchHtml } from '@/server/knowledge/robots';
 import { htmlToText } from '@/server/knowledge/extract';
@@ -10,6 +10,11 @@ import {
   generateBrandVoiceProfile,
   brandVoiceToPrompt,
 } from '@/server/content/brand-voice.service';
+import {
+  getAudienceProfile,
+  audienceToPrompt,
+  BUSINESS_FOCUS_RULES,
+} from '@/server/content/audience';
 import { getActiveMemories, memoriesToPrompt } from '@/server/memory/memory.service';
 import {
   bodySchemaFor,
@@ -24,7 +29,10 @@ import type { DigestPayload } from '@/server/trends/types';
  * against the per-type Zod schema → persist as a DRAFT ContentDraft. A call that
  * skips knowledge retrieval or brand voice is a bug (NON-NEGOTIABLE #5).
  */
-const PROMPT_VERSION = 's3.1';
+// Bumped when the prompt changes materially, so a draft's aiMetadata records
+// which set of instructions produced it. s4 added the audience block and the
+// business-focus rules.
+const PROMPT_VERSION = 's4.audience';
 
 interface TypeSpec {
   label: string;
@@ -95,6 +103,9 @@ export async function generateDraft({
     `${brief.text}\n${source.brief ?? ''}\n${company.website ?? ''}`,
   );
   const voice = await generateBrandVoiceProfile({ company, userId });
+  // Who this is for. Reused from outreach targeting and discovery profiles —
+  // the workspace already stated its buyers there.
+  const audience = await getAudienceProfile(companyId);
   // Sprint 5 — inject learned performance patterns ("gets smarter every week").
   // Empty string when the company has no real insights yet, so fresh accounts
   // are unaffected (no fabricated guidance).
@@ -105,8 +116,16 @@ export async function generateDraft({
   const spec = TYPE_SPECS[type];
   const system = [
     `You are the content writer for ${company.name}.`,
+    company.industry ? `They operate in: ${company.industry}.` : '',
+    '',
+    // The reader comes BEFORE the voice. Without it the model writes about the
+    // subject rather than to a person, which is what "generic" actually is.
+    audienceToPrompt(audience),
+    '',
     brandVoiceToPrompt(voice),
     memoryBlock,
+    '',
+    BUSINESS_FOCUS_RULES,
     '',
     'Ground your writing in the company knowledge below — reflect their real ',
     'products, positioning, and facts. Do not invent product names or claims.',
@@ -143,7 +162,9 @@ export async function generateDraft({
 
   const aiMetadata: Prisma.InputJsonValue = {
     source: { kind: source.kind, ref: source.ref ?? null, brief: source.brief ?? null },
-    model: 'claude-opus-4-8',
+    // Recorded from the client rather than hardcoded, so the metadata stays
+    // true when the model or its tier changes.
+    model: getModel('premium'),
     promptVersion: PROMPT_VERSION,
     knowledgeChunkIds: chunks.map((c) => c.id),
     brandVoiceApplied: true,
@@ -189,11 +210,21 @@ export async function refineDraft({
   if (!company) throw new Error('Company not found');
 
   const voice = await generateBrandVoiceProfile({ company, userId });
+  // A revision is still content a customer publishes, so it gets the same
+  // reader and the same rules. Without them, refining drifted back towards the
+  // generic writing the first pass had been steered away from.
+  const audience = await getAudienceProfile(draft.companyId);
   const spec = TYPE_SPECS[draft.type as ContentTypeKey];
 
   const system = [
     `You are the content writer for ${company.name}.`,
+    '',
+    audienceToPrompt(audience),
+    '',
     brandVoiceToPrompt(voice),
+    '',
+    BUSINESS_FOCUS_RULES,
+    '',
     'Revise the existing draft per the feedback. Keep what works.',
     'Respond with ONLY valid JSON matching the schema.',
   ].join('\n');

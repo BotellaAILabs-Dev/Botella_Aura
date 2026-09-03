@@ -17,6 +17,84 @@ export const DEFAULT_MODEL = 'claude-opus-4-8';
 const DEFAULT_GEMINI_MODEL = 'gemini-flash-latest';
 const STREAM_THRESHOLD_TOKENS = 8000;
 
+/**
+ * Which model class a task deserves.
+ *
+ * Every call used to run on the same flagship model regardless of what it was
+ * doing — summarising a text diff cost exactly as much per token as writing the
+ * post a customer publishes. Tiering is the single biggest cost lever available
+ * here, because most calls in this codebase are short structural work.
+ *
+ * Prices per million tokens (input / output), Anthropic first-party:
+ *   cheap    Haiku 4.5   $1 / $5    — 5x cheaper than premium
+ *   standard Sonnet 5    $2 / $10   — 2.5x cheaper than premium
+ *   premium  Opus        $5 / $25
+ *
+ * The rule for choosing: does a human read this output as the product? Post
+ * copy, the monthly plan and strategic recommendations do — they stay premium.
+ * Extraction, scoring, classification and internal summaries do not.
+ */
+export type ModelTier = 'cheap' | 'standard' | 'premium';
+
+interface ModelSpec {
+  id: string;
+  /**
+   * Haiku 4.5 REJECTS `output_config.effort` with a 400, and uses the older
+   * `budget_tokens` thinking API rather than adaptive. Sending the newer
+   * parameters to it fails the request outright, so capability travels with
+   * the model rather than being assumed.
+   */
+  supportsEffort: boolean;
+  supportsAdaptiveThinking: boolean;
+}
+
+const TIER_DEFAULTS: Record<ModelTier, ModelSpec> = {
+  cheap: {
+    id: 'claude-haiku-4-5',
+    supportsEffort: false,
+    supportsAdaptiveThinking: false,
+  },
+  standard: {
+    id: 'claude-sonnet-5',
+    supportsEffort: true,
+    supportsAdaptiveThinking: true,
+  },
+  premium: {
+    id: DEFAULT_MODEL,
+    supportsEffort: true,
+    supportsAdaptiveThinking: true,
+  },
+};
+
+const TIER_ENV: Record<ModelTier, string> = {
+  cheap: 'ANTHROPIC_MODEL_CHEAP',
+  standard: 'ANTHROPIC_MODEL_STANDARD',
+  premium: 'ANTHROPIC_MODEL_PREMIUM',
+};
+
+/**
+ * Resolve the model for a tier.
+ *
+ * `ANTHROPIC_MODEL` still overrides everything, so a deployment that pinned a
+ * model before tiering existed keeps behaving exactly as it did. Per-tier
+ * variables allow finer control.
+ *
+ * Capabilities for an overridden model are inferred from its id, because we
+ * cannot know them otherwise — and inferring wrongly for Haiku is the one
+ * mistake that turns into a hard 400 rather than a quality difference.
+ */
+function modelFor(tier: ModelTier): ModelSpec {
+  const override = process.env[TIER_ENV[tier]] || process.env.ANTHROPIC_MODEL;
+  if (!override) return TIER_DEFAULTS[tier];
+
+  const isHaiku = /haiku/i.test(override);
+  return {
+    id: override,
+    supportsEffort: !isHaiku,
+    supportsAdaptiveThinking: !isHaiku,
+  };
+}
+
 export class ClaudeNotConfiguredError extends Error {
   constructor() {
     super('No AI provider configured (set ANTHROPIC_API_KEY or GEMINI_API_KEY).');
@@ -40,8 +118,10 @@ export function isClaudeConfigured(): boolean {
   return hasAnthropic() || isGeminiConfigured();
 }
 
-export function getModel(): string {
-  if (hasAnthropic()) return process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
+export function getModel(tier: ModelTier = 'premium'): string {
+  if (hasAnthropic()) return modelFor(tier).id;
+  // Gemini's flash model is already the cheap end of that family, so the tier
+  // does not change anything on the fallback path.
   return process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
 }
 
@@ -63,6 +143,11 @@ export interface CompleteOptions {
   maxTokens?: number;
   /** Thinking depth. Default 'high' for quality; 'low' for cheap calls. */
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  /**
+   * Which model class this task deserves. Defaults to 'premium' so any call
+   * that has not been classified keeps its previous behaviour exactly.
+   */
+  tier?: ModelTier;
   /** Hard per-attempt ceiling in ms. Default 120s. */
   timeoutMs?: number;
 }
@@ -134,12 +219,13 @@ export async function complete(options: CompleteOptions): Promise<string> {
     prompt,
     maxTokens = 2048,
     effort = 'high',
+    tier = 'premium',
     timeoutMs = DEFAULT_TIMEOUT_MS,
   } = options;
 
   const run = async (): Promise<string> => {
     if (hasAnthropic())
-      return callAnthropic(system, prompt, maxTokens, effort, timeoutMs);
+      return callAnthropic(system, prompt, maxTokens, effort, tier, timeoutMs);
     if (isGeminiConfigured())
       return callGemini(system, prompt, maxTokens, timeoutMs);
     throw new ClaudeNotConfiguredError();
@@ -166,15 +252,21 @@ async function callAnthropic(
   prompt: string,
   maxTokens: number,
   effort: NonNullable<CompleteOptions['effort']>,
+  tier: ModelTier,
   timeoutMs: number,
 ): Promise<string> {
   const c = getClient();
-  const think = shouldThink(maxTokens, effort);
+  const model = modelFor(tier);
+  const think = model.supportsAdaptiveThinking && shouldThink(maxTokens, effort);
+
   const params = {
-    model: getModel(),
+    model: model.id,
     max_tokens: maxTokens,
     ...(think ? { thinking: { type: 'adaptive' as const } } : {}),
-    output_config: { effort },
+    // Omitted entirely for models that reject it — Haiku 4.5 returns a 400 for
+    // `output_config.effort`, so sending it would fail the request rather than
+    // merely being ignored. Effort still shapes `shouldThink` above.
+    ...(model.supportsEffort ? { output_config: { effort } } : {}),
     ...(system ? { system } : {}),
     messages: [{ role: 'user' as const, content: prompt }],
   };

@@ -91,6 +91,7 @@ async function buildComment(
       prompt: `${author ? `Post by ${author}:` : 'Post:'}\n"""\n${postText}\n"""\n\nWrite our comment.`,
       maxTokens: 400,
       effort: 'medium',
+      tier: 'standard',
     });
     const text = result.comment.trim();
     return { text: text || deterministicComment(postText), model: DEFAULT_MODEL };

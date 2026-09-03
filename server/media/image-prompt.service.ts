@@ -174,6 +174,7 @@ async function askModel(
     // 'low' skips thinking entirely — which matters because the user is
     // watching a spinner while this runs.
     effort: 'low',
+    tier: 'standard',
   });
 }
 

@@ -353,6 +353,66 @@ swallowed.
 
 ---
 
+## Model tiers and API cost
+
+Not every call deserves the flagship model. Tasks are classified into three
+tiers in `server/ai/claude.ts`:
+
+| Tier | Model | $ / MTok in-out | Used for |
+| --- | --- | --- | --- |
+| `cheap` | Haiku 4.5 | $1 / $5 | competitor diffs, lead scoring, page extraction, campaign checkpoints |
+| `standard` | Sonnet 5 | $2 / $10 | trend digests, brand voice, outreach drafts, memory extraction, image prompts, competitor and analytics reports |
+| `premium` | Opus | $5 / $25 | post copy, the monthly plan, campaign plans, advisor opportunities, intelligence |
+
+The rule for choosing: **does a human read this output as the product?** Post
+copy, the monthly calendar and strategic recommendations do — they stay premium.
+Extraction, scoring, classification and internal summaries do not.
+
+Untiered calls default to `premium`, so an unclassified call is never silently
+downgraded. `ANTHROPIC_MODEL` still pins every tier to one model exactly as it
+did before tiering existed; `ANTHROPIC_MODEL_CHEAP` / `_STANDARD` / `_PREMIUM`
+override individual tiers.
+
+One sharp edge worth knowing: **Haiku rejects `output_config.effort` with a
+400**, so capability travels with the model in the tier table rather than being
+assumed. Point a tier at a model with different capabilities and you must
+extend that table.
+
+### Further levers not yet applied
+
+- **Batch API — 50% off.** The weekly Autopilot run is not latency-sensitive
+  and is the natural candidate.
+- **Prompt caching.** One Autopilot run writes several posts sharing the same
+  brand voice and company knowledge prefix; caching that prefix would cut input
+  cost across the run. Worth measuring before building.
+
+---
+
+## Writing that is business- and audience-focused
+
+Generic, technical copy is usually not a model problem — it is a missing
+audience. The generator knew the company's voice, its knowledge and the topic,
+but never the **reader**. With no reader, a model writes *about* a subject
+rather than *to* a person.
+
+`server/content/audience.ts` resolves who the content is for from data the
+workspace has already provided — outreach targeting (`OutreachConfig`) and
+active lead-discovery profiles — so nobody is asked to describe their buyers
+twice. It is injected before the brand voice, alongside explicit rules that:
+
+- lead with the business consequence, not the technology
+- demand one concrete checkable detail over three adjectives
+- ban hype vocabulary and named throat-clearing openings
+- allow technical detail **only** where it explains an outcome the reader cares
+  about
+- prefer a narrower true claim over a broad empty one when grounding runs out
+
+A workspace that has not described its buyers gets an honest general-business
+reader rather than an invented persona. Both generation and refinement use it —
+without that, refining drifted back towards the writing the first pass avoided.
+
+---
+
 ## Verifying a running instance
 
 Unit tests do not render pages, and the type checker cannot see through a cast

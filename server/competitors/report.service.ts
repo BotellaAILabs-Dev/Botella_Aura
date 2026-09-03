@@ -271,6 +271,7 @@ async function buildPayload(
       prompt: `Competitor signal for the week:\n\n${context || '(no activity captured)'}\n\nReturn JSON: { competitors: [{ competitor, newLaunches[], pricingChanges[], notableActivity[], strategicTakeaway }], synthesis }`,
       maxTokens: 2000,
       effort: 'medium',
+      tier: 'standard',
     });
 
     // Map AI entries back to competitor ids by name (robust to reordering).

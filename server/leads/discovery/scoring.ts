@@ -49,6 +49,7 @@ export async function scoreLead(args: {
       // deterministic floor, which is what made every score identical.
       maxTokens: 1000,
       effort: 'low',
+      tier: 'cheap',
     });
     return { ...result, model: DEFAULT_MODEL };
   } catch (err) {

@@ -211,6 +211,7 @@ async function enrichItems(
       prompt: buildEnrichmentPrompt(company, ranked),
       maxTokens: 2048,
       effort: 'medium',
+      tier: 'standard',
     });
 
     const byId = new Map(enriched.map((e) => [e.id, e]));
@@ -299,6 +300,7 @@ async function synthesizeDigest(
         .join('\n'),
       maxTokens: 1024,
       effort: 'medium',
+      tier: 'standard',
     });
     return {
       summary: out.summary?.trim() || fallback().summary,

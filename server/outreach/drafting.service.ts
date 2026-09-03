@@ -151,6 +151,7 @@ async function buildDrafts(args: {
       prompt,
       maxTokens: 800,
       effort: 'medium',
+      tier: 'standard',
     });
     return {
       connectionNote: result.connectionNote.trim(),

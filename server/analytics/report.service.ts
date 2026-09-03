@@ -83,6 +83,7 @@ async function writeSummary(
       prompt: `${facts}\nWrite the weekly summary.`,
       maxTokens: 500,
       effort: 'low',
+      tier: 'standard',
     });
   } catch (err) {
     logger.info('analytics report: AI summary failed, using facts', {

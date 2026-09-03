@@ -61,6 +61,7 @@ export async function generateBrandVoiceProfile({
         prompt: buildPrompt(company, chunksToContext(chunks)),
         maxTokens: 1500,
         effort: 'medium',
+        tier: 'standard',
       });
       source = 'claude';
     } catch (err) {

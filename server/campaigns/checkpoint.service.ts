@@ -47,6 +47,7 @@ export async function generateCheckpointSummary(args: {
       prompt: `${facts}\nWrite the week ${weekNumber} update.`,
       maxTokens: 300,
       effort: 'low',
+      tier: 'cheap',
     });
   } catch (err) {
     logger.info('campaign checkpoint: AI summary failed, using facts', {

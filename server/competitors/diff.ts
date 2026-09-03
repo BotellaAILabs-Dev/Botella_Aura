@@ -115,6 +115,7 @@ export async function summarizeChange(args: {
       ].join('\n\n'),
       maxTokens: 400,
       effort: 'low',
+      tier: 'cheap',
     });
     const text = result.summary.trim();
     return { text: text || deterministic, model: DEFAULT_MODEL };
@@ -175,6 +176,7 @@ export async function summarizePositioning(args: {
       ].join('\n\n'),
       maxTokens: 400,
       effort: 'low',
+      tier: 'cheap',
     });
     const text = result.summary.trim();
     return { text: text || deterministic, model: DEFAULT_MODEL };

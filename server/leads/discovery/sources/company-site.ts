@@ -63,6 +63,8 @@ export async function discoverPeopleFromSite(
       prompt: `Company: ${companyName}\nPage text:\n"""\n${text}\n"""`,
       maxTokens: 600,
       effort: 'low',
+      // Pure extraction from page text — no judgement, no customer-facing prose.
+      tier: 'cheap',
     });
     return result.people
       .filter((p) => p.name && p.name.trim().length > 1)
