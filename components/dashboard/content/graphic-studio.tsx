@@ -199,6 +199,23 @@ export function GraphicStudio({
    */
   const inFlight = useRef(false);
 
+  /**
+   * Whether this component is still on screen.
+   *
+   * `pollJob` below is a loop that can run for six minutes. Without this,
+   * navigating away mid-generation leaves it fetching every 1.5s against a
+   * component that no longer exists — and visiting several drafts stacks those
+   * loops up, which is felt as the whole app getting slower. Every await point
+   * in the loop re-checks it.
+   */
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
   // Provider status loads when the panel is first opened, not on mount: a user
   // reading a draft has not asked for anything yet.
   useEffect(() => {
@@ -368,8 +385,12 @@ export function GraphicStudio({
 
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, JOB_POLL_MS));
+      // Checked after every await: the user may have navigated away while we
+      // were sleeping. The run itself continues server-side regardless.
+      if (!alive.current) return;
 
       const res = await fetch(`/api/jobs/${jobId}`);
+      if (!alive.current) return;
       if (!res.ok) continue; // a blip mid-run is not a failed generation
 
       const job = (await res.json()) as {
@@ -401,6 +422,7 @@ export function GraphicStudio({
       }
     }
 
+    if (!alive.current) return;
     setError({
       message:
         'This is taking longer than expected. It may still finish — reload the page in a moment to see the result.',
@@ -1080,13 +1102,24 @@ function Gallery({
             } ${aspectClass(asset.aspectRatio)}`}
           >
             {/* A plain img, not next/image: these are private, session-gated
-                bytes from our own API — the optimizer would need a public URL. */}
+                bytes from our own API, and the optimizer fetches server-side
+                without the user's cookie — it would get a 404.
+
+                So they are full-resolution images used as thumbnails. `lazy`
+                keeps offscreen history tiles from being fetched at all,
+                `async` decoding keeps a large PNG off the main thread while it
+                paints, and the width/height stop the grid reflowing as each
+                one lands. The file route marks them immutable, so the download
+                cost is paid once per image. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={asset.url}
               alt={`Generated graphic, ${asset.aspectRatio}`}
               className="h-full w-full object-cover"
               loading="lazy"
+              decoding="async"
+              width={asset.width}
+              height={asset.height}
             />
             {attached.has(asset.id) && (
               <span className="absolute right-1.5 top-1.5 rounded-full bg-primary p-1 text-primary-foreground">
@@ -1164,6 +1197,9 @@ function SelectedGraphic({
             src={asset.url}
             alt="Selected graphic preview"
             className="h-full w-full object-cover"
+            decoding="async"
+            width={asset.width}
+            height={asset.height}
           />
         </div>
         <div className="min-w-[200px] flex-1 space-y-2 text-sm">

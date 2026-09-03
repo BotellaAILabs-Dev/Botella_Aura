@@ -184,6 +184,10 @@ export function PostComposer({
                       src={m.url}
                       alt={m.altText ?? 'Attached graphic'}
                       className="h-full w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                      width={m.width}
+                      height={m.height}
                     />
                   </div>
                   {canEdit && (
