@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { PlayCircle, CalendarDays, PenLine, Swords, Gauge } from 'lucide-react';
 
@@ -13,8 +12,13 @@ import { toast } from '@/components/ui/toaster';
  * First run — before Aura has ever produced a briefing.
  *
  * This is deliberately NOT an empty state and NOT a fake briefing. It says
- * plainly what Aura will do, what it needs in order to do it well, and offers
- * to run immediately rather than making the user wait until Monday.
+ * plainly what Aura will do and offers to run immediately rather than making
+ * the user wait until Monday.
+ *
+ * It used to also carry a loose list of "things that would help" — four links
+ * with no order and no sense of whether you had done them. SetupChecklist sits
+ * above this and does that job properly, so the list is gone rather than
+ * duplicated.
  */
 export function GettingStarted({ canRun }: { canRun: boolean }) {
   const router = useRouter();
@@ -108,49 +112,6 @@ export function GettingStarted({ canRun }: { canRun: boolean }) {
               </p>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="space-y-2 p-5 text-sm">
-          <p className="font-medium text-foreground">
-            Aura works better with a bit of context
-          </p>
-          <p className="text-muted-foreground">
-            None of this is required, but each one makes the weekly output
-            noticeably more useful:
-          </p>
-          <ul className="mt-1 space-y-1.5 text-sm">
-            {[
-              {
-                label: 'Build a monthly plan',
-                href: '/dashboard/planner',
-                why: 'gives Aura dated topics tied to your goals instead of guessing from trends',
-              },
-              {
-                label: 'Add your competitors',
-                href: '/dashboard/competitors',
-                why: 'turns on the weekly competitor section',
-              },
-              {
-                label: 'Add knowledge sources',
-                href: '/dashboard/settings/knowledge-base',
-                why: 'grounds the writing in your real products and positioning',
-              },
-              {
-                label: 'Connect LinkedIn',
-                href: '/dashboard/settings/connections',
-                why: 'lets approved posts publish through the official API',
-              },
-            ].map((s) => (
-              <li key={s.href} className="text-muted-foreground">
-                <Link href={s.href} className="text-primary hover:underline">
-                  {s.label}
-                </Link>{' '}
-                — {s.why}
-              </li>
-            ))}
-          </ul>
         </CardContent>
       </Card>
     </div>

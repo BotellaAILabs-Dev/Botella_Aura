@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ContentDraft } from '@prisma/client';
+import type { Company, ContentDraft } from '@prisma/client';
 
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
@@ -10,6 +10,7 @@ import { brandVoiceProfileSchema } from '@/lib/validations/content';
 import { platformSpec, type SocialPlatformKey } from '@/lib/platforms';
 import { STYLE_DIRECTION } from '@/server/media/types';
 import { isImageStyle, type ImageStyleKey } from '@/lib/graphics-ui';
+import { readBrandAssets } from '@/server/company/profile.service';
 
 /**
  * Content to image prompt.
@@ -119,7 +120,7 @@ async function askModel(
 ): Promise<z.infer<typeof imagePromptSchema>> {
   const company = await db.company.findUnique({
     where: { id: draft.companyId },
-    select: { name: true, industry: true, brandVoiceProfile: true },
+    select: { name: true, industry: true, brandVoiceProfile: true, preferences: true },
   });
 
   // Reuse the brand voice profile already generated for the text side, but
@@ -128,6 +129,11 @@ async function askModel(
   // art director badly. safeParse because a profile stored before a schema
   // change must not break generation.
   const voiceBlock = brandVoiceToVisualDirection(company?.brandVoiceProfile);
+
+  // The workspace's own palette, when it has given one. An art director told
+  // the actual brand colours produces creatives that look like they came from
+  // this company; without it every image is whatever the model finds pretty.
+  const paletteBlock = company ? brandPaletteDirection(company) : '';
 
   const system = [
     'You are an art director briefing an image-generation model for a social post.',
@@ -146,6 +152,7 @@ async function askModel(
   const prompt = [
     `COMPANY: ${company?.name ?? 'the company'}${company?.industry ? ` (${company.industry})` : ''}`,
     voiceBlock,
+    paletteBlock,
     '',
     'THE POST THIS IMAGE ACCOMPANIES:',
     contentText,
@@ -176,6 +183,31 @@ async function askModel(
     effort: 'low',
     tier: 'standard',
   });
+}
+
+/**
+ * The workspace's brand colours, as palette direction.
+ *
+ * Stated as a constraint on the dominant colours rather than "use these
+ * colours": an image-generation model handed a hex list tends to produce a
+ * swatch board. What is wanted is a picture that happens to sit in the brand's
+ * palette, which is what an art director would actually ask for.
+ */
+function brandPaletteDirection(company: Pick<Company, 'preferences'>): string {
+  const brand = readBrandAssets(company);
+  const colors = [
+    brand?.primaryColor,
+    brand?.secondaryColor,
+    brand?.accentColor,
+  ].filter((c): c is string => Boolean(c));
+  if (colors.length === 0) return '';
+
+  return [
+    'BRAND PALETTE:',
+    `- Build the image around these colours: ${colors.join(', ')}.`,
+    '- They should dominate the composition — lighting, surfaces, background.',
+    '- Do NOT render them as swatches, charts, or blocks of flat colour.',
+  ].join('\n');
 }
 
 /**

@@ -15,6 +15,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BriefingView } from '@/components/dashboard/briefing/briefing-view';
 import { GettingStarted } from '@/components/dashboard/briefing/getting-started';
+import { SetupChecklist } from '@/components/dashboard/onboarding/setup-checklist';
+import { getOnboardingState } from '@/server/onboarding/checklist.service';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
@@ -49,19 +51,23 @@ export default async function OverviewPage() {
     );
   }
 
-  const [row, membership] = await Promise.all([
+  const [row, membership, setup] = await Promise.all([
     getLatestBriefing(active.id),
     getMembership(user.id, active.id),
+    getOnboardingState(active.id),
   ]);
   const canRun = membership ? can(membership.role, 'content:create') : false;
 
   if (!row) {
     return (
-      <div>
+      <div className="space-y-5">
         <PageHeader
           title={`Good to see you${firstName ? `, ${firstName}` : ''}`}
           description={`Aura works on ${active.name} in the background and reports back here.`}
         />
+        {/* Before the first briefing, setup IS the next action — so it leads,
+            expanded, above the explanation of what Aura will do with it. */}
+        {!setup.finished && <SetupChecklist state={setup} />}
         <GettingStarted canRun={canRun} />
       </div>
     );
@@ -83,6 +89,15 @@ export default async function OverviewPage() {
         }
       />
 
+      {/* Once Aura is reporting in, the briefing is the main event and setup
+          becomes a strip above it — still one clear next action, but no longer
+          the whole screen. It disappears for good when every step is done. */}
+      {!setup.finished && (
+        <div className="mb-5">
+          <SetupChecklist state={setup} variant="compact" />
+        </div>
+      )}
+
       <BriefingView
         briefingId={briefing.id}
         payload={briefing.payload}
@@ -101,12 +116,12 @@ export default async function OverviewPage() {
           <span className="text-muted-foreground">Go deeper:</span>
           {[
             { label: 'Content Studio', href: '/dashboard/content' },
-            { label: 'Trends', href: '/dashboard/trends' },
+            { label: 'Market trends', href: '/dashboard/trends' },
             { label: 'Competitors', href: '/dashboard/competitors' },
-            { label: 'Advisor', href: '/dashboard/advisor' },
-            { label: 'Planner', href: '/dashboard/planner' },
+            { label: 'Opportunities', href: '/dashboard/advisor' },
+            { label: 'Content plan', href: '/dashboard/planner' },
             { label: 'Leads', href: '/dashboard/leads' },
-            { label: 'Analytics', href: '/dashboard/analytics' },
+            { label: 'Results', href: '/dashboard/analytics' },
           ].map((l) => (
             <Link
               key={l.href}

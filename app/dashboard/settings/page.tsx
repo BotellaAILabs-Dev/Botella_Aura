@@ -9,6 +9,9 @@ import {
   Send,
   MessageCircle,
   CreditCard,
+  Users,
+  Palette,
+  ListChecks,
 } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
@@ -23,6 +26,7 @@ import { PageHeader } from '@/components/dashboard/page-header';
 import { CompanyProfileForm } from '@/components/dashboard/company-profile-form';
 import { TeamManager } from '@/components/dashboard/team-manager';
 import { EmailDiagnosticsCard } from '@/components/dashboard/email-diagnostics-card';
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -54,6 +58,13 @@ export default async function SettingsPage() {
       <PageHeader
         title="Settings"
         description="Manage your workspace profile and team."
+        actions={
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/dashboard/setup">
+              <ListChecks className="h-4 w-4" /> Setup progress
+            </Link>
+          </Button>
+        }
       />
 
       <CompanyProfileForm
@@ -96,6 +107,42 @@ export default async function SettingsPage() {
 
       {/* Sub-settings navigation (Sprint 2) */}
       <div className="grid gap-4 sm:grid-cols-2">
+        <Link href="/dashboard/settings/audience" className="group">
+          <Card className="h-full transition-shadow group-hover:shadow-md">
+            <CardHeader>
+              <div className="mb-1 flex items-center gap-2">
+                <Users className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">Audience &amp; goals</CardTitle>
+              </div>
+              <CardDescription>
+                Who you are writing for and what you want to happen. Aura reads
+                this on every draft.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
+              Describe your buyers <ChevronRight className="h-4 w-4" />
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link href="/dashboard/settings/brand" className="group">
+          <Card className="h-full transition-shadow group-hover:shadow-md">
+            <CardHeader>
+              <div className="mb-1 flex items-center gap-2">
+                <Palette className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">Brand assets</CardTitle>
+              </div>
+              <CardDescription>
+                Your logo and colours. Aura art-directs every graphic around
+                them.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
+              Add logo and colours <ChevronRight className="h-4 w-4" />
+            </CardContent>
+          </Card>
+        </Link>
+
         <Link href="/dashboard/settings/connections" className="group">
           <Card className="h-full transition-shadow group-hover:shadow-md">
             <CardHeader>

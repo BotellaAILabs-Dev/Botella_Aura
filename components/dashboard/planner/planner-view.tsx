@@ -78,14 +78,28 @@ const EMPTY: PlannerInputsView = {
 export function PlannerView({
   plan,
   savedInputs,
+  defaults,
   canGenerate,
 }: {
   plan: PlanView | null;
   savedInputs: PlannerInputsView | null;
+  /**
+   * The workspace's audience, goals and channels from settings, used to
+   * pre-fill a FIRST plan. Someone who already described their buyers once
+   * should not be asked to retype it here — that duplicate question is exactly
+   * what makes a first plan feel like paperwork.
+   *
+   * Only ever a starting point: a plan that has already been generated keeps
+   * its own saved brief, since editing that plan must not silently revert to
+   * workspace defaults.
+   */
+  defaults: Partial<PlannerInputsView> | null;
   canGenerate: boolean;
 }) {
   const router = useRouter();
-  const [form, setForm] = useState<PlannerInputsView>(savedInputs ?? EMPTY);
+  const [form, setForm] = useState<PlannerInputsView>(
+    savedInputs ?? { ...EMPTY, ...(defaults ?? {}) },
+  );
   const [topicsText, setTopicsText] = useState(
     (savedInputs?.topics ?? []).join(', '),
   );

@@ -4,9 +4,6 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ShieldCheck,
-  Radar,
-  PenLine,
-  MessageSquare,
   Check,
   ArrowRight,
   ArrowLeft,
@@ -31,8 +28,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { ACTIVE_COMPANY_COOKIE } from '@/lib/cookies';
+import { ONBOARDING_STEPS } from '@/lib/onboarding';
 
-const STEPS = ['Company', 'Brand voice', 'All set'] as const;
+const STEPS = ['Company', 'Brand voice', 'What happens next'] as const;
 
 const TONE_OPTIONS = [
   'Professional',
@@ -268,14 +266,14 @@ Create it anyway?`,
           {step === 0 && 'Tell us about your company'}
           {step === 1 && 'How should Aura sound?'}
           {step === 2 &&
-            `You're all set${userName ? `, ${userName.split(' ')[0]}` : ''}`}
+            `Nice to meet you${userName ? `, ${userName.split(' ')[0]}` : ''}`}
         </CardTitle>
         <CardDescription>
           {step === 0 &&
             'Aura analyzes this profile to tailor trends, content, and outreach.'}
           {step === 1 &&
             'Describe your brand voice so drafts sound like you — not a robot.'}
-          {step === 2 && "Here's what Botella Aura will do for you."}
+          {step === 2 && "Your workspace is ready. Here is what happens next."}
         </CardDescription>
       </CardHeader>
 
@@ -492,40 +490,56 @@ function Stepper({ current }: { current: number }) {
   );
 }
 
+/**
+ * The end of the wizard is the START of setup, not the end of it.
+ *
+ * This used to list three things Aura can do — true, but it left the user at
+ * the door of an app with no idea what to do first. Showing the actual
+ * remaining steps, drawn from the same ONBOARDING_STEPS the dashboard
+ * checklist renders, means the sequence they are about to see is the sequence
+ * they were just promised.
+ */
 function ConfirmationSummary() {
-  const items = [
-    {
-      icon: Radar,
-      title: 'Track trends',
-      body: 'Daily digests of what your market cares about.',
-    },
-    {
-      icon: PenLine,
-      title: 'Draft on-brand content',
-      body: 'Posts and carousels tuned to your voice.',
-    },
-    {
-      icon: MessageSquare,
-      title: 'Prepare outreach',
-      body: 'Personalized drafts you review before anything sends.',
-    },
-  ];
+  // Step 1 is what they just did in this wizard; step 7 is the payoff, shown
+  // separately below rather than as another chore.
+  const remaining = ONBOARDING_STEPS.slice(1, -1);
+
   return (
     <div className="space-y-4">
-      <div className="space-y-3">
-        {items.map((item) => (
-          <div key={item.title} className="flex gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <item.icon className="h-4 w-4" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-foreground">{item.title}</p>
-              <p className="text-sm text-muted-foreground">{item.body}</p>
-            </div>
-          </div>
-        ))}
+      <div>
+        <p className="text-sm font-medium text-foreground">
+          A few short steps and Aura can start working
+        </p>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          None of these are required. Each one makes what Aura writes noticeably
+          better, and your dashboard walks you through them one at a time.
+        </p>
       </div>
+
+      <ol className="space-y-3">
+        {remaining.map((step, i) => (
+          <li key={step.id} className="flex gap-3">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+              {i + 2}
+            </span>
+            <div>
+              <p className="text-sm font-medium text-foreground">{step.title}</p>
+              <p className="text-sm text-muted-foreground">{step.why}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+
       <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
+        <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+        <p className="text-sm text-foreground">
+          <span className="font-medium">Then Aura goes to work.</span> Every
+          Monday it writes your week&apos;s posts, makes a graphic for each,
+          checks what competitors changed, and leaves it all on your home page.
+        </p>
+      </div>
+
+      <div className="flex items-start gap-3 rounded-lg border border-border p-4">
         <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
         <p className="text-sm text-foreground">
           <span className="font-medium">You&apos;re always in control.</span>{' '}

@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { readMarketingProfile } from '@/server/company/profile.service';
 
 /**
  * Who the content is for.
@@ -24,6 +25,15 @@ export interface AudienceProfile {
   industries: string[];
   /** Company size/stage, e.g. "seed", "50-200". */
   companyStages: string[];
+  /**
+   * The workspace's own sentence about who it sells to, from the audience
+   * settings page. Takes priority over everything inferred: a human describing
+   * their buyer in prose ("ops leads still running everything in spreadsheets")
+   * carries context no tag list can.
+   */
+  stated?: string;
+  /** What the business is trying to achieve, so content can aim at it. */
+  goals?: string;
   /** Where the description came from, for transparency in the UI later. */
   sources: string[];
 }
@@ -31,7 +41,8 @@ export interface AudienceProfile {
 export async function getAudienceProfile(
   companyId: string,
 ): Promise<AudienceProfile | null> {
-  const [outreach, profiles] = await Promise.all([
+  const [company, outreach, profiles] = await Promise.all([
+    db.company.findUnique({ where: { id: companyId }, select: { preferences: true } }),
     db.outreachConfig.findUnique({ where: { companyId } }),
     db.discoveryProfile.findMany({
       where: { companyId, isActive: true },
@@ -40,6 +51,11 @@ export async function getAudienceProfile(
       select: { criteria: true },
     }),
   ]);
+
+  // What the workspace SAID about its buyers, which beats anything inferred
+  // from prospecting filters. Those exist to find companies; this exists to
+  // describe a reader.
+  const marketing = company ? readMarketingProfile(company) : null;
 
   const roleTitles = new Set<string>();
   const industries = new Set<string>();
@@ -73,7 +89,19 @@ export async function getAudienceProfile(
     sources.push('lead discovery profiles');
   }
 
-  if (roleTitles.size === 0 && industries.size === 0 && companyStages.size === 0) {
+  if (marketing?.audience || marketing?.goals) {
+    sources.push('audience settings');
+  }
+
+  // Nothing anywhere — the generator says so plainly rather than inventing a
+  // persona nobody described.
+  if (
+    roleTitles.size === 0 &&
+    industries.size === 0 &&
+    companyStages.size === 0 &&
+    !marketing?.audience &&
+    !marketing?.goals
+  ) {
     return null;
   }
 
@@ -81,6 +109,8 @@ export async function getAudienceProfile(
     roleTitles: [...roleTitles].slice(0, 8),
     industries: [...industries].slice(0, 8),
     companyStages: [...companyStages].slice(0, 5),
+    ...(marketing?.audience ? { stated: marketing.audience } : {}),
+    ...(marketing?.goals ? { goals: marketing.goals } : {}),
     sources,
   };
 }
@@ -102,23 +132,53 @@ export function audienceToPrompt(audience: AudienceProfile | null): string {
     ].join('\n');
   }
 
-  const who = audience.roleTitles.length
-    ? audience.roleTitles.slice(0, 4).join(', ')
-    : 'business decision-makers';
-  const where = audience.industries.length
-    ? ` working in ${audience.industries.slice(0, 4).join(', ')}`
-    : '';
-  const stage = audience.companyStages.length
-    ? ` at ${audience.companyStages.slice(0, 3).join(' / ')} companies`
-    : '';
+  const lines = ['WHO YOU ARE WRITING FOR:'];
 
-  return [
-    'WHO YOU ARE WRITING FOR:',
-    `Your reader is ${who}${where}${stage}.`,
+  // A sentence the user wrote themselves goes in verbatim and goes in FIRST.
+  // Paraphrasing it into role/industry tags would throw away the specifics
+  // ("still running everything in spreadsheets") that make it useful.
+  if (audience.stated) {
+    lines.push(`Your reader, in the company's own words: ${audience.stated}`);
+  }
+
+  if (!audience.stated || audience.roleTitles.length || audience.industries.length) {
+    const who = audience.roleTitles.length
+      ? audience.roleTitles.slice(0, 4).join(', ')
+      : 'business decision-makers';
+    const where = audience.industries.length
+      ? ` working in ${audience.industries.slice(0, 4).join(', ')}`
+      : '';
+    const stage = audience.companyStages.length
+      ? ` at ${audience.companyStages.slice(0, 3).join(' / ')} companies`
+      : '';
+    lines.push(
+      audience.stated
+        ? `They are typically ${who}${where}${stage}.`
+        : `Your reader is ${who}${where}${stage}.`,
+    );
+  }
+
+  lines.push(
     'Write TO that person. Every claim should connect to something they are',
     'measured on — revenue, cost, risk, time, or team capacity. If a sentence',
     'would not change how they spend their week, cut it.',
-  ].join('\n');
+  );
+
+  // The goal is what the writing is FOR. Stated as the job the post has to do,
+  // not as a target to mention — a post that recites "we want 15 demos" is
+  // exactly the wrong reading of this field.
+  if (audience.goals) {
+    lines.push(
+      '',
+      'WHAT THIS CONTENT IS FOR:',
+      `The business is working towards: ${audience.goals}`,
+      'Let that steer what you write about and what you ask the reader to do.',
+      'Never state the goal in the post itself — it is our objective, not their',
+      'concern.',
+    );
+  }
+
+  return lines.join('\n');
 }
 
 /**

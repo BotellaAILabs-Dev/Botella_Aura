@@ -7,6 +7,7 @@ import { resolveActiveCompany } from '@/lib/active-company';
 import { getMembership } from '@/server/services/company.service';
 import { can } from '@/lib/rbac';
 import { listPlans } from '@/server/planner/plan.service';
+import { getWorkspaceProfile } from '@/server/company/profile.service';
 import type { MarketingPlanPayload } from '@/server/planner/plan.service';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
@@ -33,9 +34,10 @@ export default async function PlannerPage({
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const [membership, plans] = await Promise.all([
+  const [membership, plans, { marketing }] = await Promise.all([
     getMembership(user.id, active.id),
     listPlans(active.id),
+    getWorkspaceProfile(active.id),
   ]);
   const canGenerate = membership ? can(membership.role, 'content:create') : false;
 
@@ -60,6 +62,18 @@ export default async function PlannerPage({
 
   const savedInputs = selected
     ? (selected.inputs as unknown as PlannerInputsView)
+    : null;
+
+  // Pre-fill a first plan from what the workspace already told us on the
+  // audience settings page, rather than asking the same questions twice.
+  // Channels only when they picked some — an empty list would wipe the
+  // sensible LinkedIn default and leave the form failing validation.
+  const plannerDefaults: Partial<PlannerInputsView> | null = marketing
+    ? {
+        ...(marketing.audience ? { audience: marketing.audience } : {}),
+        ...(marketing.goals ? { businessGoals: marketing.goals } : {}),
+        ...(marketing.channels?.length ? { channels: marketing.channels } : {}),
+      }
     : null;
 
   return (
@@ -109,6 +123,7 @@ export default async function PlannerPage({
       <PlannerView
         plan={plan}
         savedInputs={savedInputs}
+        defaults={plannerDefaults}
         canGenerate={canGenerate}
       />
     </div>
