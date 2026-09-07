@@ -24,12 +24,16 @@ const nextConfig = {
       static: 180,
     },
     /**
-     * Barrel-file imports (`import { X } from 'lucide-react'`) pull the whole
-     * package's module graph into a route's compile unit. Rewriting them to
-     * direct imports cuts dev-server compile time and the client bundle.
+     * Barrel-file imports (`import { X } from '@radix-ui/react-dialog'`) pull
+     * the whole package's module graph into a route's compile unit. Rewriting
+     * them to direct imports cuts dev-server compile time and bundle size.
+     *
+     * Next merges this with its own default list, which already covers
+     * lucide-react — so only the Radix packages below actually change
+     * anything. They are named explicitly rather than left to the default so
+     * the optimisation does not silently disappear if that list changes.
      */
     optimizePackageImports: [
-      'lucide-react',
       '@radix-ui/react-avatar',
       '@radix-ui/react-dialog',
       '@radix-ui/react-dropdown-menu',
