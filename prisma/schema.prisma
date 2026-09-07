@@ -735,6 +735,11 @@ model ContentDraft {
 
   @@index([companyId, status])
   @@index([companyId, scheduledFor])
+  /// Content Studio's board is `where companyId = ? order by updatedAt desc`,
+  /// and no existing index covers that sort — so Postgres read every draft in
+  /// the workspace and sorted them in memory on each page load. This one lets
+  /// it walk the top N straight off the index.
+  @@index([companyId, updatedAt])
   @@index([campaignId])
 }
 

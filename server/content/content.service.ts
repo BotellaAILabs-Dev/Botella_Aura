@@ -310,6 +310,20 @@ export async function markPublished(args: {
 
 // ---- Queries ---------------------------------------------------------------
 
+/**
+ * The board is capped rather than unbounded.
+ *
+ * Content Studio renders every draft a workspace has ever produced, newest
+ * first. That is fine at fifty rows and quietly ruinous at five thousand: the
+ * query grows without limit, every row's full JSON `body` crosses the wire
+ * from Postgres, and all of it is serialised into the RSC payload the browser
+ * must download and hydrate — so the page gets slower every week the product
+ * is used. A workspace with more drafts than this has a pagination problem to
+ * solve properly; it should not pay for that with a frozen tab in the
+ * meantime.
+ */
+const DRAFT_BOARD_LIMIT = 200;
+
 export async function listDrafts(
   companyId: string,
   filter?: { status?: ContentStatus },
@@ -317,7 +331,21 @@ export async function listDrafts(
   return db.contentDraft.findMany({
     where: { companyId, ...(filter?.status ? { status: filter.status } : {}) },
     orderBy: { updatedAt: 'desc' },
-    include: {
+    take: DRAFT_BOARD_LIMIT,
+    // Explicit column list, not the implicit select-all an `include` gives.
+    // The board uses eleven fields; fetching and deserialising the rest
+    // (rejectionReason, publishedUrl, createdById, …) only to discard them is
+    // pure cost on the widest query in the app.
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      title: true,
+      body: true,
+      aiMetadata: true,
+      platform: true,
+      scheduledFor: true,
+      updatedAt: true,
       campaign: { select: { id: true, name: true } },
       // Attached-media COUNT, not the media itself: the board only needs to
       // show whether a post has a graphic, and one aggregate beats a per-card

@@ -73,7 +73,15 @@ export function DashboardShell({
 
       {/* Main column */}
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-card/80 px-4 backdrop-blur sm:px-6">
+        {/* Opaque, not translucent-with-backdrop-blur.
+
+            A `backdrop-filter` on a `position: sticky` element forces the
+            compositor to re-blur the region behind the header on every scroll
+            frame, which is the classic source of stuttery scrolling on
+            integrated graphics. The card surface is opaque white anyway, so
+            at 80% + blur it was already reading as solid — this drops the
+            per-frame cost and looks the same. */}
+        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-card px-4 sm:px-6">
           <button
             onClick={() => setMobileOpen(true)}
             aria-label="Open menu"

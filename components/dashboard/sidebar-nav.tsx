@@ -1,7 +1,8 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { navBySection } from '@/lib/nav';
 import { cn } from '@/lib/utils';
 
@@ -14,6 +15,24 @@ import { cn } from '@/lib/utils';
  */
 export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  /**
+   * The link the user just clicked, highlighted before the router commits.
+   *
+   * `usePathname` only changes once the navigation lands, so on a slow route
+   * the clicked item stayed grey and the old one stayed highlighted — the nav
+   * looked like it had ignored the click. Painting the target immediately is
+   * the difference between "nothing happened" and "it's loading", and it costs
+   * one state update.
+   */
+  const [pending, setPending] = useState<string | null>(null);
+
+  // The navigation landed (or the user went somewhere else entirely) — the
+  // real pathname takes over again.
+  useEffect(() => {
+    setPending(null);
+  }, [pathname]);
 
   return (
     <nav className="flex flex-1 flex-col gap-1 px-3 py-4" aria-label="Primary">
@@ -25,15 +44,32 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
             </p>
           )}
           {section.items.map((item) => {
+            const current = pending ?? pathname;
             const active =
               item.href === '/dashboard'
-                ? pathname === '/dashboard'
-                : pathname.startsWith(item.href);
+                ? current === '/dashboard'
+                : current.startsWith(item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={onNavigate}
+                onClick={() => {
+                  setPending(item.href);
+                  onNavigate?.();
+                }}
+                /**
+                 * Warm the route on intent rather than on click.
+                 *
+                 * Dashboard routes are `force-dynamic`, so Next's automatic
+                 * prefetch only fetches the loading skeleton. Starting the real
+                 * render when the pointer arrives buys the server the ~200ms
+                 * between hover and click — usually enough that the page is
+                 * already in the Router Cache by the time it is needed.
+                 * `router.prefetch` de-duplicates, so re-hovering is free.
+                 */
+                onMouseEnter={() => router.prefetch(item.href)}
+                onFocus={() => router.prefetch(item.href)}
+                onTouchStart={() => router.prefetch(item.href)}
                 aria-current={active ? 'page' : undefined}
                 // The one-line "what you get" was already written for every
                 // item and rendered nowhere. Hovering a nav item is exactly

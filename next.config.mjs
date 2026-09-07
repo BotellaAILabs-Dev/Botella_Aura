@@ -3,6 +3,40 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
 
+  experimental: {
+    /**
+     * Client-side Router Cache lifetime.
+     *
+     * Every page under /dashboard is `force-dynamic`, and Next 14's default
+     * stale time for a dynamic segment is 0 — so re-opening a page you looked
+     * at ten seconds ago, or pressing Back, threw away the rendered tree and
+     * paid for the session lookup, the company query and the page's own
+     * queries all over again. That is the bulk of the "laggy" feel: not one
+     * slow query, but the same queries repeated on every navigation.
+     *
+     * 30s matches the TanStack Query staleTime in app/providers.tsx, so server
+     * and client data age out together. It is safe because every mutation in
+     * the app calls `router.refresh()`, which clears this cache outright —
+     * a navigation after a write always re-reads the database.
+     */
+    staleTimes: {
+      dynamic: 30,
+      static: 180,
+    },
+    /**
+     * Barrel-file imports (`import { X } from 'lucide-react'`) pull the whole
+     * package's module graph into a route's compile unit. Rewriting them to
+     * direct imports cuts dev-server compile time and the client bundle.
+     */
+    optimizePackageImports: [
+      'lucide-react',
+      '@radix-ui/react-avatar',
+      '@radix-ui/react-dialog',
+      '@radix-ui/react-dropdown-menu',
+      '@radix-ui/react-label',
+    ],
+  },
+
   images: {
     /**
      * Optimised images are re-fetched and re-encoded once their cache entry
