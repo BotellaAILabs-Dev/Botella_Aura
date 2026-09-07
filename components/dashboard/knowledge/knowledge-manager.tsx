@@ -20,6 +20,7 @@ import {
 } from '@/lib/materials';
 import type { MaterialCategory } from '@prisma/client';
 import { cn } from '@/lib/utils';
+import { LocalTime } from '@/components/ui/local-time';
 
 export interface KnowledgeSourceView {
   id: string;
@@ -237,8 +238,9 @@ export function KnowledgeManager({
                       <p className="text-sm font-medium text-foreground">{s.label}</p>
                       <p className="text-xs text-muted-foreground">
                         {s.chunkCount} chunks
-                        {s.lastSyncedAt &&
-                          ` · synced ${new Date(s.lastSyncedAt).toLocaleString()}`}
+                        {s.lastSyncedAt && (
+                          <> · synced <LocalTime iso={s.lastSyncedAt} /></>
+                        )}
                       </p>
                       {s.status === 'SYNCED' && s.chunkCount === 0 && (
                         <p className="mt-0.5 text-xs [color:hsl(var(--warning))]">

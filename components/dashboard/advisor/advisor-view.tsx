@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/card';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { LocalTime } from '@/components/ui/local-time';
 import type {
   AdvisorPayload,
   CampaignOpportunity,
@@ -112,7 +113,7 @@ export function AdvisorView({
                 <CardTitle className="text-base">What to run next</CardTitle>
                 <CardDescription>
                   Generated{' '}
-                  {new Date(report.generatedAt).toLocaleString()} ·{' '}
+                  <LocalTime iso={report.generatedAt} /> ·{' '}
                   {report.model === 'none'
                     ? 'rule-based (no AI provider configured)'
                     : `AI: ${report.model}`}

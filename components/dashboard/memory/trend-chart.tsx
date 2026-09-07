@@ -1,3 +1,4 @@
+import { DATE_LOCALE } from '@/lib/dates';
 /**
  * Minimal inline-SVG engagement trend chart (Sprint 5, Module 2). Deliberately
  * dependency-free — one clean line, not a BI dashboard. Server-rendered.
@@ -27,8 +28,8 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
   const line = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(p.engagement)}`).join(' ');
   const area = `${line} L ${x(points.length - 1)} ${H - P} L ${x(0)} ${H - P} Z`;
 
-  const first = new Date(points[0]!.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  const last = new Date(points[points.length - 1]!.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const first = new Date(points[0]!.date).toLocaleDateString(DATE_LOCALE, { month: 'short', day: 'numeric' });
+  const last = new Date(points[points.length - 1]!.date).toLocaleDateString(DATE_LOCALE, { month: 'short', day: 'numeric' });
 
   return (
     <div className="overflow-x-auto">

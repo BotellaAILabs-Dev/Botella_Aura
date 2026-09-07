@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { ContentTypeKey } from '@/lib/validations/content';
+import { DATE_LOCALE } from '@/lib/dates';
 
 export const metadata: Metadata = { title: 'Content calendar' };
 
@@ -90,7 +91,7 @@ export default async function CalendarPage({
 
   const prev = month === 0 ? `${year - 1}-12` : `${year}-${pad(month)}`;
   const next = month === 11 ? `${year + 1}-01` : `${year}-${pad(month + 2)}`;
-  const monthLabel = start.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+  const monthLabel = start.toLocaleString(DATE_LOCALE, { month: 'long', year: 'numeric' });
   const todayKey = now.getFullYear() === year && now.getMonth() === month ? now.getDate() : -1;
 
   return (

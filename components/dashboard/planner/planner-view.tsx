@@ -23,6 +23,8 @@ import { JobProgressBar } from '@/components/dashboard/jobs/job-progress';
 import { CONTENT_CHANNELS } from '@/lib/validations/planner';
 import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
 import type { ContentTypeKey } from '@/lib/validations/content';
+import { DATE_LOCALE } from '@/lib/dates';
+import { LocalTime } from '@/components/ui/local-time';
 
 export interface PlanItemView {
   date: string;
@@ -373,7 +375,7 @@ function Calendar({ plan }: { plan: PlanView }) {
                 {plan.model === 'none'
                   ? 'rule-based (no AI provider configured)'
                   : `AI: ${plan.model}`}{' '}
-                · generated {new Date(plan.generatedAt).toLocaleString()}
+                · generated <LocalTime iso={plan.generatedAt} />
               </CardDescription>
             </div>
           </div>
@@ -429,7 +431,7 @@ function PlanRow({ item }: { item: PlanItemView }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="default">
-              {new Date(`${item.date}T00:00:00Z`).toLocaleDateString(undefined, {
+              {new Date(`${item.date}T00:00:00Z`).toLocaleDateString(DATE_LOCALE, {
                 weekday: 'short',
                 month: 'short',
                 day: 'numeric',

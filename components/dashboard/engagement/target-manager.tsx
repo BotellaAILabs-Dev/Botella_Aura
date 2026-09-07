@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { classifyLinkedInUrl } from '@/lib/linkedin-url';
+import { LocalTime } from '@/components/ui/local-time';
 
 export interface TargetRow {
   id: string;
@@ -174,7 +175,7 @@ export function TargetManager({
                     </a>
                     {t.addedAt && (
                       <p className="text-xs text-muted-foreground">
-                        Added {new Date(t.addedAt).toLocaleDateString()}
+                        Added <LocalTime iso={t.addedAt} kind="date" />
                       </p>
                     )}
                   </div>

@@ -31,6 +31,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useGenerationJob } from '@/components/dashboard/jobs/use-generation-job';
 import { JobProgressBar } from '@/components/dashboard/jobs/job-progress';
+import { LocalTime } from '@/components/ui/local-time';
 import {
   ScoreDial,
   ScoreMeter,
@@ -184,7 +185,7 @@ export function IntelligenceView({
             </div>
             <p className="text-sm text-muted-foreground">{snapshot.overallBasis}</p>
             <p className="text-xs text-muted-foreground">
-              Calculated {new Date(snapshot.generatedAt).toLocaleString()} ·{' '}
+              Calculated <LocalTime iso={snapshot.generatedAt} /> ·{' '}
               {snapshot.model === 'none'
                 ? 'scores are deterministic; suggestions are rule-based (no AI provider configured)'
                 : `scores are deterministic; suggestions written by ${snapshot.model}`}

@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { LocalTime } from '@/components/ui/local-time';
 
 export interface ExtensionTokenRow {
   id: string;
@@ -191,10 +192,12 @@ export function ExtensionManager({
                       {t.label ?? 'Extension'}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Paired {new Date(t.createdAt).toLocaleDateString()}
-                      {t.lastUsedAt
-                        ? ` · last used ${new Date(t.lastUsedAt).toLocaleString()}`
-                        : ' · never used'}
+                      Paired <LocalTime iso={t.createdAt} kind="date" />
+                      {t.lastUsedAt ? (
+                        <> · last used <LocalTime iso={t.lastUsedAt} /></>
+                      ) : (
+                        ' · never used'
+                      )}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">

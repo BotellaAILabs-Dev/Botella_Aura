@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { LocalTime } from '@/components/ui/local-time';
 
 /** Weekly written report — generate + copy to forward to a boss/investor. */
 export function ReportCard({
@@ -59,9 +60,11 @@ export function ReportCard({
               <FileText className="h-4 w-4 text-primary" /> Weekly report
             </CardTitle>
             <CardDescription>
-              {generatedAt
-                ? `Generated ${new Date(generatedAt).toLocaleString()}`
-                : 'A shareable written summary of your results.'}
+              {generatedAt ? (
+                <>Generated <LocalTime iso={generatedAt} /></>
+              ) : (
+                'A shareable written summary of your results.'
+              )}
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">

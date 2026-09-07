@@ -14,12 +14,13 @@ import { Badge } from '@/components/ui/badge';
 import { GenerateReportButton } from '@/components/dashboard/competitors/generate-report-button';
 import { ReportView } from '@/components/dashboard/competitors/report-view';
 import type { CompetitorReportPayload } from '@/server/competitors/types';
+import { DATE_LOCALE } from '@/lib/dates';
 
 export const metadata: Metadata = { title: 'Competitor reports' };
 
 function weekLabel(start: Date, end: Date): string {
   const fmt = (d: Date) =>
-    d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    d.toLocaleDateString(DATE_LOCALE, { month: 'short', day: 'numeric' });
   return `${fmt(start)} – ${fmt(new Date(end.getTime() - 86_400_000))}`;
 }
 

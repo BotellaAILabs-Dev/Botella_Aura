@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { LocalTime } from '@/components/ui/local-time';
 import type {
   CompetitorCoverage,
   CompetitorReportPayload,
@@ -126,9 +127,11 @@ function EmptyExplainer({ coverage }: { coverage?: CompetitorCoverage }) {
         ) : null}
         {coverage.snapshots} snapshot{coverage.snapshots === 1 ? '' : 's'} in this
         week
-        {coverage.lastCapturedAt
-          ? `, most recent ${new Date(coverage.lastCapturedAt).toLocaleString()}`
-          : ''}
+        {coverage.lastCapturedAt ? (
+          <>, most recent <LocalTime iso={coverage.lastCapturedAt} /></>
+        ) : (
+          ''
+        )}
         .{' '}
         {coverage.baselineOnly &&
           'Changes are reported from the next capture onward.'}

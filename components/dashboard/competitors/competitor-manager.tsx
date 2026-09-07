@@ -39,6 +39,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Users } from 'lucide-react';
 import type { ChangesSummary } from '@/server/competitors/types';
 import { classifyLinkedInUrl } from '@/lib/linkedin-url';
+import { LocalTime } from '@/components/ui/local-time';
 
 export interface CompetitorRow {
   id: string;
@@ -368,11 +369,10 @@ function LatestSnapshot({ row }: { row: CompetitorRow }) {
     );
   }
   const s = row.latest.summary;
-  const captured = new Date(row.latest.capturedAt).toLocaleString();
   return (
     <div className="space-y-2 text-sm">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span>Last checked {captured}</span>
+        <span>Last checked <LocalTime iso={row.latest.capturedAt} /></span>
         {s.isBaseline ? (
           <Badge variant="default">Baseline captured</Badge>
         ) : s.hasChanges ? (

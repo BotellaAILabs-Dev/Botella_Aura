@@ -8,6 +8,7 @@ import {
   CircleDot,
 } from 'lucide-react';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { DATE_LOCALE } from '@/lib/dates';
 
 export interface TaskRow {
   id: string;
@@ -37,7 +38,7 @@ function statusVariant(s: string): BadgeProps['variant'] {
 }
 
 function fmtDay(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
+  return new Date(iso).toLocaleDateString(DATE_LOCALE, {
     weekday: 'short',
     month: 'short',
     day: 'numeric',

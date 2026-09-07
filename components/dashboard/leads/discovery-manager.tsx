@@ -23,6 +23,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { DATE_LOCALE } from '@/lib/dates';
+import { LocalTime } from '@/components/ui/local-time';
 
 export interface DiscoveryProfileRow {
   id: string;
@@ -49,7 +51,7 @@ const toList = (t: string) => t.split(',').map((s) => s.trim()).filter(Boolean);
 function nextRunLabel(lastRunAt: string | null): string {
   if (!lastRunAt) return 'after the first run';
   const next = new Date(new Date(lastRunAt).getTime() + 7 * 24 * 60 * 60 * 1000);
-  return next.toLocaleDateString(undefined, {
+  return next.toLocaleDateString(DATE_LOCALE, {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
@@ -344,9 +346,11 @@ export function DiscoveryManager({
                   </p>
                   <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
                     <Clock className="h-3 w-3" />
-                    {p.lastRunAt
-                      ? `Last run ${new Date(p.lastRunAt).toLocaleString()}`
-                      : 'Never run'}{' '}
+                    {p.lastRunAt ? (
+                      <>Last run <LocalTime iso={p.lastRunAt} /></>
+                    ) : (
+                      'Never run'
+                    )}{' '}
                     · {p.leadCount} leads · {p.runCount} runs
                   </p>
                   {p.autoRun && (

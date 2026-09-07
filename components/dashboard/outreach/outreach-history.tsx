@@ -7,6 +7,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { DATE_LOCALE } from '@/lib/dates';
 import {
   OUTREACH_STATUS_LABELS,
   OUTREACH_TYPE_LABELS,
@@ -35,7 +36,7 @@ export interface OutreachHistorySummary {
 
 function when(iso: string | null): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString(undefined, {
+  return new Date(iso).toLocaleDateString(DATE_LOCALE, {
     month: 'short',
     day: 'numeric',
   });

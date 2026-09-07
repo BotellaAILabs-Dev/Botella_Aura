@@ -15,6 +15,7 @@ import { RefreshDigestButton } from '@/components/dashboard/trends/refresh-butto
 import { DigestHistory } from '@/components/dashboard/trends/digest-history';
 import { TrendCard } from '@/components/dashboard/trends/trend-card';
 import { TrendSummary } from '@/components/dashboard/trends/trend-summary';
+import { DATE_LOCALE } from '@/lib/dates';
 
 
 export const metadata: Metadata = { title: 'Market trends' };
@@ -28,7 +29,7 @@ function dayLabel(d: Date): string {
   const key = isoDay(d);
   if (key === today) return 'Today';
   if (key === yest) return 'Yesterday';
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString(DATE_LOCALE, { month: 'short', day: 'numeric' });
 }
 
 export default async function TrendsPage({

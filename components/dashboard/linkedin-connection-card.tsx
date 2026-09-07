@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { getInitials } from '@/lib/utils';
+import { LocalTime } from '@/components/ui/local-time';
 
 export interface LinkedInStatusView {
   connected: boolean;
@@ -110,7 +111,7 @@ export function LinkedInConnectionCard({
                 </p>
                 {status.connectedAt && (
                   <p className="text-xs text-muted-foreground">
-                    Connected {new Date(status.connectedAt).toLocaleDateString()}
+                    Connected <LocalTime iso={status.connectedAt} kind="date" />
                   </p>
                 )}
               </div>

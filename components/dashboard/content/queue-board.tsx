@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toaster';
 import { CONTENT_TYPE_LABELS, CONTENT_STATUS_LABELS } from '@/lib/content-ui';
 import type { ContentTypeKey } from '@/lib/validations/content';
+import { LocalTime } from '@/components/ui/local-time';
 
 export interface DraftCard {
   id: string;
@@ -209,7 +210,7 @@ function Card({
         {draft.scheduledFor && (
           <span className="inline-flex items-center gap-1 text-primary">
             <CalendarClock className="h-3 w-3" />
-            {new Date(draft.scheduledFor).toLocaleDateString()}
+            <LocalTime iso={draft.scheduledFor} kind="date" />
           </span>
         )}
       </div>

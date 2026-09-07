@@ -12,6 +12,7 @@ import type { MarketingPlanPayload } from '@/server/planner/plan.service';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { DATE_LOCALE } from '@/lib/dates';
 import {
   PlannerView,
   type PlanView,
@@ -103,7 +104,7 @@ export default async function PlannerPage({
                 size="sm"
               >
                 <Link href={`/dashboard/planner?month=${key}`}>
-                  {p.month.toLocaleDateString(undefined, {
+                  {p.month.toLocaleDateString(DATE_LOCALE, {
                     month: 'short',
                     year: 'numeric',
                     timeZone: 'UTC',

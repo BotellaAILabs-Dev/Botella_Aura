@@ -1,4 +1,5 @@
 import type { AspectRatioKey } from '@/lib/platforms';
+import { DATE_LOCALE } from './dates';
 
 /**
  * Client-safe presentation helpers for Graphic Generation.
@@ -93,7 +94,7 @@ export function dayLabel(iso: string): string {
   if (days <= 0) return 'Today';
   if (days === 1) return 'Yesterday';
   if (days < 7) return `${days} days ago`;
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString(DATE_LOCALE, {
     month: 'short',
     day: 'numeric',
     year: date.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',

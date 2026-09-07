@@ -27,6 +27,8 @@ import type {
   BriefingActivity,
 } from '@/lib/validations/briefing';
 import type { ContentTypeKey } from '@/lib/validations/content';
+import { DATE_LOCALE } from '@/lib/dates';
+import { LocalTime } from '@/components/ui/local-time';
 
 /**
  * The weekly briefing, as a person reads it.
@@ -88,9 +90,13 @@ export function BriefingView({
     }
   }
 
-  const weekLabel = new Date(weekStart).toLocaleDateString(undefined, {
+  const weekLabel = new Date(weekStart).toLocaleDateString(DATE_LOCALE, {
     month: 'long',
     day: 'numeric',
+    // weekStart is UTC midnight (startOfIsoWeekUTC), so it must be read back
+    // in UTC. Without this a viewer behind UTC sees the previous day and the
+    // briefing is labelled a day early.
+    timeZone: 'UTC',
   });
 
   return (
@@ -142,7 +148,7 @@ export function BriefingView({
                   ` and made ${activity.graphicsGenerated} graphic${activity.graphicsGenerated === 1 ? '' : 's'}`}
               </span>
             )}
-            <span>· Updated {new Date(generatedAt).toLocaleString()}</span>
+            <span>· Updated <LocalTime iso={generatedAt} /></span>
           </div>
 
           {status === 'WORKING' && (
@@ -363,7 +369,7 @@ function CalendarRow({
 }: {
   item: BriefingPayload['calendar'][number];
 }) {
-  const day = new Date(`${item.date}T00:00:00.000Z`).toLocaleDateString(undefined, {
+  const day = new Date(`${item.date}T00:00:00.000Z`).toLocaleDateString(DATE_LOCALE, {
     weekday: 'short',
     day: 'numeric',
     timeZone: 'UTC',
