@@ -83,6 +83,13 @@ export class ImageProviderError extends Error {
 /** No provider has credentials on this deployment. */
 export class NoImageProviderError extends Error {
   readonly status = 503;
+  /**
+   * Never worth retrying: a missing API key is a deployment configuration
+   * fact, and it will still be missing three attempts later. Declared so
+   * `failJob` fails the run immediately instead of parking it in QUEUED
+   * announcing a retry that cannot help.
+   */
+  readonly retryable = false;
   constructor() {
     super(
       'No image provider is configured. Add an API key for OpenAI, Google, ' +

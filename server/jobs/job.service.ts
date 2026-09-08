@@ -186,15 +186,44 @@ export async function completeJob(
 }
 
 /**
+ * Some failures cannot possibly succeed on a retry, and the providers already
+ * say so — `ImageProviderError` carries `retryable`, set false for a rejected
+ * API key, a model the key cannot reach, and an exhausted plan quota.
+ *
+ * Duck-typed rather than imported so this stays a job-layer concern: any error
+ * that declares `retryable === false` is taken at its word, and anything that
+ * says nothing keeps the old attempt-count behaviour.
+ */
+function isPermanent(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'retryable' in error &&
+    (error as { retryable?: unknown }).retryable === false
+  );
+}
+
+/**
  * Fail a job. Under MAX_ATTEMPTS it returns to QUEUED so the reaper can try
  * again; the error is kept either way so the UI can say what went wrong even
  * while a retry is pending.
+ *
+ * A permanent failure skips that entirely. It used to not: retryability was
+ * decided by attempt count alone, so a job that failed because the API key has
+ * no quota went back to QUEUED announcing "Hit a snag — retrying…", was picked
+ * up by the reaper, failed identically, and repeated until the attempt budget
+ * ran out. The client meanwhile polls for a terminal status that does not
+ * arrive and eventually gives up with "this is taking longer than expected".
+ *
+ * That is the generation-loops-forever report: three identical doomed attempts
+ * plus a timeout, in place of one honest error the user could act on.
  */
 export async function failJob(jobId: string, error: unknown): Promise<void> {
   const message =
     error instanceof Error ? error.message : String(error ?? 'Unknown error');
   const job = await db.generationJob.findUnique({ where: { id: jobId } });
-  const retryable = (job?.attempts ?? MAX_ATTEMPTS) < MAX_ATTEMPTS;
+  const retryable =
+    !isPermanent(error) && (job?.attempts ?? MAX_ATTEMPTS) < MAX_ATTEMPTS;
 
   await db.generationJob.update({
     where: { id: jobId },
