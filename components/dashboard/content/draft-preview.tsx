@@ -1,8 +1,9 @@
-import { Linkedin, Twitter } from 'lucide-react';
+import { Image as ImageIcon, Linkedin, Twitter } from 'lucide-react';
 import {
   bodySchemaFor,
   type ContentTypeKey,
   type LinkedInPostBody,
+  type ImagePostBody,
   type CarouselBody,
   type ThreadBody,
   type BlogBody,
@@ -32,6 +33,8 @@ export function DraftPreview({
   switch (type) {
     case 'LINKEDIN_POST':
       return <PostPreview b={parsed.data as LinkedInPostBody} />;
+    case 'IMAGE_POST':
+      return <ImagePostPreview b={parsed.data as ImagePostBody} />;
     case 'CAROUSEL':
       return <CarouselPreview b={parsed.data as CarouselBody} />;
     case 'TWEET_THREAD':
@@ -74,6 +77,32 @@ function PostPreview({ b }: { b: LinkedInPostBody }) {
           </p>
         ))}
       </div>
+      <Hashtags tags={b.hashtags} />
+    </div>
+  );
+}
+
+/**
+ * Caption and the space the graphic will occupy.
+ *
+ * The empty frame is deliberate. This format is not finished without an image,
+ * and a preview that showed only the caption would look complete while being
+ * half a post — so the gap is drawn rather than left to be inferred.
+ */
+function ImagePostPreview({ b }: { b: ImagePostBody }) {
+  return (
+    <div className="mx-auto max-w-xl rounded-lg border border-border bg-card p-5 shadow-sm">
+      <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground">
+        <ImageIcon className="h-4 w-4 text-primary" /> Single image post preview
+      </div>
+      <div className="mb-4 flex aspect-square w-full items-center justify-center rounded-md border border-dashed border-border bg-muted/40">
+        <p className="px-6 text-center text-xs text-muted-foreground">
+          {b.altText
+            ? b.altText
+            : 'Your graphic goes here — generate or upload one below.'}
+        </p>
+      </div>
+      <p className="whitespace-pre-wrap text-sm text-foreground">{b.caption}</p>
       <Hashtags tags={b.hashtags} />
     </div>
   );

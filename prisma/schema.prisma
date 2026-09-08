@@ -67,6 +67,13 @@ enum ContentType {
   CAROUSEL
   TWEET_THREAD
   BLOG
+  /// A caption plus ONE image — the ordinary social post.
+  ///
+  /// Distinct from CAROUSEL, which is a multi-slide deck and was the only
+  /// image-led format available. Asking for a single graphic meant generating
+  /// a five-slide carousel and discarding four of them, so this exists to stop
+  /// the most common kind of post being the one the product could not express.
+  IMAGE_POST
 }
 
 /// Approval lifecycle for generated content. The core human-in-the-loop

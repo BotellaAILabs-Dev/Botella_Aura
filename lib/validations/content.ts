@@ -10,6 +10,7 @@ import { z } from 'zod';
 
 export const CONTENT_TYPES = [
   'LINKEDIN_POST',
+  'IMAGE_POST',
   'CAROUSEL',
   'TWEET_THREAD',
   'BLOG',
@@ -22,6 +23,20 @@ export const linkedInPostSchema = z.object({
   hook: z.string().min(1).max(300),
   paragraphs: z.array(z.string().min(1).max(1200)).min(3).max(5),
   hashtags: z.array(z.string().max(40)).max(8).default([]),
+});
+
+/**
+ * A caption plus one image.
+ *
+ * `caption` is the whole post, not a hook plus body: single-image posts read as
+ * one block on every network, and splitting them into paragraphs the way
+ * LINKEDIN_POST does would produce copy shaped for a format this is not.
+ */
+export const imagePostSchema = z.object({
+  caption: z.string().min(1).max(2200),
+  hashtags: z.array(z.string().max(40)).max(12).default([]),
+  /** Accessibility text for the graphic. Empty until an image is attached. */
+  altText: z.string().max(420).default(''),
 });
 
 export const carouselSlideSchema = z.object({
@@ -72,11 +87,13 @@ export const brandVoiceProfileSchema = z.object({
 export type BrandVoiceProfile = z.infer<typeof brandVoiceProfileSchema>;
 
 export type LinkedInPostBody = z.infer<typeof linkedInPostSchema>;
+export type ImagePostBody = z.infer<typeof imagePostSchema>;
 export type CarouselBody = z.infer<typeof carouselSchema>;
 export type ThreadBody = z.infer<typeof threadSchema>;
 export type BlogBody = z.infer<typeof blogSchema>;
 export type ContentBody =
   | LinkedInPostBody
+  | ImagePostBody
   | CarouselBody
   | ThreadBody
   | BlogBody;
@@ -86,6 +103,8 @@ export function bodySchemaFor(type: ContentTypeKey) {
   switch (type) {
     case 'LINKEDIN_POST':
       return linkedInPostSchema;
+    case 'IMAGE_POST':
+      return imagePostSchema;
     case 'CAROUSEL':
       return carouselSchema;
     case 'TWEET_THREAD':

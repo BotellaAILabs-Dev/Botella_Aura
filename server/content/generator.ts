@@ -50,6 +50,18 @@ const TYPE_SPECS: Record<ContentTypeKey, TypeSpec> = {
       '3-5 SHORT paragraphs (1-3 sentences each), skimmable. End with a light CTA. ' +
       'Hashtags without the # symbol.',
   },
+  IMAGE_POST: {
+    label: 'Single image post',
+    schemaText:
+      '{ "caption": string, "hashtags": string[0..12], "altText": string }',
+    guidance:
+      'A single-image social post: ONE caption that works as a whole, not a ' +
+      'hook plus body. The image carries the idea, so the caption adds what a ' +
+      'picture cannot say — context, the offer, the ask. 1-4 short sentences, ' +
+      'strong first line, ending in a clear CTA. Hashtags without the # symbol. ' +
+      '`altText` describes the graphic that should accompany it in one plain ' +
+      'sentence, for screen readers.',
+  },
   CAROUSEL: {
     label: 'Carousel',
     schemaText:

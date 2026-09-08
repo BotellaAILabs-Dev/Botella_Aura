@@ -142,6 +142,11 @@ export function defaultPlatformFor(type: ContentTypeKey): SocialPlatformKey {
   switch (type) {
     case 'TWEET_THREAD':
       return 'X';
+    // A single image is the native unit on Instagram, and the format is most
+    // often reached for by consumer brands — so it opens there rather than
+    // defaulting everything to the B2B network.
+    case 'IMAGE_POST':
+      return 'INSTAGRAM';
     case 'LINKEDIN_POST':
     case 'CAROUSEL':
     case 'BLOG':
@@ -171,6 +176,11 @@ export function platformsForType(type: ContentTypeKey): SocialPlatformKey[] {
   switch (type) {
     case 'LINKEDIN_POST':
       return ['LINKEDIN', 'FACEBOOK'];
+    // The one format every network takes: a caption and a picture. Listing all
+    // four is the point of the type — it is what you reach for when you want
+    // the same post everywhere, rather than a network-shaped one.
+    case 'IMAGE_POST':
+      return ['INSTAGRAM', 'FACEBOOK', 'LINKEDIN', 'X'];
     case 'CAROUSEL':
       return ['LINKEDIN', 'INSTAGRAM', 'FACEBOOK'];
     case 'TWEET_THREAD':

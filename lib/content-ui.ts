@@ -2,6 +2,7 @@ import {
   bodySchemaFor,
   type ContentTypeKey,
   type LinkedInPostBody,
+  type ImagePostBody,
   type CarouselBody,
   type ThreadBody,
   type BlogBody,
@@ -11,6 +12,7 @@ import {
 
 export const CONTENT_TYPE_LABELS: Record<ContentTypeKey, string> = {
   LINKEDIN_POST: 'LinkedIn post',
+  IMAGE_POST: 'Single image post',
   CAROUSEL: 'Carousel',
   TWEET_THREAD: 'X thread',
   BLOG: 'Blog draft',
@@ -38,6 +40,8 @@ export function draftSnippet(type: ContentTypeKey, body: unknown): string {
   switch (type) {
     case 'LINKEDIN_POST':
       return (parsed.data as LinkedInPostBody).hook;
+    case 'IMAGE_POST':
+      return (parsed.data as ImagePostBody).caption;
     case 'CAROUSEL':
       return (parsed.data as CarouselBody).title;
     case 'TWEET_THREAD':

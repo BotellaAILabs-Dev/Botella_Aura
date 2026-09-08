@@ -3,6 +3,7 @@ import {
   bodySchemaFor,
   type ContentTypeKey,
   type LinkedInPostBody,
+  type ImagePostBody,
   type CarouselBody,
   type ThreadBody,
   type BlogBody,
@@ -27,6 +28,11 @@ export function renderForManual(draft: ContentDraft): string {
         .filter((s) => s !== undefined)
         .join('\n')
         .trim();
+    }
+    case 'IMAGE_POST': {
+      const b = parsed.data as ImagePostBody;
+      const hashtags = b.hashtags.map((h) => `#${h.replace(/^#/, '')}`).join(' ');
+      return [b.caption, '', hashtags].join('\n').trim();
     }
     case 'CAROUSEL': {
       const b = parsed.data as CarouselBody;
