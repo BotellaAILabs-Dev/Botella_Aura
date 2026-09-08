@@ -259,6 +259,10 @@ export const PROVIDERS: Record<string, ConnectorProvider> = {
         'instagram_basic',
         'instagram_content_publish',
         'pages_read_engagement',
+        // Facebook Page posting. Separate grant from the Instagram one — an
+        // app approved for instagram_content_publish still cannot touch a Page
+        // feed without it.
+        'pages_manage_posts',
       ],
       clientIdEnv: 'META_CLIENT_ID',
       clientSecretEnv: 'META_CLIENT_SECRET',
@@ -266,7 +270,7 @@ export const PROVIDERS: Record<string, ConnectorProvider> = {
     async verify({ accessToken }) {
       const version = process.env.META_GRAPH_VERSION || 'v21.0';
       const data = await getJsonOrThrow(
-        `https://graph.facebook.com/${version}/me/accounts?fields=name,instagram_business_account{id,username}&access_token=${encodeURIComponent(
+        `https://graph.facebook.com/${version}/me/accounts?fields=id,name,instagram_business_account{id,username}&access_token=${encodeURIComponent(
           String(accessToken),
         )}`,
         {},
@@ -274,29 +278,40 @@ export const PROVIDERS: Record<string, ConnectorProvider> = {
       );
 
       const pages = (data.data ?? []) as Array<{
+        id?: string;
         name?: string;
         instagram_business_account?: { id?: string; username?: string };
       }>;
-      const linked = pages.find((p) => p.instagram_business_account?.id);
 
-      if (!linked) {
+      // A Page is the unit of publishing for BOTH networks, so a Page with no
+      // Instagram attached is a perfectly good connection — it just publishes
+      // to Facebook only. This used to hard-fail without a linked Instagram
+      // account, which locked every Facebook-only workspace out of a connector
+      // it had every right to use. Prefer a Page that has Instagram, since
+      // that one covers both; fall back to the first Page otherwise.
+      const linked = pages.find((p) => p.instagram_business_account?.id);
+      const page = linked ?? pages.find((p) => p.id);
+
+      if (!page) {
         throw new Error(
-          pages.length === 0
-            ? 'This Facebook account manages no Pages. Instagram publishing needs a Page with a linked Instagram Business account.'
-            : 'No Instagram Business account is linked to your Facebook Page. Link one in Meta Business Suite, then reconnect.',
+          'This Facebook account manages no Pages. Publishing needs a Page you administer — ' +
+            'create one in Meta Business Suite, then reconnect.',
         );
       }
 
-      const ig = linked.instagram_business_account!;
+      const ig = page.instagram_business_account;
       return {
-        accountLabel: ig.username
-          ? `@${ig.username} (${linked.name ?? 'Facebook Page'})`
-          : (linked.name ?? 'Meta account'),
-        // Non-secret. server/media/publishers/instagram.ts reads igUserId here.
+        accountLabel: ig?.username
+          ? `@${ig.username} (${page.name ?? 'Facebook Page'})`
+          : (page.name ?? 'Meta account'),
+        // Non-secret ids only. The page ACCESS TOKEN is deliberately not stored
+        // here — server/media/publishers/facebook.ts exchanges the user token
+        // for a fresh one per publish, so a rotated page token self-heals.
         metadata: {
-          igUserId: ig.id,
-          ...(ig.username ? { igUsername: ig.username } : {}),
-          ...(linked.name ? { pageName: linked.name } : {}),
+          ...(ig?.id ? { igUserId: ig.id } : {}),
+          ...(ig?.username ? { igUsername: ig.username } : {}),
+          ...(page.id ? { pageId: page.id } : {}),
+          ...(page.name ? { pageName: page.name } : {}),
         },
       };
     },

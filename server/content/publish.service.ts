@@ -22,6 +22,11 @@ import {
   LinkedInMediaError,
 } from '@/server/media/publishers/linkedin-image';
 import {
+  getFacebookContext,
+  publishFacebookPost,
+  FacebookPublishError,
+} from '@/server/media/publishers/facebook';
+import {
   getInstagramContext,
   publishInstagramImage,
   InstagramPublishError,
@@ -73,7 +78,7 @@ export type PublishResult =
 
 /** Which types can auto-publish through an official API at all. */
 export function canAutoPublish(type: ContentTypeKey): boolean {
-  return type === 'LINKEDIN_POST';
+  return type === 'LINKEDIN_POST' || type === 'IMAGE_POST';
 }
 
 /**
@@ -88,7 +93,11 @@ export function canAutoPublishTo(
   platform: SocialPlatformKey,
 ): boolean {
   if (platform === 'INSTAGRAM') return true; // needs media; checked at publish
-  if (platform === 'LINKEDIN') return type === 'LINKEDIN_POST';
+  // A Page post is a message plus an optional photo, so anything that renders
+  // to text qualifies — including a carousel, which posts as its first image.
+  if (platform === 'FACEBOOK') return true;
+  if (platform === 'LINKEDIN')
+    return type === 'LINKEDIN_POST' || type === 'IMAGE_POST';
   return false;
 }
 
@@ -167,6 +176,9 @@ export async function publishDraft({
 
   if (platform === 'INSTAGRAM') {
     return publishToInstagram({ companyId, userId, draftId, draft, media });
+  }
+  if (platform === 'FACEBOOK') {
+    return publishToFacebook({ companyId, userId, draftId, draft, media });
   }
   if (platform === 'LINKEDIN') {
     return publishToLinkedIn({ companyId, userId, draftId, draft, type, media });
@@ -354,6 +366,59 @@ async function postToLinkedIn(
 // ---------------------------------------------------------------------------
 // Instagram
 // ---------------------------------------------------------------------------
+
+/**
+ * Publish to a Facebook Page.
+ *
+ * The shape differs from Instagram in the one way that matters: a Page post
+ * with no image is a normal post, not an error, so there is no media guard
+ * here. When a graphic IS attached it publishes as a photo post, and a
+ * carousel publishes as its first image — the same reduction Instagram makes.
+ */
+async function publishToFacebook(args: {
+  companyId: string;
+  userId: string | null;
+  draftId: string;
+  draft: ContentDraft;
+  media: ResolvedMedia[];
+}): Promise<PublishResult> {
+  const { companyId, userId, draftId, draft, media } = args;
+  const message = renderForManual(draft);
+
+  const context = await getFacebookContext(companyId);
+  if (!context) {
+    return {
+      mode: 'manual',
+      text: message,
+      reason:
+        'Facebook isn’t connected for this workspace. Connect Meta in Settings → Connectors ' +
+        '(it needs a Facebook Page you administer). Until then the post is copied — publish it by hand.',
+    };
+  }
+
+  const first = media[0];
+  const imageUrl = first
+    ? signedAssetUrl(first.assetId, INSTAGRAM_ASSET_URL_TTL_MS).url
+    : null;
+
+  try {
+    const permalink = await publishFacebookPost({
+      context,
+      // Facebook truncates far later than this, but the same cap keeps a post
+      // identical across networks rather than subtly longer on one of them.
+      message: message.slice(0, 2200),
+      imageUrl,
+    });
+    await markPublished({ companyId, userId, draftId, publishedUrl: permalink });
+    return { mode: 'published', url: permalink };
+  } catch (err) {
+    if (err instanceof FacebookPublishError) {
+      logger.error('Facebook publish failed', { draftId, error: err.message });
+      return { mode: 'manual', text: message, reason: err.message };
+    }
+    throw err;
+  }
+}
 
 async function publishToInstagram(args: {
   companyId: string;
