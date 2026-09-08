@@ -21,6 +21,7 @@ import { CONTENT_TYPES, type ContentTypeKey } from '@/lib/validations/content';
 
 const TYPE_LABELS: Record<ContentTypeKey, string> = {
   LINKEDIN_POST: 'LinkedIn post',
+  IMAGE_POST: 'Single image post',
   CAROUSEL: 'Carousel',
   TWEET_THREAD: 'X thread',
   BLOG: 'Blog draft',
@@ -31,11 +32,21 @@ interface Campaign {
   name: string;
 }
 
-/** Modal to create a new draft from a brief or campaign, then open its editor. */
-export function CreateContentDialog() {
+/**
+ * Modal to create a new draft from a brief or campaign, then open its editor.
+ *
+ * `types` is the workspace's enabled format list, resolved on the server. It
+ * defaults to every format so the component keeps working anywhere it is
+ * rendered without one.
+ */
+export function CreateContentDialog({
+  types = [...CONTENT_TYPES],
+}: {
+  types?: ContentTypeKey[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [type, setType] = useState<ContentTypeKey>('LINKEDIN_POST');
+  const [type, setType] = useState<ContentTypeKey>(types[0] ?? 'LINKEDIN_POST');
   const [sourceKind, setSourceKind] = useState<'BRIEF' | 'CAMPAIGN'>('BRIEF');
   const [brief, setBrief] = useState('');
   const [campaignId, setCampaignId] = useState('');
@@ -127,7 +138,7 @@ export function CreateContentDialog() {
               value={type}
               onChange={(e) => setType(e.target.value as ContentTypeKey)}
             >
-              {CONTENT_TYPES.map((t) => (
+              {types.map((t) => (
                 <option key={t} value={t}>
                   {TYPE_LABELS[t]}
                 </option>

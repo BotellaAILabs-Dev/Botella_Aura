@@ -3,10 +3,14 @@
 import { db } from '@/lib/db';
 import {
   brandAssetsSchema,
+  contentFormatsSchema,
   marketingProfileSchema,
+  resolveEnabledFormats,
   type BrandAssets,
+  type ContentFormats,
   type MarketingProfile,
 } from '@/lib/validations/profile';
+import type { ContentTypeKey } from '@/lib/validations/content';
 
 /**
  * Reading and writing the workspace profile stored in `Company.preferences`.
@@ -43,6 +47,31 @@ export function readMarketingProfile(
   return parsed.success ? parsed.data : null;
 }
 
+export function readContentFormats(
+  company: Pick<Company, 'preferences'>,
+): ContentFormats | null {
+  const parsed = contentFormatsSchema.safeParse(bagOf(company).contentFormats ?? {});
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The formats this workspace may create, for the composer and the API.
+ *
+ * Resolves an unset or empty choice to every format, so narrowing is something
+ * a workspace opts into and a corrupt preferences bag can never leave someone
+ * unable to create anything.
+ */
+export async function getEnabledContentTypes(
+  companyId: string,
+): Promise<ContentTypeKey[]> {
+  const company = await db.company.findUnique({
+    where: { id: companyId },
+    select: { preferences: true },
+  });
+  if (!company) return resolveEnabledFormats(null);
+  return resolveEnabledFormats(readContentFormats(company));
+}
+
 /** Both halves in one read, for pages that show the whole profile. */
 export async function getWorkspaceProfile(companyId: string): Promise<{
   brand: BrandAssets | null;
@@ -68,7 +97,7 @@ export async function getWorkspaceProfile(companyId: string): Promise<{
  */
 async function mergeSection(
   companyId: string,
-  key: 'brand' | 'marketingProfile',
+  key: 'brand' | 'marketingProfile' | 'contentFormats',
   value: Record<string, unknown>,
 ): Promise<void> {
   const company = await db.company.findUnique({
@@ -112,5 +141,36 @@ export async function saveMarketingProfile(
   profile: MarketingProfile,
 ): Promise<void> {
   await mergeSection(companyId, 'marketingProfile', profile);
+}
+
+/**
+ * Persist the chosen formats.
+ *
+ * An empty list is a meaningful value here — it is how a workspace says "offer
+ * me all of them" — so this writes the section directly instead of going
+ * through mergeSection, whose empty-value stripping would delete the key and
+ * make "all" indistinguishable from "never set". They resolve the same today,
+ * but only one of them survives a future default that is narrower than all.
+ */
+export async function saveContentFormats(
+  companyId: string,
+  formats: ContentFormats,
+): Promise<void> {
+  const company = await db.company.findUnique({
+    where: { id: companyId },
+    select: { preferences: true },
+  });
+  if (!company) throw new Error('Company not found');
+
+  const bag = bagOf(company);
+  await db.company.update({
+    where: { id: companyId },
+    data: {
+      preferences: {
+        ...bag,
+        contentFormats: { enabled: formats.enabled },
+      } as Prisma.InputJsonObject,
+    },
+  });
 }
 

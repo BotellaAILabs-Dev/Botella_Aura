@@ -2,6 +2,8 @@ import { requireActiveCompany } from '@/lib/auth-helpers';
 import { can } from '@/lib/rbac';
 import { generateContentSchema } from '@/lib/validations/content';
 import { generateDraft } from '@/server/content/generator';
+import { getEnabledContentTypes } from '@/server/company/profile.service';
+import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
 import { ClaudeNotConfiguredError } from '@/server/ai/claude';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
@@ -16,6 +18,17 @@ export async function POST(req: Request) {
       return jsonError('Your role is read-only and cannot create content.', 403);
     }
     const input = generateContentSchema.parse(await req.json());
+
+    // The composer already hides formats this workspace turned off; this is
+    // what stops the same request succeeding when posted directly.
+    const enabled = await getEnabledContentTypes(company.id);
+    if (!enabled.includes(input.type)) {
+      return jsonError(
+        `${CONTENT_TYPE_LABELS[input.type]} is turned off for this workspace. ` +
+          'Enable it in Settings → Content formats.',
+        400,
+      );
+    }
 
     const draft = await generateDraft({
       companyId: company.id,

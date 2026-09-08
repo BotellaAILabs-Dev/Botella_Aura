@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { CONTENT_CHANNELS } from '@/lib/validations/planner';
+import { CONTENT_TYPES, type ContentTypeKey } from '@/lib/validations/content';
 
 /**
  * The workspace's own description of itself: its brand assets and who it is
@@ -85,6 +86,61 @@ export const marketingProfileSchema = z.object({
 });
 
 export type MarketingProfile = z.infer<typeof marketingProfileSchema>;
+
+// ---- Content formats -------------------------------------------------------
+
+/**
+ * Which content formats this workspace actually uses.
+ *
+ * Every workspace was offered all five, which is wrong in both directions: a
+ * consumer brand does not write blog drafts or hook-first LinkedIn essays, and
+ * a B2B one rarely wants an Instagram-shaped single image. Offering formats a
+ * team will never pick is not neutral — it is five choices to re-reject every
+ * time someone opens the composer.
+ *
+ * An EMPTY list means "all of them". That is deliberate: it is what every
+ * existing workspace has today, so this field changes nothing until someone
+ * opens the settings page and narrows it.
+ */
+export const contentFormatsSchema = z.object({
+  enabled: z.array(z.enum(CONTENT_TYPES)).max(CONTENT_TYPES.length).default([]),
+});
+
+export type ContentFormats = z.infer<typeof contentFormatsSchema>;
+
+/**
+ * The formats worth offering a workspace that has said what market it sells to.
+ *
+ * A suggestion the settings page seeds a fresh choice from — never applied
+ * behind anyone's back, because a workspace that has been publishing blogs
+ * should not silently lose the option on the day it ticks "B2C".
+ */
+export function recommendedFormatsFor(
+  mode: MarketMode | undefined,
+): ContentTypeKey[] {
+  if (mode === 'B2C') {
+    // Consumer attention is visual and short. The long-form written formats
+    // are the ones a consumer brand reliably never reaches for.
+    return ['IMAGE_POST', 'CAROUSEL', 'TWEET_THREAD'];
+  }
+  if (mode === 'B2B') {
+    return ['LINKEDIN_POST', 'BLOG', 'CAROUSEL', 'IMAGE_POST'];
+  }
+  return [...CONTENT_TYPES];
+}
+
+/**
+ * The formats a workspace may actually create, resolved for use.
+ *
+ * Falls back to everything on an empty or unparseable list, so a bad value in
+ * the preferences bag can never leave someone unable to create content at all.
+ */
+export function resolveEnabledFormats(
+  formats: ContentFormats | null,
+): ContentTypeKey[] {
+  const enabled = formats?.enabled ?? [];
+  return enabled.length > 0 ? enabled : [...CONTENT_TYPES];
+}
 
 /** True once the workspace has said something usable about its buyers or aims. */
 export function hasMarketingProfile(profile: MarketingProfile | null): boolean {

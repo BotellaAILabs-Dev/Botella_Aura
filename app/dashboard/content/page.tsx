@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PenLine } from 'lucide-react';
 import { CreateContentDialog } from '@/components/dashboard/content/create-content-dialog';
+import { getEnabledContentTypes } from '@/server/company/profile.service';
 import { QueueBoard, type DraftCard } from '@/components/dashboard/content/queue-board';
 import type { ContentTypeKey } from '@/lib/validations/content';
 
@@ -22,7 +23,10 @@ export default async function ContentPage() {
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const drafts = await listDrafts(active.id);
+  const [drafts, enabledTypes] = await Promise.all([
+    listDrafts(active.id),
+    getEnabledContentTypes(active.id),
+  ]);
   const cards: DraftCard[] = drafts.map((d) => {
     const meta = (d.aiMetadata ?? {}) as { source?: { kind?: string } };
     const type = d.type as ContentTypeKey;
@@ -61,7 +65,7 @@ export default async function ContentPage() {
                 <BookOpen className="h-4 w-4" /> Knowledge base
               </Link>
             </Button>
-            <CreateContentDialog />
+            <CreateContentDialog types={enabledTypes} />
           </div>
         }
       />
@@ -71,7 +75,7 @@ export default async function ContentPage() {
           icon={PenLine}
           title="No content yet"
           description="Generate your first draft from a brief or a trend. It lands here in Draft, and nothing publishes until you approve it."
-          action={<CreateContentDialog />}
+          action={<CreateContentDialog types={enabledTypes} />}
         />
       ) : (
         <QueueBoard drafts={cards} />
