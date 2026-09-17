@@ -26,7 +26,16 @@ import {
  * outcome. Widening this is a one-line change once the accepted sizes are
  * confirmed against a working endpoint.
  */
-const DEFAULT_BASE_URL = 'https://api.agnes-ai.com/v1';
+/**
+ * Note the /api/v1 prefix.
+ *
+ * Probing the host showed every path under /v1 returning 404, while the same
+ * paths under /api/v1 return 401 — so the routes live there and /v1 is a
+ * plausible-looking guess that can never work. A 404 reads as "this product is
+ * broken"; pointing at the real routes turns it into an ordinary auth error
+ * that names what to fix.
+ */
+const DEFAULT_BASE_URL = 'https://api.agnes-ai.com/api/v1';
 const DEFAULT_MODEL = 'agnes-image-2.0-flash';
 /** Image generation is slow; a short timeout produces false failures. */
 const TIMEOUT_MS = 120_000;
