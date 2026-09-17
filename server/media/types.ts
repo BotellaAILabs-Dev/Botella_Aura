@@ -66,6 +66,51 @@ export interface ImageGenerationProvider {
  * server-side only, because provider errors routinely echo the request body
  * back and occasionally include request headers with it.
  */
+/**
+ * The error to throw when a fan-out produced no images.
+ *
+ * Every provider that issues one call per variation needs this, and getting it
+ * wrong is expensive in a specific way. The naive version — throw a fresh
+ * `ImageProviderError('… returned no image for this prompt. Try rewording it.')`
+ * — is wrong twice over:
+ *
+ *   1. `retryable` defaults to TRUE, so the job layer parks the run in QUEUED
+ *      announcing "Hit a snag — retrying…" at 10%. With no cron reaper running
+ *      (every local dev machine), it sits there forever and the client
+ *      eventually gives up with "this is taking longer than expected".
+ *   2. It blames the PROMPT for what is usually a transport failure. A user
+ *      told to reword a perfectly good prompt will rewrite it repeatedly and
+ *      never get anywhere, because the request never reached the model.
+ *
+ * So: a real provider error is rethrown untouched, keeping its own status and
+ * retryability. Anything else keeps the underlying message and is retryable
+ * only when it actually looks transient.
+ */
+export function fanOutFailure(
+  provider: ImageProvider,
+  label: string,
+  lastError: unknown,
+): ImageProviderError {
+  if (lastError instanceof ImageProviderError) return lastError;
+
+  const message =
+    lastError instanceof Error ? lastError.message : String(lastError ?? '');
+  const transient =
+    lastError instanceof Error &&
+    /timeout|abort|socket|network|ECONNRESET|ETIMEDOUT|fetch failed/i.test(
+      `${lastError.name} ${lastError.message}`,
+    );
+
+  return new ImageProviderError(
+    provider,
+    transient
+      ? `${label} did not respond in time. Try again in a moment.`
+      : `${label} could not generate the image${message ? `: ${message}` : '.'}`,
+    502,
+    transient,
+  );
+}
+
 export class ImageProviderError extends Error {
   readonly status: number;
   constructor(

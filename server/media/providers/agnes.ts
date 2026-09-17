@@ -3,6 +3,7 @@ import { logger } from '@/lib/logger';
 import type { AspectRatioKey } from '@/lib/platforms';
 import {
   ImageProviderError,
+  fanOutFailure,
   type GeneratedImage,
   type ImageGenerationParams,
   type ImageGenerationProvider,
@@ -121,14 +122,11 @@ export const agnesImageProvider: ImageGenerationProvider = {
       else lastError = outcome.reason;
     }
 
-    if (images.length === 0) {
-      if (lastError instanceof ImageProviderError) throw lastError;
-      throw new ImageProviderError(
-        'AGNES',
-        'Agnes AI returned no image for this prompt. Try rewording it.',
-        502,
-      );
-    }
+    // Keeps the real cause and the provider's own retryability. Inventing a
+    // "try rewording it" here blames the prompt for a transport failure and,
+    // because ImageProviderError defaults to retryable, parks the job in
+    // QUEUED at 10% where nothing ever picks it up again.
+    if (images.length === 0) throw fanOutFailure('AGNES', 'Agnes AI', lastError);
     return images;
   },
 };

@@ -3,6 +3,7 @@ import { logger } from '@/lib/logger';
 import type { AspectRatioKey } from '@/lib/platforms';
 import {
   ImageProviderError,
+  fanOutFailure,
   type GeneratedImage,
   type ImageGenerationParams,
   type ImageGenerationProvider,
@@ -164,14 +165,9 @@ export const googleImageProvider: ImageGenerationProvider = {
       else lastError = outcome.reason;
     }
 
-    if (images.length === 0) {
-      if (lastError instanceof ImageProviderError) throw lastError;
-      throw new ImageProviderError(
-        'GOOGLE',
-        'Google returned no image for this prompt. Try rewording it.',
-        502,
-      );
-    }
+    // See fanOutFailure: the previous fallback defaulted to retryable and
+    // blamed the prompt, which parked doomed runs in QUEUED at 10%.
+    if (images.length === 0) throw fanOutFailure('GOOGLE', 'Google', lastError);
     return images;
   },
 };
