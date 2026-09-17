@@ -3,10 +3,12 @@
 import { db } from '@/lib/db';
 import {
   brandAssetsSchema,
+  businessProfileSchema,
   contentFormatsSchema,
   marketingProfileSchema,
   resolveEnabledFormats,
   type BrandAssets,
+  type BusinessProfile,
   type ContentFormats,
   type MarketingProfile,
 } from '@/lib/validations/profile';
@@ -37,6 +39,13 @@ export function readBrandAssets(
   company: Pick<Company, 'preferences'>,
 ): BrandAssets | null {
   const parsed = brandAssetsSchema.safeParse(bagOf(company).brand ?? {});
+  return parsed.success ? parsed.data : null;
+}
+
+export function readBusinessProfile(
+  company: Pick<Company, 'preferences'>,
+): BusinessProfile | null {
+  const parsed = businessProfileSchema.safeParse(bagOf(company).business ?? {});
   return parsed.success ? parsed.data : null;
 }
 
@@ -76,15 +85,17 @@ export async function getEnabledContentTypes(
 export async function getWorkspaceProfile(companyId: string): Promise<{
   brand: BrandAssets | null;
   marketing: MarketingProfile | null;
+  business: BusinessProfile | null;
 }> {
   const company = await db.company.findUnique({
     where: { id: companyId },
     select: { preferences: true },
   });
-  if (!company) return { brand: null, marketing: null };
+  if (!company) return { brand: null, marketing: null, business: null };
   return {
     brand: readBrandAssets(company),
     marketing: readMarketingProfile(company),
+    business: readBusinessProfile(company),
   };
 }
 

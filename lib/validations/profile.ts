@@ -60,6 +60,46 @@ export type BrandAssets = z.infer<typeof brandAssetsSchema>;
  * workspaces, each with its own mode — not one workspace trying to average two
  * opposite voices.
  */
+/**
+ * What the business actually does, in one or two sentences.
+ *
+ * This was the largest hole in the workspace profile. The generator's system
+ * prompt opened with `You are the content writer for ${company.name}.` and,
+ * if an industry happened to be set, `They operate in: ${industry}.` — which
+ * is a name and a category, not a business. Asked to write a post on that, a
+ * model has no choice but to invent the product, the customer and the claim.
+ * That is the mechanism behind generic, off-target drafts: not a weak prompt,
+ * but an empty one.
+ *
+ * Deliberately prose, not structured fields. "We rent out serviced offices to
+ * startups in Hyderabad and handle the fit-out" steers a model far harder than
+ * any set of tags, for the same reason `audience` below is free text.
+ */
+export const businessProfileSchema = z.object({
+  description: z
+    .string()
+    .trim()
+    .max(600)
+    .optional()
+    .or(z.literal(''))
+    .transform((v) => v || undefined),
+  /** What they sell, when it is worth naming separately from the description. */
+  offerings: z
+    .string()
+    .trim()
+    .max(400)
+    .optional()
+    .or(z.literal(''))
+    .transform((v) => v || undefined),
+});
+
+export type BusinessProfile = z.infer<typeof businessProfileSchema>;
+
+/** True once the workspace has said what it does in its own words. */
+export function hasBusinessProfile(profile: BusinessProfile | null): boolean {
+  return Boolean(profile?.description);
+}
+
 export const MARKET_MODES = ['B2C', 'B2B'] as const;
 export type MarketMode = (typeof MARKET_MODES)[number];
 

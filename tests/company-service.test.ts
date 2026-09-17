@@ -44,6 +44,11 @@ describe('createCompanyForUser', () => {
         name: 'Acme Inc.',
         website: 'https://acme.com',
         industry: 'SaaS',
+        description: 'We sell payroll software to small startups.',
+        offerings: 'Payroll runs, compliance filing',
+        marketMode: 'B2B',
+        audience: 'Founders at 10-200 person startups.',
+        goals: '15 demos a month',
         brandVoiceNotes: 'Warm and practical.',
       },
     });
@@ -56,6 +61,17 @@ describe('createCompanyForUser', () => {
       role: 'OWNER',
     });
     expect(createArg.data.onboardedAt).toBeInstanceOf(Date);
+
+    // The wizard's answers to "what do you do" and "who buys from you" used to
+    // be dropped on the floor here; every prompt downstream reads them.
+    expect(createArg.data.preferences).toMatchObject({
+      business: { description: 'We sell payroll software to small startups.' },
+      marketingProfile: {
+        marketMode: 'B2B',
+        audience: 'Founders at 10-200 person startups.',
+        goals: '15 demos a month',
+      },
+    });
   });
 
   it('appends a numeric suffix when the slug already exists', async () => {
@@ -66,7 +82,15 @@ describe('createCompanyForUser', () => {
 
     const company = await createCompanyForUser({
       userId: 'user_1',
-      input: { name: 'Acme', website: undefined, industry: '', brandVoiceNotes: '' },
+      input: {
+        name: 'Acme',
+        website: undefined,
+        industry: '',
+        description: 'We sell payroll software to small startups.',
+        marketMode: 'B2B',
+        audience: 'Founders at 10-200 person startups.',
+        brandVoiceNotes: '',
+      },
     });
 
     expect(company.slug).toBe('acme-1');
@@ -75,7 +99,15 @@ describe('createCompanyForUser', () => {
   it('writes COMPANY_CREATED and ONBOARDING_COMPLETED audit entries', async () => {
     await createCompanyForUser({
       userId: 'user_1',
-      input: { name: 'Acme', website: undefined, industry: '', brandVoiceNotes: '' },
+      input: {
+        name: 'Acme',
+        website: undefined,
+        industry: '',
+        description: 'We sell payroll software to small startups.',
+        marketMode: 'B2B',
+        audience: 'Founders at 10-200 person startups.',
+        brandVoiceNotes: '',
+      },
     });
 
     const actions = auditCreate.mock.calls.map((c) => c[0].data.action);

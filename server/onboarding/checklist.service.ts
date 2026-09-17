@@ -4,8 +4,16 @@ import {
   type OnboardingStepDef,
   type OnboardingStepId,
 } from '@/lib/onboarding';
-import { hasBrandAssets, hasMarketingProfile } from '@/lib/validations/profile';
-import { readBrandAssets, readMarketingProfile } from '@/server/company/profile.service';
+import {
+  hasBrandAssets,
+  hasBusinessProfile,
+  hasMarketingProfile,
+} from '@/lib/validations/profile';
+import {
+  readBrandAssets,
+  readBusinessProfile,
+  readMarketingProfile,
+} from '@/server/company/profile.service';
 
 /**
  * Which setup steps a workspace has actually completed.
@@ -64,6 +72,7 @@ export async function getOnboardingState(companyId: string): Promise<OnboardingS
 
   const brand = company ? readBrandAssets(company) : null;
   const marketing = company ? readMarketingProfile(company) : null;
+  const business = company ? readBusinessProfile(company) : null;
   const channelCount = connections + linkedIn;
 
   // A step's `done` and its `detail` are decided together so they can never
@@ -71,10 +80,21 @@ export async function getOnboardingState(companyId: string): Promise<OnboardingS
   // be worse than no detail at all.
   const results: Record<OnboardingStepId, { done: boolean; detail?: string }> = {
     business: {
-      // The wizard always sets a name, so a name alone proves nothing. Industry
-      // is what the trend, competitor and content prompts actually read.
-      done: Boolean(company?.industry?.trim()),
-      detail: company?.industry?.trim() || undefined,
+      /**
+       * Done when the workspace has said what it DOES, not when it has picked
+       * an industry label.
+       *
+       * This step used to key off `industry`, which onboarding presented as
+       * optional — so a user who finished the wizard landed on a dashboard
+       * whose first item told them to go and add the business information they
+       * had just been told they could skip. The wizard now requires a
+       * description and writes it here, so finishing onboarding genuinely
+       * completes this step.
+       */
+      done: hasBusinessProfile(business),
+      detail: business?.description
+        ? company?.industry?.trim() || 'Described'
+        : undefined,
     },
     materials: {
       done: materials > 0,

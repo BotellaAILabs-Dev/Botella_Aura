@@ -44,6 +44,32 @@ export async function createCompanyForUser({
   return db.$transaction(async (tx: Prisma.TransactionClient) => {
     const slug = await uniqueSlug(tx, input.name);
 
+    /**
+     * Everything the wizard collected, persisted in one go.
+     *
+     * The business description, market mode, audience and goals live in the
+     * `preferences` bag alongside brand assets and autopilot settings — the
+     * established extension point for workspace profile data (see
+     * lib/validations/profile.ts), so no migration is needed and older
+     * workspaces keep parsing cleanly.
+     *
+     * Before this, the wizard's answers to these questions had nowhere to go:
+     * createCompanyForUser wrote four columns and dropped the rest, so a user
+     * who described their buyers during onboarding still arrived at a
+     * dashboard that believed it had never been told.
+     */
+    const preferences: Prisma.InputJsonValue = {
+      business: {
+        ...(input.description ? { description: input.description } : {}),
+        ...(input.offerings ? { offerings: input.offerings } : {}),
+      },
+      marketingProfile: {
+        ...(input.marketMode ? { marketMode: input.marketMode } : {}),
+        ...(input.audience ? { audience: input.audience } : {}),
+        ...(input.goals ? { goals: input.goals } : {}),
+      },
+    };
+
     const company = await tx.company.create({
       data: {
         name: input.name,
@@ -51,6 +77,7 @@ export async function createCompanyForUser({
         website: input.website ?? null,
         industry: input.industry || null,
         brandVoiceNotes: input.brandVoiceNotes || null,
+        preferences,
         onboardedAt: new Date(),
         members: {
           create: { userId, role: 'OWNER' },
@@ -145,7 +172,48 @@ export async function updateCompany({
     data.brandVoiceNotes = input.brandVoiceNotes || null;
   if (input.logoUrl !== undefined) data.logoUrl = input.logoUrl || null;
 
+  const editsBusiness =
+    input.description !== undefined || input.offerings !== undefined;
+
   return db.$transaction(async (tx: Prisma.TransactionClient) => {
+    /**
+     * Merge, never replace.
+     *
+     * `preferences` is shared with brand assets, the marketing profile and
+     * autopilot settings, so writing a fresh object here would silently delete
+     * whatever else the workspace had configured. Read-modify-write inside the
+     * same transaction keeps the other keys intact.
+     */
+    if (editsBusiness) {
+      const current = await tx.company.findUnique({
+        where: { id: companyId },
+        select: { preferences: true },
+      });
+      const bag =
+        current?.preferences &&
+        typeof current.preferences === 'object' &&
+        !Array.isArray(current.preferences)
+          ? (current.preferences as Record<string, unknown>)
+          : {};
+      const business =
+        bag.business && typeof bag.business === 'object' && !Array.isArray(bag.business)
+          ? (bag.business as Record<string, unknown>)
+          : {};
+
+      data.preferences = {
+        ...bag,
+        business: {
+          ...business,
+          ...(input.description !== undefined
+            ? { description: input.description || undefined }
+            : {}),
+          ...(input.offerings !== undefined
+            ? { offerings: input.offerings || undefined }
+            : {}),
+        },
+      } as Prisma.InputJsonValue;
+    }
+
     const company = await tx.company.update({
       where: { id: companyId },
       data,

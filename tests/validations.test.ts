@@ -42,6 +42,7 @@ describe('company validation schemas', () => {
       name: 'Acme Inc.',
       website: 'acme.com',
       industry: 'SaaS',
+      description: 'We roast coffee in small batches and ship within 48 hours.',
     });
     expect(parsed.website).toBe('https://acme.com');
   });
@@ -50,17 +51,24 @@ describe('company validation schemas', () => {
     const parsed = companyStep1Schema.parse({
       name: 'Acme',
       website: 'http://acme.io',
+      description: 'We roast coffee in small batches and ship within 48 hours.',
     });
     expect(parsed.website).toBe('http://acme.io');
   });
 
   it('treats an empty website as undefined (optional)', () => {
-    const parsed = companyStep1Schema.parse({ name: 'Acme', website: '' });
+    const parsed = companyStep1Schema.parse({
+      name: 'Acme',
+      website: '',
+      description: 'We roast coffee in small batches and ship within 48 hours.',
+    });
     expect(parsed.website).toBeUndefined();
   });
 
   it('rejects a company name shorter than 2 chars', () => {
-    expect(companyStep1Schema.safeParse({ name: 'A' }).success).toBe(false);
+    expect(
+      companyStep1Schema.safeParse({ name: 'A', description: 'We roast coffee in small batches and ship within 48 hours.' }).success,
+    ).toBe(false);
   });
 
   it('accepts a full onboarding payload', () => {
@@ -68,9 +76,33 @@ describe('company validation schemas', () => {
       name: 'Botella',
       website: 'botella.ai',
       industry: 'B2B SaaS',
+      description: 'We build an AI marketing co-pilot for small teams.',
+      marketMode: 'B2B',
+      audience: 'Marketing leads at 10-200 person companies.',
       brandVoiceNotes: 'Warm, practical, no hype.',
     });
     expect(parsed.name).toBe('Botella');
     expect(parsed.brandVoiceNotes).toBe('Warm, practical, no hype.');
+    expect(parsed.marketMode).toBe('B2B');
+  });
+
+  /**
+   * The wizard must not be able to create a workspace that cannot be written
+   * for. These two fields are the ones every generation prompt reads first.
+   */
+  it('rejects an onboarding payload with no business description', () => {
+    const result = companyStep1Schema.safeParse({
+      name: 'Acme',
+      website: 'acme.com',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a too-vague business description', () => {
+    const result = companyStep1Schema.safeParse({
+      name: 'Acme',
+      description: 'we sell stuff',
+    });
+    expect(result.success).toBe(false);
   });
 });

@@ -30,6 +30,8 @@ interface Props {
     name: string;
     website: string | null;
     industry: string | null;
+    description: string | null;
+    offerings: string | null;
     brandVoiceNotes: string | null;
   };
 }
@@ -48,6 +50,8 @@ export function CompanyProfileForm({ companyId, canEdit, initial }: Props) {
       name: initial.name,
       website: initial.website ?? '',
       industry: initial.industry ?? '',
+      description: initial.description ?? '',
+      offerings: initial.offerings ?? '',
       brandVoiceNotes: initial.brandVoiceNotes ?? '',
     },
   });
@@ -121,6 +125,40 @@ export function CompanyProfileForm({ companyId, canEdit, initial }: Props) {
                 </p>
               )}
             </div>
+          </div>
+
+          {/* The description leads, because it is what every prompt reads
+              first and the most common reason drafts come out generic. */}
+          <div className="space-y-1.5">
+            <Label htmlFor="description">What your business does</Label>
+            <Textarea
+              id="description"
+              rows={3}
+              disabled={!canEdit}
+              placeholder="Plain language — what you do, for whom, and what makes it different."
+              aria-invalid={!!errors.description}
+              {...register('description')}
+            />
+            {errors.description ? (
+              <p className="text-xs text-destructive">
+                {errors.description.message}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                If Aura writes something vague or wrong about you, this is
+                usually the field to fix.
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="offerings">What you sell</Label>
+            <Input
+              id="offerings"
+              disabled={!canEdit}
+              placeholder="Your main products or services"
+              {...register('offerings')}
+            />
           </div>
 
           <div className="space-y-1.5">

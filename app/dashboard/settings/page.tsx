@@ -25,6 +25,7 @@ import {
 import { getTeam } from '@/server/services/team.service';
 import { can } from '@/lib/rbac';
 import { PageHeader } from '@/components/dashboard/page-header';
+import { getWorkspaceProfile } from '@/server/company/profile.service';
 import { CompanyProfileForm } from '@/components/dashboard/company-profile-form';
 import { TeamManager } from '@/components/dashboard/team-manager';
 import { EmailDiagnosticsCard } from '@/components/dashboard/email-diagnostics-card';
@@ -45,10 +46,11 @@ export default async function SettingsPage() {
   // Layout guarantees an active company, but guard for types.
   if (!active) return null;
 
-  const [company, membership, team] = await Promise.all([
+  const [company, membership, team, profile] = await Promise.all([
     getCompanyById(active.id),
     getMembership(user.id, active.id),
     getTeam(active.id),
+    getWorkspaceProfile(active.id),
   ]);
   if (!company || !membership) return null;
 
@@ -76,6 +78,8 @@ export default async function SettingsPage() {
           name: company.name,
           website: company.website,
           industry: company.industry,
+          description: profile.business?.description ?? null,
+          offerings: profile.business?.offerings ?? null,
           brandVoiceNotes: company.brandVoiceNotes,
         }}
       />

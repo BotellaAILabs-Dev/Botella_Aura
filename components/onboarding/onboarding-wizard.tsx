@@ -8,13 +8,17 @@ import {
   ArrowRight,
   ArrowLeft,
   Sparkles,
+  Store,
+  Briefcase,
 } from 'lucide-react';
 import { toast } from '@/components/ui/toaster';
 
 import {
   companyStep1Schema,
+  companyAudienceSchema,
   type CreateCompanyInput,
 } from '@/lib/validations/company';
+import type { MarketMode } from '@/lib/validations/profile';
 import {
   Card,
   CardContent,
@@ -30,34 +34,109 @@ import { cn } from '@/lib/utils';
 import { ACTIVE_COMPANY_COOKIE } from '@/lib/cookies';
 import { ONBOARDING_STEPS } from '@/lib/onboarding';
 
-const STEPS = ['Company', 'Brand voice', 'What happens next'] as const;
+/**
+ * Onboarding, as the three things Aura cannot write without.
+ *
+ * The wizard used to ask for a company name, an optional industry and a tone,
+ * then drop the user on a dashboard whose very first checklist item told them
+ * to go and add their business information — the thing they thought they had
+ * just done. Worse, the questions it skipped are the ones the generator leans
+ * on hardest: what the business actually sells, and who it sells to. Both were
+ * buried in Settings, so every new workspace generated its first content from a
+ * company name alone.
+ *
+ * So the steps now mirror what the content engine actually reads:
+ * business → audience → voice. Each one is short, and each is a question whose
+ * answer visibly changes what Aura writes.
+ */
+const STEPS = ['Business', 'Audience', 'Voice', 'What happens next'] as const;
 
-const TONE_OPTIONS = [
-  'Professional',
-  'Friendly',
-  'Confident',
-  'Warm',
-  'Bold',
-  'Playful',
-  'Technical',
-  'Inspirational',
-  'Concise',
-  'No hype',
-];
+/**
+ * Tone options, split by who is being sold to.
+ *
+ * The single list was written for B2B — "Technical", "No hype" and "Concise"
+ * are the vocabulary of a software buyer, and offering them to a restaurant or
+ * a clothing label invites a voice that reads like a procurement memo.
+ */
+const TONE_OPTIONS: Record<MarketMode, string[]> = {
+  B2B: [
+    'Professional',
+    'Confident',
+    'Direct',
+    'Technical',
+    'Analytical',
+    'Concise',
+    'No hype',
+    'Authoritative',
+  ],
+  B2C: [
+    'Friendly',
+    'Warm',
+    'Playful',
+    'Bold',
+    'Honest',
+    'Inspirational',
+    'Down to earth',
+    'Cheeky',
+  ],
+};
 
-const INDUSTRY_OPTIONS = [
-  'B2B SaaS',
-  'E-commerce',
-  'Fintech',
-  'Healthcare',
-  'Marketing agency',
-  'Real estate',
-  'Education',
-  'Professional services',
-  'Manufacturing',
-  'Hospitality',
-  'Non-profit',
-];
+const INDUSTRY_OPTIONS: Record<MarketMode, string[]> = {
+  B2B: [
+    'B2B SaaS',
+    'Fintech',
+    'Marketing agency',
+    'Professional services',
+    'Manufacturing',
+    'Logistics',
+    'Recruitment',
+    'Consulting',
+    'Healthcare',
+    'Education',
+  ],
+  B2C: [
+    'Food & beverage',
+    'Restaurant & hospitality',
+    'Beauty & skincare',
+    'Fashion & apparel',
+    'Fitness & wellness',
+    'Retail & e-commerce',
+    'Travel & leisure',
+    'Home & interiors',
+    'Real estate',
+    'Events',
+  ],
+};
+
+/**
+ * Placeholders are worked examples, not shapes.
+ *
+ * "Acme Inc." tells someone the field wants a company name, which they already
+ * knew. A filled-in answer from a plausible business shows the LEVEL OF DETAIL
+ * that makes the field useful — which is the actual thing people get wrong
+ * when they write one vague line and wonder why the output is vague.
+ */
+const EXAMPLES: Record<
+  MarketMode,
+  { description: string; offerings: string; audience: string; goals: string }
+> = {
+  B2B: {
+    description:
+      'e.g. We run payroll and compliance for Indian startups with 10–200 staff, so founders never touch a spreadsheet or a filing deadline.',
+    offerings: 'e.g. Monthly payroll runs, PF/ESI filing, contractor payments',
+    audience:
+      'e.g. Founders and ops leads at 10–200 person startups who are still doing payroll in Excel and have been burned by a late filing.',
+    goals: 'e.g. 15 demo calls a month, and rank for "startup payroll India"',
+  },
+  B2C: {
+    description:
+      'e.g. We roast single-origin coffee in small batches in Hyderabad and ship it within 48 hours of roasting.',
+    offerings: 'e.g. Whole bean subscriptions, gift boxes, a café in Jubilee Hills',
+    audience:
+      'e.g. People in their 20s–40s who already own a grinder, care where the beans come from, and are bored of supermarket coffee.',
+    goals: 'e.g. 200 subscription signups this quarter, more weekday café footfall',
+  },
+};
 
 export function OnboardingWizard({
   userName,
@@ -75,9 +154,14 @@ export function OnboardingWizard({
     name: '',
     website: undefined,
     industry: '',
+    description: '',
+    offerings: '',
+    marketMode: 'B2B',
+    audience: '',
+    goals: '',
     brandVoiceNotes: '',
   });
-  // Step 2 structure + live preview.
+  // Step 3 structure + live preview.
   const [tones, setTones] = useState<string[]>([]);
   const [preview, setPreview] = useState<string | null>(null);
   const [previewNote, setPreviewNote] = useState<string | null>(null);
@@ -86,6 +170,9 @@ export function OnboardingWizard({
   const [previewRetryable, setPreviewRetryable] = useState(false);
   /** Set once the user has confirmed they really want a same-named workspace. */
   const [duplicateConfirmed, setDuplicateConfirmed] = useState(false);
+
+  const mode: MarketMode = data.marketMode ?? 'B2B';
+  const examples = EXAMPLES[mode];
 
   function toggleTone(t: string) {
     setTones((prev) =>
@@ -117,6 +204,16 @@ export function OnboardingWizard({
     }
   }
 
+  /**
+   * The preview now carries the whole profile, not just a name and a tone.
+   *
+   * This is the first thing Aura ever writes for someone, and it used to be
+   * generated from the company name alone — so it invented a product and a
+   * "recent win" that had never happened. Shown during onboarding, that reads
+   * as the product being confidently wrong about your business. Sending the
+   * description, audience and market mode makes the sample checkable, which is
+   * the only version of this feature worth showing.
+   */
   async function runPreview() {
     if (!data.name.trim()) return;
     setPreviewLoading(true);
@@ -129,6 +226,10 @@ export function OnboardingWizard({
         body: JSON.stringify({
           name: data.name,
           industry: data.industry ?? '',
+          description: data.description ?? '',
+          offerings: data.offerings ?? '',
+          marketMode: mode,
+          audience: data.audience ?? '',
           brandVoiceNotes: composeNotes(),
         }),
       });
@@ -150,7 +251,7 @@ export function OnboardingWizard({
       setPreviewNote(body.note ?? null);
       setPreviewRetryable(Boolean(body.retryable));
     } catch {
-      // A network drop must not read like a broken product on step 2.
+      // A network drop must not read like a broken product on the voice step.
       setPreviewNote(
         'We could not reach the preview service. Your details are saved — you can continue and try later.',
       );
@@ -167,21 +268,42 @@ export function OnboardingWizard({
     setData((prev) => ({ ...prev, [key]: value }));
   }
 
-  function validateStep1(): boolean {
+  /** Map a Zod failure onto per-field messages, first issue per field wins. */
+  function applyIssues(issues: { path: (string | number)[]; message: string }[]) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of issues) {
+      const key = issue.path[0];
+      if (typeof key === 'string' && !fieldErrors[key]) {
+        fieldErrors[key] = issue.message;
+      }
+    }
+    setErrors(fieldErrors);
+  }
+
+  function validateBusiness(): boolean {
     const result = companyStep1Schema.safeParse({
       name: data.name,
       website: data.website ?? '',
       industry: data.industry ?? '',
+      description: data.description ?? '',
+      offerings: data.offerings ?? '',
     });
     if (!result.success) {
-      const fieldErrors: Record<string, string> = {};
-      for (const issue of result.error.issues) {
-        const key = issue.path[0];
-        if (typeof key === 'string' && !fieldErrors[key]) {
-          fieldErrors[key] = issue.message;
-        }
-      }
-      setErrors(fieldErrors);
+      applyIssues(result.error.issues);
+      return false;
+    }
+    setErrors({});
+    return true;
+  }
+
+  function validateAudience(): boolean {
+    const result = companyAudienceSchema.safeParse({
+      marketMode: mode,
+      audience: data.audience ?? '',
+      goals: data.goals ?? '',
+    });
+    if (!result.success) {
+      applyIssues(result.error.issues);
       return false;
     }
     setErrors({});
@@ -189,7 +311,8 @@ export function OnboardingWizard({
   }
 
   function next() {
-    if (step === 0 && !validateStep1()) return;
+    if (step === 0 && !validateBusiness()) return;
+    if (step === 1 && !validateAudience()) return;
     setStep((s) => Math.min(s + 1, STEPS.length - 1));
   }
   function back() {
@@ -206,6 +329,11 @@ export function OnboardingWizard({
           name: data.name,
           website: data.website ?? '',
           industry: data.industry ?? '',
+          description: data.description ?? '',
+          offerings: data.offerings ?? '',
+          marketMode: mode,
+          audience: data.audience ?? '',
+          goals: data.goals ?? '',
           brandVoiceNotes: composeNotes(),
           confirmDuplicate: duplicateConfirmed,
         }),
@@ -263,17 +391,20 @@ Create it anyway?`,
       <CardHeader>
         <Stepper current={step} />
         <CardTitle className="mt-4 text-2xl">
-          {step === 0 && 'Tell us about your company'}
-          {step === 1 && 'How should Aura sound?'}
-          {step === 2 &&
+          {step === 0 && 'What does your business do?'}
+          {step === 1 && 'Who are you selling to?'}
+          {step === 2 && 'How should Aura sound?'}
+          {step === 3 &&
             `Nice to meet you${userName ? `, ${userName.split(' ')[0]}` : ''}`}
         </CardTitle>
         <CardDescription>
           {step === 0 &&
-            'Aura analyzes this profile to tailor trends, content, and outreach.'}
+            'Aura writes from this. The more concrete you are, the less it has to guess.'}
           {step === 1 &&
+            'The biggest single thing you can tell Aura — it changes how everything is written.'}
+          {step === 2 &&
             'Describe your brand voice so drafts sound like you — not a robot.'}
-          {step === 2 && "Your workspace is ready. Here is what happens next."}
+          {step === 3 && 'Your workspace is ready. Here is what happens next.'}
         </CardDescription>
       </CardHeader>
 
@@ -287,14 +418,53 @@ Create it anyway?`,
                 value={data.name}
                 onChange={(e) => update('name', e.target.value)}
                 aria-invalid={!!errors.name}
-                placeholder="Acme Inc."
+                placeholder="Your company's name"
               />
               {errors.name && (
                 <p className="text-xs text-destructive">{errors.name}</p>
               )}
             </div>
+
+            {/* The field the whole product was missing. Required, and asked
+                first, because nothing downstream works without it. */}
             <div className="space-y-1.5">
-              <Label htmlFor="website">Website</Label>
+              <Label htmlFor="description">What do you do?</Label>
+              <Textarea
+                id="description"
+                rows={3}
+                value={data.description ?? ''}
+                onChange={(e) => update('description', e.target.value)}
+                aria-invalid={!!errors.description}
+                placeholder={examples.description}
+              />
+              {errors.description ? (
+                <p className="text-xs text-destructive">{errors.description}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Plain language, like you would explain it to someone at a
+                  party. This is the single biggest input to everything Aura
+                  writes.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="offerings">
+                What do you sell?{' '}
+                <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Input
+                id="offerings"
+                value={data.offerings ?? ''}
+                onChange={(e) => update('offerings', e.target.value)}
+                placeholder={examples.offerings}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="website">
+                Website <span className="text-muted-foreground">(optional)</span>
+              </Label>
               <Input
                 id="website"
                 value={data.website ?? ''}
@@ -311,6 +481,7 @@ Create it anyway?`,
                 </p>
               )}
             </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="industry">
                 Industry <span className="text-muted-foreground">(optional)</span>
@@ -320,10 +491,10 @@ Create it anyway?`,
                 list="industry-options"
                 value={data.industry ?? ''}
                 onChange={(e) => update('industry', e.target.value)}
-                placeholder="Start typing… e.g. B2B SaaS"
+                placeholder="Start typing…"
               />
               <datalist id="industry-options">
-                {INDUSTRY_OPTIONS.map((o) => (
+                {[...INDUSTRY_OPTIONS.B2C, ...INDUSTRY_OPTIONS.B2B].map((o) => (
                   <option key={o} value={o} />
                 ))}
               </datalist>
@@ -332,12 +503,89 @@ Create it anyway?`,
         )}
 
         {step === 1 && (
+          <div className="space-y-5">
+            {/* Market mode leads, because it changes the meaning of every
+                answer below it — and of every post Aura writes afterwards. */}
+            <div className="space-y-1.5">
+              <Label>Who buys from you?</Label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <ModeCard
+                  active={mode === 'B2C'}
+                  icon={Store}
+                  title="People"
+                  detail="Someone spending their own money"
+                  onClick={() => {
+                    update('marketMode', 'B2C');
+                    setTones([]);
+                    setPreview(null);
+                  }}
+                />
+                <ModeCard
+                  active={mode === 'B2B'}
+                  icon={Briefcase}
+                  title="Businesses"
+                  detail="Someone buying for their company"
+                  onClick={() => {
+                    update('marketMode', 'B2B');
+                    setTones([]);
+                    setPreview(null);
+                  }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {mode === 'B2C'
+                  ? 'Aura will write about how something looks, tastes or feels — not about ROI.'
+                  : 'Aura will tie every claim to revenue, cost, risk or time saved.'}
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="audience">Describe your typical customer</Label>
+              <Textarea
+                id="audience"
+                rows={3}
+                value={data.audience ?? ''}
+                onChange={(e) => update('audience', e.target.value)}
+                aria-invalid={!!errors.audience}
+                placeholder={examples.audience}
+              />
+              {errors.audience ? (
+                <p className="text-xs text-destructive">{errors.audience}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  One real person, not a segment. What are they already doing,
+                  and what annoys them about it?
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="goals">
+                What are you trying to achieve?{' '}
+                <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Textarea
+                id="goals"
+                rows={2}
+                value={data.goals ?? ''}
+                onChange={(e) => update('goals', e.target.value)}
+                placeholder={examples.goals}
+              />
+              <p className="text-xs text-muted-foreground">
+                Aura aims content at this. It never mentions it in a post.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {step === 2 && (
           <div className="space-y-4">
-            {/* Quick-select tone chips give non-writers structure to start from. */}
+            {/* Quick-select tone chips give non-writers structure to start
+                from, drawn from the market they just picked. */}
             <div className="space-y-1.5">
               <Label>Pick a tone (tap any)</Label>
               <div className="flex flex-wrap gap-1.5">
-                {TONE_OPTIONS.map((t) => {
+                {TONE_OPTIONS[mode].map((t) => {
                   const on = tones.includes(t);
                   return (
                     <button
@@ -366,20 +614,25 @@ Create it anyway?`,
               </Label>
               <Textarea
                 id="brandVoiceNotes"
-                rows={5}
+                rows={4}
                 value={data.brandVoiceNotes ?? ''}
                 onChange={(e) => {
                   update('brandVoiceNotes', e.target.value);
                   setPreview(null);
                 }}
-                placeholder="e.g. Speak to busy founders. Prefer concrete examples over buzzwords. Never overpromise."
+                placeholder={
+                  mode === 'B2C'
+                    ? 'e.g. Never call it "premium". Talk about the people who make it. Short sentences.'
+                    : 'e.g. Speak to busy founders. Prefer concrete examples over buzzwords. Never overpromise.'
+                }
               />
               <p className="text-xs text-muted-foreground">
                 You can refine this anytime in Settings.
               </p>
             </div>
 
-            {/* Live preview — makes the abstract "voice" concrete before committing. */}
+            {/* Live preview — now written from the real business profile, so
+                it is something the user can actually check for accuracy. */}
             <div className="rounded-lg border border-border bg-muted/30 p-3">
               <div className="flex items-center justify-between gap-2">
                 <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
@@ -397,9 +650,16 @@ Create it anyway?`,
                 </Button>
               </div>
               {preview && (
-                <p className="mt-3 whitespace-pre-line rounded-md bg-background p-3 text-sm text-foreground shadow-xs">
-                  {preview}
-                </p>
+                <>
+                  <p className="mt-3 whitespace-pre-line rounded-md bg-background p-3 text-sm text-foreground shadow-xs">
+                    {preview}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Written from what you told Aura about your business. If
+                    anything here is wrong, go back and sharpen your
+                    description — that is what fixes it.
+                  </p>
+                </>
               )}
               {!preview && previewNote && (
                 <div className="mt-3 space-y-2">
@@ -421,14 +681,14 @@ Create it anyway?`,
               )}
               {!preview && !previewNote && !previewLoading && (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  See a real post written in this voice before you continue.
+                  See a real post about your business before you continue.
                 </p>
               )}
             </div>
           </div>
         )}
 
-        {step === 2 && <ConfirmationSummary />}
+        {step === 3 && <ConfirmationSummary />}
       </CardContent>
 
       <div className="flex items-center justify-between gap-3 p-6 pt-0">
@@ -450,6 +710,48 @@ Create it anyway?`,
         )}
       </div>
     </Card>
+  );
+}
+
+/** One half of the B2C/B2B choice. */
+function ModeCard({
+  active,
+  icon: Icon,
+  title,
+  detail,
+  onClick,
+}: {
+  active: boolean;
+  icon: typeof Store;
+  title: string;
+  detail: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'flex items-start gap-3 rounded-lg border p-3 text-left transition-colors',
+        active
+          ? 'border-primary bg-primary/5'
+          : 'border-border hover:bg-muted/50',
+      )}
+    >
+      <Icon
+        className={cn(
+          'mt-0.5 h-5 w-5 shrink-0',
+          active ? 'text-primary' : 'text-muted-foreground',
+        )}
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-foreground">
+          {title}
+        </span>
+        <span className="block text-xs text-muted-foreground">{detail}</span>
+      </span>
+    </button>
   );
 }
 
@@ -498,11 +800,15 @@ function Stepper({ current }: { current: number }) {
  * remaining steps, drawn from the same ONBOARDING_STEPS the dashboard
  * checklist renders, means the sequence they are about to see is the sequence
  * they were just promised.
+ *
+ * The wizard now completes the business AND audience steps, so both are
+ * dropped from the remaining list — the checklist they land on agrees.
  */
 function ConfirmationSummary() {
-  // Step 1 is what they just did in this wizard; step 7 is the payoff, shown
-  // separately below rather than as another chore.
-  const remaining = ONBOARDING_STEPS.slice(1, -1);
+  const done = new Set(['business', 'audience']);
+  const remaining = ONBOARDING_STEPS.filter(
+    (s) => !done.has(s.id) && s.id !== 'review',
+  );
 
   return (
     <div className="space-y-4">
@@ -520,7 +826,7 @@ function ConfirmationSummary() {
         {remaining.map((step, i) => (
           <li key={step.id} className="flex gap-3">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-              {i + 2}
+              {i + 1}
             </span>
             <div>
               <p className="text-sm font-medium text-foreground">{step.title}</p>

@@ -13,6 +13,8 @@ import {
 import {
   getAudienceProfile,
   audienceToPrompt,
+  businessToPrompt,
+  getBusinessProfile,
   contentRulesFor,
 } from '@/server/content/audience';
 import { getActiveMemories, memoriesToPrompt } from '@/server/memory/memory.service';
@@ -118,6 +120,9 @@ export async function generateDraft({
   // Who this is for. Reused from outreach targeting and discovery profiles —
   // the workspace already stated its buyers there.
   const audience = await getAudienceProfile(companyId);
+  // What the company sells, in their own words. Without it the prompt below
+  // names a company and describes nobody's product.
+  const business = await getBusinessProfile(companyId);
   // Sprint 5 — inject learned performance patterns ("gets smarter every week").
   // Empty string when the company has no real insights yet, so fresh accounts
   // are unaffected (no fabricated guidance).
@@ -128,7 +133,7 @@ export async function generateDraft({
   const spec = TYPE_SPECS[type];
   const system = [
     `You are the content writer for ${company.name}.`,
-    company.industry ? `They operate in: ${company.industry}.` : '',
+    businessToPrompt(business, company.industry),
     '',
     // The reader comes BEFORE the voice. Without it the model writes about the
     // subject rather than to a person, which is what "generic" actually is.
@@ -226,10 +231,12 @@ export async function refineDraft({
   // reader and the same rules. Without them, refining drifted back towards the
   // generic writing the first pass had been steered away from.
   const audience = await getAudienceProfile(draft.companyId);
+  const business = await getBusinessProfile(draft.companyId);
   const spec = TYPE_SPECS[draft.type as ContentTypeKey];
 
   const system = [
     `You are the content writer for ${company.name}.`,
+    businessToPrompt(business, company.industry),
     '',
     audienceToPrompt(audience),
     '',

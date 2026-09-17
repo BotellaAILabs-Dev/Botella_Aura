@@ -7,6 +7,8 @@ import {
 } from '@/server/ai/claude';
 import { logger } from '@/lib/logger';
 import { handleRouteError, jsonOk } from '@/lib/api';
+import { contentRulesFor } from '@/server/content/audience';
+import { MARKET_MODES } from '@/lib/validations/profile';
 
 /**
  * A sample post is short, but it needs room: the model budget covers thinking
@@ -33,6 +35,10 @@ export const maxDuration = 60;
 const previewSchema = z.object({
   name: z.string().trim().min(1).max(80),
   industry: z.string().trim().max(80).optional().or(z.literal('')),
+  description: z.string().trim().max(600).optional().or(z.literal('')),
+  offerings: z.string().trim().max(400).optional().or(z.literal('')),
+  marketMode: z.enum(MARKET_MODES).optional(),
+  audience: z.string().trim().max(600).optional().or(z.literal('')),
   brandVoiceNotes: z.string().trim().max(2000).optional().or(z.literal('')),
 });
 
@@ -49,12 +55,46 @@ export async function POST(req: Request) {
       });
     }
 
-    const system =
-      `You are the social writer for ${input.name}` +
-      (input.industry ? ` (${input.industry})` : '') +
-      `. Brand voice: ${input.brandVoiceNotes || 'professional, practical, no hype'}. ` +
-      'Write ONE short LinkedIn post (a punchy hook + 2 short lines) that sounds ' +
-      'exactly like this brand. No hashtags, no preamble, no quotes — just the post.';
+    /**
+     * The sample is written from the real profile, and is told plainly not to
+     * invent anything.
+     *
+     * The old prompt passed a name, an optional industry and a tone, then
+     * asked for "a sample post about a recent win or insight". With no facts
+     * to work from the model had to fabricate the win — so the first thing a
+     * new user ever saw Aura write was a confident claim about something their
+     * business had not done. That is worse than no preview: it teaches them,
+     * correctly, not to trust the output.
+     *
+     * The platform follows the market too. A LinkedIn post is the right shape
+     * for a business buyer and the wrong one for a consumer brand, which was
+     * hard-coded before.
+     */
+    const consumer = input.marketMode === 'B2C';
+    const platform = consumer
+      ? 'ONE short social post (Instagram or Facebook)'
+      : 'ONE short LinkedIn post';
+
+    const system = [
+      `You are the social writer for ${input.name}.`,
+      input.description
+        ? `WHAT THEY DO: ${input.description}`
+        : 'They have not described what they do, so stay general and make no specific claims.',
+      input.offerings ? `WHAT THEY SELL: ${input.offerings}` : '',
+      input.industry ? `INDUSTRY: ${input.industry}` : '',
+      input.audience ? `WHO THEY ARE WRITING FOR: ${input.audience}` : '',
+      `BRAND VOICE: ${input.brandVoiceNotes || 'natural, practical, no hype'}`,
+      '',
+      contentRulesFor(input.marketMode ?? 'B2B'),
+      '',
+      `Write ${platform}: a hook plus two short lines, in this brand's voice.`,
+      'Use ONLY the facts above. Do not invent products, customers, numbers,',
+      'awards, launches or milestones. If you have little to work with, write',
+      'something smaller and true rather than something impressive and made up.',
+      'No hashtags, no preamble, no quotes — just the post.',
+    ]
+      .filter(Boolean)
+      .join('\n');
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
@@ -62,7 +102,8 @@ export async function POST(req: Request) {
         const sample = await complete({
           system,
           prompt:
-            'Write a sample LinkedIn post about a recent win or insight, in our voice.',
+            'Write one sample post introducing what we do to someone who has ' +
+            'not heard of us. Stick to the facts given.',
           maxTokens: MAX_TOKENS,
           effort: 'low',
           timeoutMs: 45_000,

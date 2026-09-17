@@ -1,6 +1,9 @@
 import { db } from '@/lib/db';
-import { readMarketingProfile } from '@/server/company/profile.service';
-import type { MarketMode } from '@/lib/validations/profile';
+import {
+  readBusinessProfile,
+  readMarketingProfile,
+} from '@/server/company/profile.service';
+import type { BusinessProfile, MarketMode } from '@/lib/validations/profile';
 
 /**
  * Who the content is for.
@@ -42,6 +45,49 @@ export interface AudienceProfile {
   mode?: MarketMode;
   /** Where the description came from, for transparency in the UI later. */
   sources: string[];
+}
+
+
+/**
+ * What the company actually does, for the top of the system prompt.
+ *
+ * The generator opened with the company NAME and, at best, an industry label.
+ * A model given "You are the content writer for Verdant. They operate in:
+ * Hospitality." has been told nothing it can write a true sentence from, so it
+ * fills the gap — inventing products, customers and claims. That is the
+ * mechanism behind off-target drafts, and no amount of voice or tone tuning
+ * fixes it, because the missing thing is facts rather than style.
+ *
+ * Returns '' when the workspace has not said what it does, so existing
+ * workspaces created before onboarding asked keep exactly their old prompt.
+ */
+export async function getBusinessProfile(
+  companyId: string,
+): Promise<BusinessProfile | null> {
+  const company = await db.company.findUnique({
+    where: { id: companyId },
+    select: { preferences: true },
+  });
+  return company ? readBusinessProfile(company) : null;
+}
+
+export function businessToPrompt(
+  business: BusinessProfile | null,
+  industry?: string | null,
+): string {
+  if (!business?.description) {
+    return industry ? `They operate in: ${industry}.` : '';
+  }
+  const lines = ['WHAT THIS COMPANY DOES:', business.description];
+  if (business.offerings) {
+    lines.push(`What they sell: ${business.offerings}`);
+  }
+  if (industry) lines.push(`Industry: ${industry}`);
+  lines.push(
+    'Write only what follows from this and the company knowledge below.',
+    'Do not invent products, customers, partnerships or results.',
+  );
+  return lines.join('\n');
 }
 
 export async function getAudienceProfile(
