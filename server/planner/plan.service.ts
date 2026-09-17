@@ -7,6 +7,10 @@ import {
   isClaudeConfigured,
 } from '@/server/ai/claude';
 import { getBrandVoiceProfile } from '@/server/content/brand-voice.service';
+import {
+  getBrandContext,
+  brandContextToPrompt,
+} from '@/server/brand/brand-context.service';
 import { retrieve, chunksToContext } from '@/server/knowledge/retrieve';
 import { normalizeDigestPayload } from '@/server/trends/digest.service';
 import {
@@ -169,6 +173,16 @@ export async function generateMarketingPlan(args: {
 
   const groundedOn: string[] = [];
   const voice = getBrandVoiceProfile(company);
+  /**
+   * The saved workspace profile, behind the plan form's own fields.
+   *
+   * The planner page already pre-fills `audience`, `businessGoals` and
+   * `channels` from settings, so those are usually populated. What it never
+   * carried is what the company DOES — the strategist was asked to build a
+   * month of content for a name and an industry label. And if a user clears
+   * the pre-filled audience, nothing downstream knew who to write for.
+   */
+  const brand = await getBrandContext(companyId);
   if (voice) groundedOn.push('Your saved brand voice profile');
 
   // Recent market context makes the plan timely rather than evergreen filler.
@@ -217,7 +231,12 @@ export async function generateMarketingPlan(args: {
         schema: planPayloadSchema,
         system:
           `You are the content strategist for ${company.name}` +
-          `${company.industry ? ` (${company.industry})` : ''}. ` +
+          `${company.industry ? ` (${company.industry})` : ''}.
+` +
+          // Identity and reader from the saved profile; the brief's own fields
+          // still win where the user filled them in below.
+          `${brandContextToPrompt(brand, { includeVoice: false, includeWritingRules: false })}
+` +
           'Build a MONTHLY CONTENT CALENDAR from the brief below. Hard rules: ' +
           '(1) Use ONLY the exact dates in the SCHEDULE list — one item per slot, ' +
           'same date and week number, no extra or missing slots. ' +
@@ -241,7 +260,9 @@ export async function generateMarketingPlan(args: {
           '',
           `TOPICS TO COVER:\n${inputs.topics.join(', ') || '(none specified — choose from the goals)'}`,
           '',
-          `AUDIENCE:\n${inputs.audience || '(not specified)'}`,
+          // Falls back to the saved workspace audience, so clearing the
+          // pre-filled field does not leave the strategist writing for nobody.
+          `AUDIENCE:\n${inputs.audience || brand?.audience?.stated || '(not specified)'}`,
           '',
           `BRAND GUIDELINES:\n${
             inputs.brandGuidelines ||

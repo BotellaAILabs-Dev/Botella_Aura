@@ -11,6 +11,10 @@ import {
   generateBrandVoiceProfile,
   brandVoiceToPrompt,
 } from '@/server/content/brand-voice.service';
+import {
+  getBusinessProfile,
+  businessToPrompt,
+} from '@/server/content/audience';
 
 /**
  * Engagement comment drafting (Sprint 4, Module 4).
@@ -78,10 +82,24 @@ async function buildComment(
   try {
     const company = await db.company.findUnique({ where: { id: companyId } });
     const voice = await generateBrandVoiceProfile({ company: company!, userId });
+    /**
+     * What we do, so the comment can add a real perspective.
+     *
+     * A model told only the brand's name and tone, and asked for a "thoughtful,
+     * specific, NON-generic" comment, has nothing specific to be thoughtful
+     * FROM — which is how you get the agreeable filler this prompt spends four
+     * lines forbidding. Knowing the company's actual field is what makes a
+     * genuine point possible.
+     *
+     * Identity only: a comment replies to someone else's post, so the
+     * workspace's own marketing audience is not the reader here.
+     */
+    const business = await getBusinessProfile(companyId);
     const result = await completeStructured({
       schema: commentSchema,
       system: [
         `You are commenting on LinkedIn as ${company?.name ?? 'our brand'}.`,
+        businessToPrompt(business, company?.industry ?? null),
         brandVoiceToPrompt(voice),
         'Write a thoughtful, specific, NON-generic comment (1-3 sentences) that ' +
           'adds a genuine perspective to the post. No flattery cliches, no "Great ' +

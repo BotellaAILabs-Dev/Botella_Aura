@@ -11,6 +11,10 @@ import { platformSpec, type SocialPlatformKey } from '@/lib/platforms';
 import { STYLE_DIRECTION } from '@/server/media/types';
 import { isImageStyle, type ImageStyleKey } from '@/lib/graphics-ui';
 import { readBrandAssets } from '@/server/company/profile.service';
+import {
+  getAudienceProfile,
+  getBusinessProfile,
+} from '@/server/content/audience';
 
 /**
  * Content to image prompt.
@@ -128,6 +132,42 @@ async function askModel(
   // writing instructions ("write exactly in this voice"), which would steer an
   // art director badly. safeParse because a profile stored before a schema
   // change must not break generation.
+  /**
+   * What the company sells, and who looks at the picture.
+   *
+   * The art director was briefed with a company name and an industry label.
+   * Those decide almost nothing visually: a small-batch coffee roastery and a
+   * payroll platform are both "a company in an industry", and an image brief
+   * built from that lands on whatever the model finds generically attractive —
+   * the stock-photo failure this prompt explicitly tries to avoid.
+   *
+   * Market mode matters here as much as it does in copy. Consumer imagery
+   * shows the thing itself and the moment of using it; business imagery shows
+   * the work and the outcome. Nothing else in this prompt carried that.
+   */
+  const [business, audience] = await Promise.all([
+    getBusinessProfile(draft.companyId),
+    getAudienceProfile(draft.companyId),
+  ]);
+
+  const businessBlock = business?.description
+    ? [
+        'WHAT THIS COMPANY DOES:',
+        business.description,
+        ...(business.offerings ? [`What they sell: ${business.offerings}`] : []),
+      ].join('\n')
+    : '';
+
+  const audienceBlock = audience
+    ? [
+        'WHO WILL SEE THIS:',
+        audience.stated ?? 'Not described in detail.',
+        audience.mode === 'B2C'
+          ? 'They are choosing this for themselves — show the thing and the moment of using it, not a workplace.'
+          : 'They are buying for their company — show the work and its outcome, not lifestyle imagery.',
+      ].join('\n')
+    : '';
+
   const voiceBlock = brandVoiceToVisualDirection(company?.brandVoiceProfile);
 
   // The workspace's own palette, when it has given one. An art director told
@@ -151,6 +191,8 @@ async function askModel(
 
   const prompt = [
     `COMPANY: ${company?.name ?? 'the company'}${company?.industry ? ` (${company.industry})` : ''}`,
+    businessBlock,
+    audienceBlock,
     voiceBlock,
     paletteBlock,
     '',

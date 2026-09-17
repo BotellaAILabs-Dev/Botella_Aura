@@ -11,6 +11,10 @@ import {
 } from '@/server/content/brand-voice.service';
 import { getActiveMemories, memoriesToPrompt } from '@/server/memory/memory.service';
 import {
+  getBrandContext,
+  brandContextToPrompt,
+} from '@/server/brand/brand-context.service';
+import {
   campaignPlanSchema,
   type CampaignPlan,
   type CreateCampaignInput,
@@ -37,14 +41,32 @@ export async function generateCampaignPlan(args: {
   }
 
   try {
-    const [voice, memories] = await Promise.all([
+    const [voice, memories, brand] = await Promise.all([
       getBrandVoiceProfile(company),
       getActiveMemories(company.id),
+      /**
+       * The workspace profile the user already filled in.
+       *
+       * A campaign plan decides what to write about, so it needs to know what
+       * the company sells and who buys it just as much as the content step
+       * does — and it had neither. Planning without that produces a month of
+       * topics aimed at a reader nobody described.
+       *
+       * No knowledge query: this call shapes a schedule rather than writing a
+       * specific piece, so grounding passages would be cost without benefit.
+       */
+      getBrandContext(company.id),
     ]);
     const memoryBlock = memoriesToPrompt(memories);
+    // Voice comes from the block below; writing rules do not apply to a plan.
+    const brandBlock = brandContextToPrompt(brand, {
+      includeVoice: false,
+      includeWritingRules: false,
+    });
 
     const system = [
       `You are the head of marketing for ${company.name}, planning a ${input.durationDays}-day campaign.`,
+      brandBlock,
       voice ? brandVoiceToPrompt(voice) : '',
       memoryBlock,
       'Design a realistic day-by-day plan. Do NOT post every day — space content ' +
@@ -61,7 +83,17 @@ export async function generateCampaignPlan(args: {
       `GOAL: ${input.goal}`,
       `DURATION: ${input.durationDays} days`,
       `ENABLED MODULES: ${JSON.stringify(input.modules)}`,
-      input.targetAudience ? `AUDIENCE: ${input.targetAudience}` : '',
+      /**
+       * The campaign form's own audience field, falling back to the workspace
+       * profile — so a user who described their buyer once during onboarding
+       * does not have to type it again for every campaign. An explicit value
+       * still wins: a campaign may deliberately target a narrower group.
+       */
+      input.targetAudience
+        ? `AUDIENCE FOR THIS CAMPAIGN: ${input.targetAudience}`
+        : brand?.audience?.stated
+          ? `AUDIENCE: ${brand.audience.stated}`
+          : '',
       input.themes.length ? `THEMES TO EMPHASIZE: ${input.themes.join(', ')}` : '',
       `Produce a day-by-day plan for days 1..${input.durationDays}.`,
     ]

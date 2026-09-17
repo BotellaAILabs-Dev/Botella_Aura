@@ -12,6 +12,10 @@ import {
   brandVoiceToPrompt,
 } from '@/server/content/brand-voice.service';
 import { retrieve, chunksToContext } from '@/server/knowledge/retrieve';
+import {
+  getBusinessProfile,
+  businessToPrompt,
+} from '@/server/content/audience';
 import { getActiveMemories, memoriesToPrompt } from '@/server/memory/memory.service';
 import { getLeadOrThrow } from '@/server/outreach/lead.service';
 
@@ -118,9 +122,22 @@ async function buildDrafts(args: {
   }
 
   try {
-    const [company, chunks] = await Promise.all([
+    const [company, chunks, business] = await Promise.all([
       db.company.findUnique({ where: { id: companyId } }),
       retrieve(companyId, `${leadCompany} ${signalText}`, { limit: 4 }),
+      /**
+       * What we do, which outreach was never told.
+       *
+       * "You write outreach on behalf of Verdant" names a sender and describes
+       * no offer, so the model had to infer what was being pitched from
+       * whatever knowledge passages happened to match the lead's signal.
+       *
+       * Deliberately identity only, NOT the marketing audience block: outreach
+       * is addressed to one named lead, and telling the model to write for the
+       * workspace's general buyer persona would fight the specific person in
+       * the prompt below.
+       */
+      getBusinessProfile(companyId),
     ]);
     const voice = await generateBrandVoiceProfile({ company: company!, userId });
     // Sprint 5 — inject learned outreach patterns (empty when no data yet).
@@ -130,6 +147,7 @@ async function buildDrafts(args: {
 
     const system = [
       `You write outreach on behalf of ${companyName}.`,
+      businessToPrompt(business, company?.industry ?? null),
       brandVoiceToPrompt(voice),
       memoryBlock,
       'Rules: reference the ACTUAL signal naturally; be specific and human, not ' +
