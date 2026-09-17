@@ -23,6 +23,7 @@ const IMAGE_KEYS = [
   'GEMINI_API_KEY',
   'GOOGLE_GEMINI_API_KEY',
   'AGNES_API_KEY',
+  'HUGGINGFACE_API_KEY',
   'STABILITY_API_KEY',
   'REPLICATE_API_TOKEN',
 ];
@@ -50,6 +51,7 @@ describe('listProviders', () => {
     expect(ids).toContain('OPENAI');
     expect(ids).toContain('GOOGLE');
     expect(ids).toContain('AGNES');
+    expect(ids).toContain('HUGGINGFACE');
     expect(ids).toContain('STABILITY');
     expect(ids).toContain('REPLICATE');
   });
@@ -123,7 +125,7 @@ describe('alternativeProviders', () => {
 
 describe('provider contracts', () => {
   it('gives every provider at least one supported ratio and an image cap', () => {
-    for (const id of ['OPENAI', 'GOOGLE', 'AGNES', 'STABILITY', 'REPLICATE'] as const) {
+    for (const id of ['OPENAI', 'GOOGLE', 'AGNES', 'HUGGINGFACE', 'STABILITY', 'REPLICATE'] as const) {
       const provider = getProvider(id);
       expect(provider).not.toBeNull();
       expect(provider!.supportedRatios.length).toBeGreaterThan(0);

@@ -77,8 +77,11 @@ describe('image provider lists agree', () => {
     }
   });
 
-  it('includes Agnes, the provider this suite was written for', () => {
-    expect((IMAGE_PROVIDERS as readonly string[])).toContain('AGNES');
-    expect(listProviders().map((p) => p.id)).toContain('AGNES');
-  });
+  it.each(['AGNES', 'HUGGINGFACE'])(
+    'includes %s, a provider added after this suite was written',
+    (id) => {
+      expect(IMAGE_PROVIDERS as readonly string[]).toContain(id);
+      expect(listProviders().map((p) => p.id)).toContain(id);
+    },
+  );
 });

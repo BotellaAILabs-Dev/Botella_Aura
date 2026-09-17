@@ -33,6 +33,7 @@ export const IMAGE_PROVIDERS = [
   'OPENAI',
   'GOOGLE',
   'AGNES',
+  'HUGGINGFACE',
   'STABILITY',
   'REPLICATE',
 ] as const;
