@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { MIN_PASSWORD_LENGTH } from '@/lib/password';
+// From `password-policy`, not `password`: the latter imports bcryptjs, and
+// these schemas are bundled into the client auth forms.
+import {
+  MIN_PASSWORD_LENGTH,
+  MAX_PASSWORD_LENGTH,
+} from '@/lib/password-policy';
 
 /**
  * Auth input schemas. These are the single source of truth for validation —
@@ -16,7 +21,7 @@ export const emailSchema = z
 export const passwordSchema = z
   .string()
   .min(MIN_PASSWORD_LENGTH, `At least ${MIN_PASSWORD_LENGTH} characters`)
-  .max(72, 'Password is too long') // bcrypt hard limit is 72 bytes
+  .max(MAX_PASSWORD_LENGTH, 'Password is too long') // bcrypt hard limit
   .refine((v) => /[a-zA-Z]/.test(v) && /[0-9]/.test(v), {
     message: 'Include at least one letter and one number',
   });

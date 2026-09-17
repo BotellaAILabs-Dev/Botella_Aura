@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import { MIN_PASSWORD_LENGTH } from '@/lib/password-policy';
 
 /**
  * Password hashing/verification.
@@ -8,8 +9,12 @@ import bcrypt from 'bcryptjs';
  */
 const BCRYPT_COST = 12;
 
-/** Minimum length enforced here AND in the Zod schema (defense in depth). */
-export const MIN_PASSWORD_LENGTH = 8;
+/**
+ * Re-exported so existing server-side importers keep working. The value
+ * itself lives in `lib/password-policy.ts`, which imports nothing — client
+ * code must import it from there, never from this module, which pulls bcryptjs.
+ */
+export { MIN_PASSWORD_LENGTH };
 
 export async function hashPassword(plain: string): Promise<string> {
   if (typeof plain !== 'string' || plain.length < MIN_PASSWORD_LENGTH) {
