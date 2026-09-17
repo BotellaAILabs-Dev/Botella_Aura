@@ -37,9 +37,23 @@ export async function POST(
       await completeJob(job.id, result as Record<string, never>);
       return jsonOk({ ran: true, status: 'SUCCEEDED', result });
     } catch (err) {
+      /**
+       * A failed JOB is not a failed REQUEST.
+       *
+       * This used to answer 502. Nothing consumed it — the client kicks this
+       * endpoint fire-and-forget and reads the outcome by polling
+       * /api/jobs/:id — so the status reached no code path. What it did reach
+       * was the browser console, where a red 502 on our own origin reads as a
+       * gateway or proxy failure and sends whoever is debugging to look for an
+       * upstream that does not exist in this stack.
+       *
+       * The run genuinely happened: it executed, it failed, and failJob has
+       * recorded the real error and the right terminal state. So the request
+       * succeeded, and the job's own status carries the bad news.
+       */
       await failJob(job.id, err);
       const message = err instanceof Error ? err.message : String(err);
-      return jsonError(message, 502);
+      return jsonOk({ ran: true, status: 'FAILED', error: message });
     }
   } catch (error) {
     return handleRouteError(error);
