@@ -139,10 +139,13 @@ describe('brandContextToPrompt', () => {
         knowledge: [
           {
             id: 'k1',
+            title: 'Product sheet',
             content: 'Our Ethiopia lot is washed and rested for 30 days.',
-            sourceTitle: 'Product sheet',
+            sourceType: 'UPLOAD',
+            category: null,
+            score: 1,
           },
-        ] as BrandContext['knowledge'],
+        ],
       }),
     );
     expect(out).toContain('COMPANY KNOWLEDGE');

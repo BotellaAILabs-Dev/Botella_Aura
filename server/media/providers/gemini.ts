@@ -86,7 +86,17 @@ function isImagen(model: string): boolean {
 
 export const googleImageProvider: ImageGenerationProvider = {
   id: 'GOOGLE',
-  label: 'Google Imagen',
+  /**
+   * Named for the family actually in use, not for Imagen.
+   *
+   * This was hard-coded to "Google Imagen" while the default model is
+   * gemini-2.5-flash-image — and a standard AI Studio key cannot reach any
+   * Imagen model at all. So the one place the label is most visible is the
+   * failure panel ("Provider: Google Imagen"), where it sends someone to
+   * Imagen's documentation and pricing for a product they are not using and
+   * cannot enable.
+   */
+  label: isImagen(resolveModel()) ? 'Google Imagen' : 'Google Gemini',
   model: resolveModel(),
   description:
     'Photorealistic output and native support for every format, including ' +
@@ -319,7 +329,11 @@ function failure(
     return new ImageProviderError(
       'GOOGLE',
       outOfQuota
-        ? 'This Google API key has no image-generation quota left. Image models on the Gemini API need billing enabled on the key — or pick another model above.'
+        ? 'This Google API key has no image-generation quota for this model. ' +
+          'Image models on the Gemini API are not included in the free tier — ' +
+          'enable billing on the key’s Google Cloud project, then try again. ' +
+          'Switching model here will not help: the quota applies to every ' +
+          'Google image model on the key.'
         : 'Google is rate-limiting image generation right now. Wait a moment or switch model.',
       429,
       !outOfQuota,
