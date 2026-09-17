@@ -14,19 +14,47 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 /**
- * Text-to-image via Agnes AI.
+ * Text-to-image, across the configured providers.
  *
- * This component talks ONLY to our own `/api/generate-image`. It never sees
- * AGNES_API_KEY and never calls the provider directly — the key stays on the
- * server, and the browser sends a prompt and receives a URL.
+ * This component talks ONLY to our own `/api/generate-image`. It never holds a
+ * provider key and never calls a provider directly — the browser sends a prompt
+ * and a model name, and receives an image.
  *
- * If you are tempted to call the provider from here to save a hop: that
- * requires the key in the browser, which publishes it to every visitor. The
- * extra hop is the feature.
+ * If you are tempted to call a provider from here to save a hop: that requires
+ * the key in the browser, which publishes it to every visitor. The extra hop is
+ * the feature.
  */
 const MAX_PROMPT = 2000;
+
+/**
+ * The models on offer.
+ *
+ * `note` is the honest state of each one rather than marketing copy — a picker
+ * that presents a provider with no credential as equal to a working one just
+ * moves the disappointment to after the click.
+ */
+const MODELS = [
+  {
+    value: 'huggingface',
+    label: 'Hugging Face FLUX.1-schnell',
+    note: 'Fast, free tier. First call may wait for the model to load.',
+  },
+  {
+    value: 'nano-banana',
+    label: 'Nano Banana (Gemini)',
+    note: 'Google Gemini image model. Needs billing enabled on the key.',
+  },
+  {
+    value: 'agnes',
+    label: 'Agnes Image 2.0',
+    note: 'Square 1024px output.',
+  },
+] as const;
+
+type ModelValue = (typeof MODELS)[number]['value'];
 
 interface GenerateResponse {
   imageUrl?: string;
@@ -35,12 +63,17 @@ interface GenerateResponse {
 
 export function AgnesImageGenerator() {
   const [prompt, setPrompt] = useState('');
+  const [model, setModel] = useState<ModelValue>('huggingface');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  /** The model that produced the image on screen, which may not be the
+      currently selected one after the user changes the dropdown. */
+  const [producedBy, setProducedBy] = useState<string | null>(null);
 
   const tooLong = prompt.trim().length > MAX_PROMPT;
   const canSubmit = prompt.trim().length > 0 && !tooLong && !loading;
+  const selected = MODELS.find((m) => m.value === model)!;
 
   async function generate() {
     if (!canSubmit) return;
@@ -50,20 +83,21 @@ export function AgnesImageGenerator() {
     // The previous image is cleared so a failure cannot leave a stale picture
     // sitting under a new prompt, looking like it was the result.
     setImageUrl(null);
+    setProducedBy(null);
 
     try {
       const res = await fetch('/api/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: prompt.trim() }),
+        body: JSON.stringify({ prompt: prompt.trim(), model }),
       });
 
       const data = (await res.json().catch(() => ({}))) as GenerateResponse;
 
       if (!res.ok) {
-        // The route writes messages meant to be read, including the
-        // missing-key case, so they are shown rather than replaced with
-        // something generic.
+        // The route writes messages meant to be read — a loading model, a
+        // missing permission, a rate limit — so they are shown as-is rather
+        // than replaced with something generic.
         setError(data.error ?? `Image generation failed (HTTP ${res.status}).`);
         return;
       }
@@ -74,6 +108,7 @@ export function AgnesImageGenerator() {
       }
 
       setImageUrl(data.imageUrl);
+      setProducedBy(selected.label);
     } catch {
       setError('Could not reach the server. Check your connection and retry.');
     } finally {
@@ -95,19 +130,41 @@ export function AgnesImageGenerator() {
 
       <CardContent className="space-y-4">
         <div className="space-y-1.5">
-          <Label htmlFor="agnes-prompt">Prompt</Label>
+          <Label htmlFor="image-model">Model</Label>
+          <select
+            id="image-model"
+            value={model}
+            disabled={loading}
+            onChange={(e) => setModel(e.target.value as ModelValue)}
+            className={cn(
+              'h-10 w-full rounded-md border border-input bg-background px-3 text-sm',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'disabled:cursor-not-allowed disabled:opacity-60',
+            )}
+          >
+            {MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">{selected.note}</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="image-prompt">Prompt</Label>
           <Textarea
-            id="agnes-prompt"
+            id="image-prompt"
             rows={3}
             value={prompt}
             disabled={loading}
             aria-invalid={tooLong}
-            aria-describedby="agnes-prompt-help"
+            aria-describedby="image-prompt-help"
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="e.g. A small-batch coffee roastery at dawn, sacks of green beans, warm light through a window"
           />
           <div className="flex items-start justify-between gap-3">
-            <p id="agnes-prompt-help" className="text-xs text-muted-foreground">
+            <p id="image-prompt-help" className="text-xs text-muted-foreground">
               {tooLong ? (
                 <span className="text-destructive">
                   {prompt.trim().length} characters — keep it under {MAX_PROMPT}.
@@ -118,11 +175,12 @@ export function AgnesImageGenerator() {
             </p>
             {prompt.trim().length > MAX_PROMPT * 0.75 && (
               <span
-                className={`shrink-0 tabular-nums text-xs ${
+                className={cn(
+                  'shrink-0 tabular-nums text-xs',
                   tooLong
                     ? 'font-medium text-destructive'
-                    : 'text-muted-foreground'
-                }`}
+                    : 'text-muted-foreground',
+                )}
               >
                 {prompt.trim().length}/{MAX_PROMPT}
               </span>
@@ -160,9 +218,11 @@ export function AgnesImageGenerator() {
             the panel does not jump when the image arrives. */}
         {loading && (
           <div className="flex aspect-square w-full max-w-sm items-center justify-center rounded-lg border border-border bg-muted/40">
-            <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex flex-col items-center gap-2 px-6 text-center text-sm text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
-              This usually takes a few seconds
+              {selected.value === 'huggingface'
+                ? 'Usually a few seconds. A cold model can take longer on the first call.'
+                : 'This usually takes a few seconds'}
             </div>
           </div>
         )}
@@ -171,10 +231,9 @@ export function AgnesImageGenerator() {
           <div className="space-y-2">
             <div className="relative aspect-square w-full max-w-sm overflow-hidden rounded-lg border border-border">
               {/*
-                An unoptimised <Image> on purpose: the source is either a
-                remote provider URL or a data: URI, and routing arbitrary
-                third-party images through /_next/image would make it an open
-                proxy. See the remotePatterns note in next.config.mjs.
+                An unoptimised <Image> on purpose: the source is a data: URI,
+                and routing it through /_next/image would re-encode bytes we
+                already hold for no benefit.
               */}
               <Image
                 src={imageUrl}
@@ -186,7 +245,8 @@ export function AgnesImageGenerator() {
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              Generated from your prompt. Nothing has been saved or published.
+              {producedBy ? `Generated by ${producedBy}. ` : ''}Nothing has been
+              saved or published.
             </p>
           </div>
         )}

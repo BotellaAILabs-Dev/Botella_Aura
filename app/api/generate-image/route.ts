@@ -4,27 +4,40 @@ import { requireUser } from '@/lib/auth-helpers';
 import { rateLimit } from '@/lib/rate-limit';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 import { logger } from '@/lib/logger';
+import { agnesImageProvider } from '@/server/media/providers/agnes';
+import { googleImageProvider } from '@/server/media/providers/gemini';
+import { ImageProviderError } from '@/server/media/types';
+import type { ImageGenerationProvider } from '@/server/media/types';
 
 /**
- * POST /api/generate-image — text-to-image via Agnes AI.
+ * POST /api/generate-image — text-to-image across several providers.
  *
  * WHY THIS ROUTE EXISTS AT ALL
  * ----------------------------
- * The browser must never hold AGNES_API_KEY. A key shipped to the client is a
- * key published: it appears in the bundle, in devtools, and in any copy of the
- * page someone saves. So the browser posts a prompt here, this route adds the
- * credential server-side, and only the resulting image URL goes back.
+ * The browser must never hold an image-provider key. A key shipped to the
+ * client is a key published: it appears in the bundle, in devtools, and in any
+ * saved copy of the page. So the browser posts a prompt and a model name here,
+ * this route adds the credential server-side, and only an image comes back.
  *
- * That is also why the key is read from `process.env.AGNES_API_KEY` with no
- * NEXT_PUBLIC_ prefix — Next inlines any NEXT_PUBLIC_* value into the client
- * bundle at build time, which would defeat the whole arrangement.
+ * That is also why every key is read from `process.env` with no NEXT_PUBLIC_
+ * prefix — Next inlines any NEXT_PUBLIC_* value into the client bundle at
+ * build time, which would defeat the whole arrangement.
  *
  * AUTHENTICATION IS PART OF KEEPING THE KEY PRIVATE
  * -------------------------------------------------
- * Hiding the key behind an endpoint anyone can call does not protect it — it
- * just means the whole internet spends your quota through your server instead
- * of holding the string. So this route requires a signed-in user and is rate
- * limited per user, the same as every other route here that spends money.
+ * Hiding a key behind an endpoint anyone can call does not protect it; it just
+ * means the whole internet spends the quota through our server instead of
+ * holding the string. So this requires a signed-in user and is rate limited,
+ * like every other route here that costs money.
+ *
+ * AGNES AND GEMINI REUSE THE PROVIDER REGISTRY
+ * --------------------------------------------
+ * Both already exist as tested providers under server/media/providers, with
+ * their own retry, fan-out and error mapping. Re-implementing them inline here
+ * would mean two copies drifting apart — and the drift between the provider
+ * list and the request schema has already caused one user-visible bug. Hugging
+ * Face is handled inline because it is not part of that registry: it returns
+ * raw image bytes rather than the JSON envelope the registry is built around.
  */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,49 +45,33 @@ export const dynamic = 'force-dynamic';
 /** Image generation is slow; the platform default (~10s) is far too tight. */
 export const maxDuration = 60;
 
-const DEFAULT_BASE_URL = 'https://api.agnes-ai.com/v1';
-const DEFAULT_MODEL = 'agnes-image-2.0-flash';
+const HF_DEFAULT_MODEL = 'black-forest-labs/FLUX.1-schnell';
+const HF_DEFAULT_BASE = 'https://api-inference.huggingface.co/models';
 const TIMEOUT_MS = 45_000;
 
+/**
+ * Model choices the client may send.
+ *
+ * Kept permissive on purpose: `model` is also matched by prefix below, so a
+ * FLUX variant the dropdown does not list still routes to Hugging Face.
+ */
 const bodySchema = z.object({
   prompt: z
     .string()
     .trim()
     .min(1, 'Enter a prompt describing the image you want.')
     .max(2000, 'Keep the prompt under 2000 characters.'),
+  /** Defaults to Hugging Face, the only one with a free tier. */
+  model: z.string().trim().max(120).optional(),
 });
-
-/**
- * The provider's response shape, defensively typed.
- *
- * Every field is optional because this is someone else's JSON: a provider that
- * changes its envelope, or returns an error body with a 200, must produce a
- * clear message here rather than a `cannot read property of undefined`.
- */
-interface AgnesResponse {
-  data?: Array<{ url?: string; b64_json?: string }>;
-  error?: { message?: string; code?: string } | string;
-  message?: string;
-  code?: string;
-}
 
 export async function POST(req: Request) {
   try {
     const user = await requireUser();
 
-    // Missing-key handling: a configuration gap is a 503 that names the
-    // variable to set, not a 500 that looks like the service is broken.
-    const apiKey = process.env.AGNES_API_KEY;
-    if (!apiKey) {
-      return jsonError(
-        'Image generation is not configured on this deployment. Add AGNES_API_KEY to the server environment.',
-        503,
-      );
-    }
-
     // Generating an image costs money, so it is throttled per user like the
     // other paid paths in this app.
-    const limit = rateLimit(`agnes-image:${user.id}`, {
+    const limit = rateLimit(`generate-image:${user.id}`, {
       limit: 10,
       windowMs: 60_000,
     });
@@ -89,113 +86,210 @@ export async function POST(req: Request) {
     if (raw === null) {
       return jsonError('Send a JSON body of the form { "prompt": "..." }.', 400);
     }
-    const { prompt } = bodySchema.parse(raw);
+    const { prompt, model } = bodySchema.parse(raw);
 
-    const baseUrl = (process.env.AGNES_API_BASE_URL || DEFAULT_BASE_URL).replace(
-      /\/+$/,
-      '',
+    const choice = (model ?? 'huggingface').toLowerCase();
+
+    // Prefix match as well as exact, so "flux-1-schnell" or a future FLUX
+    // variant reaches Hugging Face without a schema change.
+    if (choice === 'huggingface' || choice.startsWith('flux')) {
+      return await generateWithHuggingFace(prompt);
+    }
+    if (choice === 'nano-banana' || choice === 'gemini' || choice === 'google') {
+      return await generateWithProvider(googleImageProvider, 'Gemini', prompt);
+    }
+    if (choice === 'agnes') {
+      return await generateWithProvider(agnesImageProvider, 'Agnes AI', prompt);
+    }
+
+    return jsonError(
+      `Unknown model "${model}". Choose one of: huggingface, nano-banana, agnes.`,
+      422,
     );
-    const model = process.env.AGNES_IMAGE_MODEL || DEFAULT_MODEL;
-    const endpoint = `${baseUrl}/images/generations`;
-
-    let res: Response;
-    try {
-      res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({ model, prompt, n: 1, size: '1024x1024' }),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-    } catch (err) {
-      // A timeout and a DNS failure are different problems for the person
-      // reading this, so they are not collapsed into one message.
-      const timedOut = err instanceof Error && err.name === 'TimeoutError';
-      logger.error('agnes: request failed before a response', {
-        endpoint,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return jsonError(
-        timedOut
-          ? 'The image service took too long to respond. Try again.'
-          : 'Could not reach the image service. Check AGNES_API_BASE_URL and your network.',
-        timedOut ? 504 : 502,
-      );
-    }
-
-    const payload = (await res.json().catch(() => ({}))) as AgnesResponse;
-
-    if (!res.ok) {
-      const providerMessage =
-        (typeof payload.error === 'string'
-          ? payload.error
-          : payload.error?.message) ??
-        payload.message ??
-        '';
-
-      logger.error('agnes: image generation failed', {
-        status: res.status,
-        endpoint,
-        model,
-        code: payload.code,
-        detail: providerMessage.slice(0, 200),
-      });
-
-      // Each of these is a different thing to go and fix, so each says so.
-      if (res.status === 401 || res.status === 403) {
-        return jsonError(
-          'The image service rejected the API key. Check AGNES_API_KEY on the server.',
-          res.status,
-        );
-      }
-      if (res.status === 404) {
-        return jsonError(
-          `The image service has no endpoint at ${endpoint}. Check AGNES_API_BASE_URL and the model name.`,
-          502,
-        );
-      }
-      if (res.status === 429) {
-        return jsonError(
-          'The image service is rate limiting or out of quota. Wait a moment and try again.',
-          429,
-        );
-      }
-      return jsonError(
-        providerMessage ||
-          `The image service could not generate this image (HTTP ${res.status}).`,
-        502,
-      );
-    }
-
-    const first = payload.data?.[0];
-
-    // Providers return either a hosted URL or inline base64. Both are handed
-    // back as something an <img src> can render, so the client needs no
-    // special case for which one arrived.
-    const imageUrl =
-      first?.url ??
-      (first?.b64_json ? `data:image/png;base64,${first.b64_json}` : null);
-
-    if (!imageUrl) {
-      logger.error('agnes: response contained no image', {
-        endpoint,
-        model,
-        keys: Object.keys(payload),
-      });
-      return jsonError(
-        'The image service returned no image for this prompt. Try rewording it.',
-        502,
-      );
-    }
-
-    return jsonOk({ imageUrl });
   } catch (error) {
     if (error instanceof z.ZodError) {
       const first = error.issues[0]?.message;
       return jsonError(first ?? 'That request was not valid.', 422);
     }
     return handleRouteError(error);
+  }
+}
+
+/**
+ * Hugging Face Inference — raw bytes, not JSON.
+ *
+ * The response body IS the image, so it is read as an ArrayBuffer and returned
+ * as a data URI. That also means an error must be read as TEXT: asking for
+ * .json() on an HTML error page throws, and the user would see a parser
+ * message instead of the reason.
+ */
+async function generateWithHuggingFace(prompt: string) {
+  const apiKey = process.env.HUGGINGFACE_API_KEY;
+  if (!apiKey) {
+    return jsonError(
+      'Hugging Face is not configured on this deployment. Add HUGGINGFACE_API_KEY to the server environment.',
+      503,
+    );
+  }
+
+  const base = (process.env.HUGGINGFACE_API_BASE || HF_DEFAULT_BASE).replace(
+    /\/+$/,
+    '',
+  );
+  const modelId = process.env.HUGGINGFACE_MODEL_ID || HF_DEFAULT_MODEL;
+  const endpoint = `${base}/${modelId}`;
+
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ inputs: prompt }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (err) {
+    const timedOut = err instanceof Error && err.name === 'TimeoutError';
+    logger.error('huggingface: request failed before a response', {
+      endpoint,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return jsonError(
+      timedOut
+        ? 'Hugging Face took too long to respond. FLUX.1-schnell is usually quick — try again.'
+        : 'Could not reach Hugging Face. Check HUGGINGFACE_API_BASE and your network.',
+      timedOut ? 504 : 502,
+    );
+  }
+
+  if (!res.ok) {
+    // Read as text: an error may be JSON, HTML or a bare string.
+    const text = await res.text().catch(() => '');
+    let detail = text;
+    let estimatedTime: number | null = null;
+    try {
+      const parsed = JSON.parse(text) as {
+        error?: string;
+        estimated_time?: number;
+      };
+      if (parsed.error) detail = parsed.error;
+      if (typeof parsed.estimated_time === 'number') {
+        estimatedTime = parsed.estimated_time;
+      }
+    } catch {
+      // Not JSON; the raw text is the best detail available.
+    }
+
+    logger.error('huggingface: generation failed', {
+      status: res.status,
+      endpoint,
+      modelId,
+      detail: detail.slice(0, 200),
+    });
+
+    // A cold model is the single most common Hugging Face failure and the only
+    // one where waiting actually helps — so it names the wait rather than
+    // reading as a generic outage.
+    if (res.status === 503) {
+      const seconds = estimatedTime ? Math.ceil(estimatedTime) : null;
+      return jsonError(
+        seconds
+          ? `The model is loading, please try again in ${seconds} seconds.`
+          : 'The model is loading on Hugging Face. Try again in a moment.',
+        503,
+      );
+    }
+    if (res.status === 429) {
+      return jsonError(
+        'Hugging Face is rate limiting this token. Wait a minute and try again, or upgrade the account.',
+        429,
+      );
+    }
+    if (res.status === 401) {
+      return jsonError(
+        'Hugging Face rejected the token. Check HUGGINGFACE_API_KEY on the server.',
+        401,
+      );
+    }
+    // 403 has a specific, non-obvious cause worth naming outright.
+    if (res.status === 403) {
+      return jsonError(
+        'Hugging Face refused this token. A read token also needs the fine-grained permission "Make calls to Inference Providers" — enable it at huggingface.co/settings/tokens.',
+        403,
+      );
+    }
+    if (res.status === 404) {
+      return jsonError(
+        `Hugging Face has no model at "${modelId}". Check HUGGINGFACE_MODEL_ID.`,
+        502,
+      );
+    }
+    return jsonError(
+      detail || `Hugging Face could not generate the image (HTTP ${res.status}).`,
+      502,
+    );
+  }
+
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (buffer.byteLength === 0) {
+    return jsonError('Hugging Face returned an empty image. Try again.', 502);
+  }
+
+  // Trust the response's own type where it gives one — FLUX returns PNG, but
+  // other models on this endpoint return JPEG, and mislabelling breaks the
+  // data URI silently in some browsers.
+  const contentType = res.headers.get('content-type') ?? '';
+  const mime = contentType.startsWith('image/') ? contentType : 'image/png';
+
+  return jsonOk({
+    imageUrl: `data:${mime};base64,${buffer.toString('base64')}`,
+  });
+}
+
+/**
+ * Agnes and Gemini, through the providers the Content Studio already uses.
+ *
+ * They return raw bytes too, so the result is converted to the same data-URI
+ * shape Hugging Face produces — the client stays unaware of which provider ran.
+ */
+async function generateWithProvider(
+  provider: ImageGenerationProvider,
+  label: string,
+  prompt: string,
+) {
+  if (!provider.isConfigured()) {
+    return jsonError(
+      `${label} is not configured on this deployment. Add ${provider.credentialEnv} to the server environment.`,
+      503,
+    );
+  }
+
+  try {
+    const images = await provider.generateImage({
+      prompt,
+      aspectRatio: '1:1',
+      width: 1024,
+      height: 1024,
+      numberOfImages: 1,
+      style: 'PHOTOREAL',
+    });
+
+    const first = images[0];
+    if (!first) {
+      return jsonError(`${label} returned no image. Try rewording the prompt.`, 502);
+    }
+
+    return jsonOk({
+      imageUrl: `data:${first.mimeType};base64,${first.data.toString('base64')}`,
+    });
+  } catch (err) {
+    // Providers write messages meant to be read, and carry their own status —
+    // surfaced directly rather than collapsed into a generic failure.
+    if (err instanceof ImageProviderError) {
+      return jsonError(err.message, err.status >= 400 ? err.status : 502);
+    }
+    throw err;
   }
 }
