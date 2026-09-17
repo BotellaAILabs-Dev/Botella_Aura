@@ -11,9 +11,28 @@ import { IMAGE_STYLES } from '@/lib/graphics-ui';
  * what is acceptable without either restating it.
  */
 
+/**
+ * Providers the studio may ask for.
+ *
+ * This MIRRORS the Prisma `ImageProvider` enum and is written out literally
+ * rather than derived from it, so that validation schemas stay free of a
+ * `@prisma/client` import -- these modules are shared with client code, and a
+ * server-only import reaching a form is how 140 kB of Node polyfills ended up
+ * in the login bundle.
+ *
+ * The cost of that choice is drift, and it has already bitten once: AGNES was
+ * added to the enum and the provider registry but not here, so selecting it in
+ * the Content Studio produced a bare "Validation failed" with nothing naming
+ * the field. tests/image-providers.test.ts now asserts the two lists match, so
+ * the next addition fails in CI rather than in front of a user.
+ *
+ * UPLOAD is deliberately absent: it is a provenance value for supplied images,
+ * not something anyone can ask a generator for.
+ */
 export const IMAGE_PROVIDERS = [
   'OPENAI',
   'GOOGLE',
+  'AGNES',
   'STABILITY',
   'REPLICATE',
 ] as const;
