@@ -7,7 +7,8 @@ import {
   ArrowRight,
   CircleDot,
 } from 'lucide-react';
-import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Badge } from '@/components/ui/badge';
+import { taskState, taskTypeLabel } from '@/lib/campaign-status';
 import { DATE_LOCALE } from '@/lib/dates';
 
 export interface TaskRow {
@@ -22,20 +23,13 @@ export interface TaskRow {
   checkpointSummary: string | null;
 }
 
-const TYPE_META: Record<string, { icon: typeof FileText; label: string }> = {
-  GENERATE_CONTENT: { icon: FileText, label: 'Content' },
-  RUN_OUTREACH_BATCH: { icon: Send, label: 'Outreach batch' },
-  RUN_DISCOVERY: { icon: Radar, label: 'Lead discovery' },
-  REVIEW_CHECKPOINT: { icon: CalendarCheck, label: 'Weekly review' },
+/** Icons only — the labels come from lib/campaign-status.ts. */
+const TYPE_ICON: Record<string, typeof FileText> = {
+  GENERATE_CONTENT: FileText,
+  RUN_OUTREACH_BATCH: Send,
+  RUN_DISCOVERY: Radar,
+  REVIEW_CHECKPOINT: CalendarCheck,
 };
-
-function statusVariant(s: string): BadgeProps['variant'] {
-  if (s === 'APPROVED') return 'success';
-  if (s === 'GENERATED') return 'warning';
-  if (s === 'FAILED') return 'destructive';
-  if (s === 'SKIPPED') return 'muted';
-  return 'outline'; // PENDING
-}
 
 function fmtDay(iso: string): string {
   return new Date(iso).toLocaleDateString(DATE_LOCALE, {
@@ -72,15 +66,17 @@ export function CampaignTimeline({ tasks }: { tasks: TaskRow[] }) {
             </div>
             <div className="space-y-2 pl-6">
               {dayTasks.map((t) => {
-                const meta = TYPE_META[t.taskType] ?? { icon: FileText, label: t.taskType };
-                const Icon = meta.icon;
+                const Icon = TYPE_ICON[t.taskType] ?? FileText;
+                // "GENERATED" described what the system did and read as
+                // finished, when it means the opposite: it is waiting on you.
+                const status = taskState(t.status, t.scheduledDate);
                 return (
                   <div key={t.id} className="flex items-start justify-between gap-3 text-sm">
                     <div className="flex items-start gap-2">
                       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                       <div>
                         <span className="font-medium">
-                          {meta.label}
+                          {taskTypeLabel(t.taskType)}
                           {t.contentType ? ` · ${t.contentType.replace('_', ' ').toLowerCase()}` : ''}
                         </span>
                         {t.topic && <span className="block text-muted-foreground">{t.topic}</span>}
@@ -92,7 +88,9 @@ export function CampaignTimeline({ tasks }: { tasks: TaskRow[] }) {
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      <Badge variant={statusVariant(t.status)}>{t.status}</Badge>
+                      <Badge variant={status.tone} title={status.hint}>
+                        {status.label}
+                      </Badge>
                       {t.relatedContentDraftId && (
                         <Link
                           href={`/dashboard/content/${t.relatedContentDraftId}`}

@@ -103,6 +103,19 @@ export function hasBusinessProfile(profile: BusinessProfile | null): boolean {
 export const MARKET_MODES = ['B2C', 'B2B'] as const;
 export type MarketMode = (typeof MARKET_MODES)[number];
 
+/**
+ * Field limits, exported so the form can show a counter against the SAME
+ * number the schema enforces.
+ *
+ * They were previously inline magic numbers known only to the schema, so the
+ * textarea had no maxLength and no counter. A user writing the detailed answer
+ * the placeholder explicitly asks for would sail past 600, press Save, and get
+ * back "Validation failed" with no field named and no hint that length was the
+ * problem — with every word they had typed still sitting in the box.
+ */
+export const AUDIENCE_MAX = 600;
+export const GOALS_MAX = 600;
+
 export const marketingProfileSchema = z.object({
   /**
    * Undefined means "never chosen", which is treated as B2B downstream —
@@ -118,9 +131,21 @@ export const marketingProfileSchema = z.object({
    * run everything in spreadsheets"), and that sentence steers a model far
    * better than three tag lists would.
    */
-  audience: z.string().trim().max(600).optional().or(z.literal('')).transform((v) => v || undefined),
+  audience: z
+    .string()
+    .trim()
+    .max(AUDIENCE_MAX, `Keep this under ${AUDIENCE_MAX} characters`)
+    .optional()
+    .or(z.literal(''))
+    .transform((v) => v || undefined),
   /** What the business is trying to achieve over the next quarter. */
-  goals: z.string().trim().max(600).optional().or(z.literal('')).transform((v) => v || undefined),
+  goals: z
+    .string()
+    .trim()
+    .max(GOALS_MAX, `Keep this under ${GOALS_MAX} characters`)
+    .optional()
+    .or(z.literal(''))
+    .transform((v) => v || undefined),
   /** Where they publish. Drives the planner's default channel selection. */
   channels: z.array(z.enum(CONTENT_CHANNELS)).max(6).optional(),
 });

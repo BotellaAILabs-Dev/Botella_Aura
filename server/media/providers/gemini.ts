@@ -93,10 +93,21 @@ export const googleImageProvider: ImageGenerationProvider = {
     '9:16 stories.',
   credentialEnv: 'GOOGLE_AI_API_KEY',
   supportedRatios: SUPPORTED,
-  // Imagen draws up to four per call; the gemini-* image models return a
-  // single image per request. Asking for more than the model can give would
-  // report a shortfall the job then pointlessly retries.
-  maxImagesPerRequest: isImagen(resolveModel()) ? 4 : 1,
+  /**
+   * Four, for both families.
+   *
+   * Imagen draws up to four in one call. The gemini-* image models return a
+   * single image per call, so four variations are four round-trips — fanned
+   * out below exactly as the Stability provider already does.
+   *
+   * This used to declare 1 for the gemini-* family, which looks conservative
+   * and is actually a silent failure: generateGraphics clamps the requested
+   * variations to this number, then only warns when it returns FEWER than the
+   * clamped figure. Ask for four variations, get one, with nothing anywhere
+   * saying why. The number is what the provider can deliver per request; the
+   * fan-out is what makes that true.
+   */
+  maxImagesPerRequest: 4,
 
   isConfigured() {
     return Boolean(apiKey());
@@ -114,9 +125,44 @@ export const googleImageProvider: ImageGenerationProvider = {
     }
 
     const model = resolveModel();
-    return isImagen(model)
-      ? predictImagen(model, key, params)
-      : generateWithGemini(model, key, params);
+    if (isImagen(model)) return predictImagen(model, key, params);
+
+    /**
+     * Fan out in PARALLEL, not in sequence.
+     *
+     * The gemini-* image models return exactly one image per call, so four
+     * variations means four round-trips. Sequentially that is 4x the
+     * wall-clock, which is what pushes a generation past a serverless
+     * function's budget and gets it killed. Together, four cost roughly the
+     * time of one.
+     *
+     * allSettled rather than all: three good images out of four is a good
+     * result, and the pipeline above already reports partial success. Only a
+     * total failure rethrows, so the user still gets a real reason.
+     */
+    const count = Math.max(1, Math.min(params.numberOfImages, 4));
+    const settled = await Promise.allSettled(
+      Array.from({ length: count }, () =>
+        generateWithGemini(model, key, params),
+      ),
+    );
+
+    const images: GeneratedImage[] = [];
+    let lastError: unknown;
+    for (const outcome of settled) {
+      if (outcome.status === 'fulfilled') images.push(...outcome.value);
+      else lastError = outcome.reason;
+    }
+
+    if (images.length === 0) {
+      if (lastError instanceof ImageProviderError) throw lastError;
+      throw new ImageProviderError(
+        'GOOGLE',
+        'Google returned no image for this prompt. Try rewording it.',
+        502,
+      );
+    }
+    return images;
   },
 };
 

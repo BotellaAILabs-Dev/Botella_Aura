@@ -11,7 +11,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import { CONTENT_CHANNELS } from '@/lib/validations/planner';
-import type { MarketMode } from '@/lib/validations/profile';
+import {
+  AUDIENCE_MAX,
+  GOALS_MAX,
+  type MarketMode,
+} from '@/lib/validations/profile';
 
 /** Phrased as "who buys from you", not "B2B or B2C" — the jargon is ours. */
 const MARKET_MODE_OPTIONS: { id: MarketMode; label: string; blurb: string }[] = [
@@ -56,6 +60,16 @@ export function AudienceGoalsForm({
   const [goals, setGoals] = useState(initial.goals);
   const [channels, setChannels] = useState<string[]>(initial.channels);
   const [marketMode, setMarketMode] = useState<MarketMode>(initial.marketMode);
+  /**
+   * Per-field messages from the API's 422 `details`.
+   *
+   * The route has always returned these — `handleRouteError` flattens the Zod
+   * issues into {field: [message]} — and this form has always thrown them away,
+   * reading only `error` and toasting the bare word "Validation failed". That
+   * is the whole of the reported save bug: the server knew exactly what was
+   * wrong and the UI refused to say.
+   */
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const consumer = marketMode === 'B2C';
 
   // The placeholder is the real instruction here — it shows the level of detail
@@ -80,17 +94,57 @@ export function AudienceGoalsForm({
     );
   }
 
+  /**
+   * Catch what the server would reject, before the round trip.
+   *
+   * Same limits, imported from the schema module, so the two cannot drift.
+   */
+  function validate(): boolean {
+    const next: Record<string, string> = {};
+    if (audience.trim().length > AUDIENCE_MAX) {
+      next.audience = `${audience.trim().length} characters — keep it under ${AUDIENCE_MAX}.`;
+    }
+    if (goals.trim().length > GOALS_MAX) {
+      next.goals = `${goals.trim().length} characters — keep it under ${GOALS_MAX}.`;
+    }
+    setFieldErrors(next);
+    return Object.keys(next).length === 0;
+  }
+
   async function save() {
+    if (!validate()) {
+      toast.error('Some fields need a moment — see the notes below.');
+      return;
+    }
     setSaving(true);
+    setFieldErrors({});
     try {
       const res = await fetch('/api/company/audience', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ audience, goals, channels, marketMode }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        details?: Record<string, string[] | undefined>;
+      };
       if (!res.ok) {
-        toast.error(data.error ?? 'Could not save.');
+        // Put the server's own per-field messages next to the fields they
+        // describe, rather than reducing a precise 422 to one vague toast.
+        const details = data.details ?? {};
+        const mapped: Record<string, string> = {};
+        for (const [field, messages] of Object.entries(details)) {
+          const first = messages?.[0];
+          if (first) mapped[field] = first;
+        }
+        setFieldErrors(mapped);
+
+        const named = Object.keys(mapped);
+        toast.error(
+          named.length > 0
+            ? `Could not save: check ${named.join(' and ')}.`
+            : (data.error ?? 'Could not save.'),
+        );
         return;
       }
       toast.success('Saved. Aura will write for this reader from now on.');
@@ -175,12 +229,21 @@ export function AudienceGoalsForm({
             rows={4}
             value={audience}
             disabled={!canManage}
+            aria-invalid={!!fieldErrors.audience}
+            aria-describedby="audience-help"
             onChange={(e) => setAudience(e.target.value)}
             placeholder={audiencePlaceholder}
           />
-          <p className="text-xs text-muted-foreground">
-            {audienceHelp}
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <p id="audience-help" className="text-xs text-muted-foreground">
+              {fieldErrors.audience ? (
+                <span className="text-destructive">{fieldErrors.audience}</span>
+              ) : (
+                audienceHelp
+              )}
+            </p>
+            <CharCount value={audience} max={AUDIENCE_MAX} />
+          </div>
         </CardContent>
       </Card>
 
@@ -200,14 +263,25 @@ export function AudienceGoalsForm({
             rows={3}
             value={goals}
             disabled={!canManage}
+            aria-invalid={!!fieldErrors.goals}
+            aria-describedby="goals-help"
             onChange={(e) => setGoals(e.target.value)}
             placeholder={goalsPlaceholder}
           />
-          <p className="text-xs text-muted-foreground">
-            This steers what Aura writes about and what it asks readers to do.
-            It never appears in a post — your objective is not your
-            reader&apos;s concern.
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <p id="goals-help" className="text-xs text-muted-foreground">
+              {fieldErrors.goals ? (
+                <span className="text-destructive">{fieldErrors.goals}</span>
+              ) : (
+                <>
+                  This steers what Aura writes about and what it asks readers to
+                  do. It never appears in a post — your objective is not your
+                  reader&apos;s concern.
+                </>
+              )}
+            </p>
+            <CharCount value={goals} max={GOALS_MAX} />
+          </div>
         </CardContent>
       </Card>
 
@@ -247,6 +321,20 @@ export function AudienceGoalsForm({
         </CardContent>
       </Card>
 
+      {/* A field the server rejected that has no box of its own would otherwise
+          fail invisibly — the toast names it, this explains it. */}
+      {Object.entries(fieldErrors)
+        .filter(([f]) => f !== 'audience' && f !== 'goals')
+        .map(([field, message]) => (
+          <p
+            key={field}
+            role="alert"
+            className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            <span className="font-medium">{field}:</span> {message}
+          </p>
+        ))}
+
       {canManage ? (
         <Button onClick={save} loading={saving}>
           Save audience &amp; goals
@@ -257,5 +345,27 @@ export function AudienceGoalsForm({
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * Character count, shown only once it is worth knowing about.
+ *
+ * Always-on counters are noise on a field nobody is near the limit of; this
+ * appears at 75% and turns destructive past the limit, so the number arrives
+ * exactly when it starts to matter.
+ */
+function CharCount({ value, max }: { value: string; max: number }) {
+  const length = value.trim().length;
+  if (length < max * 0.75) return null;
+  return (
+    <span
+      className={cn(
+        'shrink-0 tabular-nums text-xs',
+        length > max ? 'font-medium text-destructive' : 'text-muted-foreground',
+      )}
+    >
+      {length}/{max}
+    </span>
   );
 }

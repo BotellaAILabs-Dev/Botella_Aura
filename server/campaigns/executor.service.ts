@@ -19,7 +19,14 @@ const OUTREACH_BATCH_SIZE = 3;
 
 export async function executeDueCampaignTasks(
   now: Date = new Date(),
-): Promise<{ processed: number; generated: number; skipped: number; failed: number }> {
+): Promise<{
+  processed: number;
+  generated: number;
+  skipped: number;
+  failed: number;
+  /** Campaigns closed out by this run. */
+  completed: number;
+}> {
   const tasks = await db.campaignTask.findMany({
     where: {
       status: 'PENDING',
@@ -56,7 +63,57 @@ export async function executeDueCampaignTasks(
     }
   }
 
-  return { processed: tasks.length, generated, skipped, failed };
+  // A campaign whose work is all done must stop reading as "running".
+  const completed = await closeFinishedCampaigns(now);
+
+  return { processed: tasks.length, generated, skipped, failed, completed };
+}
+
+/**
+ * Mark campaigns COMPLETED once no task can still run.
+ *
+ * COMPLETED existed in the schema and in the UI — the list page styled it, the
+ * pause button hid itself for it — but nothing in the codebase ever wrote it.
+ * The result was that a campaign which had finished all thirty days of its work
+ * stayed ACTIVE forever, indistinguishable from one started this morning, and
+ * the pause button kept offering to pause work that could never run again.
+ *
+ * "Finished" means no PENDING task remains. Tasks awaiting human review do not
+ * hold a campaign open: the scheduled work is done, and the approval queue is
+ * where the remaining items live. The derived state still surfaces them (see
+ * lib/campaign-status.ts), so nothing is lost by closing the campaign.
+ */
+async function closeFinishedCampaigns(now: Date): Promise<number> {
+  const candidates = await db.campaign.findMany({
+    where: {
+      status: 'ACTIVE',
+      // Cheap pre-filter: a campaign with any pending task is definitely open.
+      tasks: { none: { status: 'PENDING' } },
+    },
+    select: { id: true, companyId: true, name: true, _count: { select: { tasks: true } } },
+  });
+
+  let closed = 0;
+  for (const campaign of candidates) {
+    // A campaign with no tasks at all was never planned; leave it alone rather
+    // than declaring an empty thing complete.
+    if (campaign._count.tasks === 0) continue;
+
+    await db.campaign.update({
+      where: { id: campaign.id },
+      data: { status: 'COMPLETED', endDate: now },
+    });
+    await recordAudit({
+      action: 'CAMPAIGN_COMPLETED',
+      companyId: campaign.companyId,
+      metadata: { campaignId: campaign.id, name: campaign.name },
+    });
+    logger.info('campaign executor: campaign completed', {
+      campaignId: campaign.id,
+    });
+    closed++;
+  }
+  return closed;
 }
 
 type TaskWithCampaign = Awaited<ReturnType<typeof db.campaignTask.findMany>>[number] & {

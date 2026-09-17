@@ -9,6 +9,12 @@ import {
   isClaudeConfigured,
 } from '@/server/ai/claude';
 import { getBrandVoiceProfile } from '@/server/content/brand-voice.service';
+import {
+  audienceToPrompt,
+  businessToPrompt,
+  getAudienceProfile,
+  getBusinessProfile,
+} from '@/server/content/audience';
 import { normalizeDigestPayload } from '@/server/trends/digest.service';
 import type { ChangesSummary } from '@/server/competitors/types';
 import type {
@@ -336,6 +342,22 @@ export async function generateAdvisorReport(args: {
   const { companyId, userId } = args;
 
   const company = await db.company.findUnique({ where: { id: companyId } });
+  /**
+   * The advisor recommends what to MARKET, and used to do it knowing only a
+   * company name, an industry label and a tone.
+   *
+   * Everything the workspace said about its buyers — who they are, whether
+   * they are spending a budget or their own money, what the business is aiming
+   * at — reached content drafts and stopped there. So a consumer brand got
+   * campaign opportunities argued in terms of pipeline and procurement cycles,
+   * and a recommendation could target a reader the company had explicitly said
+   * it does not sell to. Both blocks degrade to '' for a workspace that has
+   * said nothing, leaving the old prompt untouched.
+   */
+  const [advisorAudience, advisorBusiness] = await Promise.all([
+    getAudienceProfile(companyId),
+    getBusinessProfile(companyId),
+  ]);
   if (!company) throw new Error('Company not found.');
 
   const signal = await collectSignal(companyId);
@@ -374,7 +396,12 @@ export async function generateAdvisorReport(args: {
         schema: aiSchema,
         system:
           `You are the marketing strategist for ${company.name}` +
-          `${company.industry ? ` (${company.industry})` : ''}. ` +
+          `${company.industry ? ` (${company.industry})` : ''}.\n` +
+          `${businessToPrompt(advisorBusiness, company.industry)}\n` +
+          `${audienceToPrompt(advisorAudience)}\n` +
+          'Every opportunity must be aimed at THAT reader — an opportunity a ' +
+          'different audience would care about is the wrong opportunity, ' +
+          'however good the evidence behind it.\n' +
           `Brand voice: ${signal.brandVoiceSummary || company.brandVoiceNotes || 'professional, practical, no hype'}. ` +
           'You are given numbered EVIDENCE about competitor activity, market ' +
           'trends, what this company already published, and what it has learned. ' +
@@ -389,6 +416,9 @@ export async function generateAdvisorReport(args: {
         prompt: [
           `Company: ${company.name}`,
           `Industry: ${company.industry ?? 'unspecified'}`,
+          advisorAudience?.goals
+            ? `What the business is working towards: ${advisorAudience.goals}`
+            : '',
           `Tracked competitors: ${signal.competitorNames.join(', ') || 'none'}`,
           '',
           'EVIDENCE:',

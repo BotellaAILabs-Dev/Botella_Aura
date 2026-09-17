@@ -169,6 +169,7 @@ enum AuditAction {
   CAMPAIGN_TASK_FAILED
   CAMPAIGN_PAUSED
   CAMPAIGN_RESUMED
+  CAMPAIGN_COMPLETED
   CAMPAIGN_CHECKPOINT_GENERATED
   // --- Sprint 6 (Analytics) ---
   ANALYTICS_REPORT_GENERATED
@@ -775,6 +776,8 @@ model KnowledgeSource {
 
   @@unique([companyId, type, url])
   @@index([companyId])
+
+  @@index([companyId, createdAt])
 }
 
 /// A retrievable chunk of the company's own content, grounding AI generation.
@@ -825,6 +828,8 @@ model Campaign {
   tasks   CampaignTask[]
 
   @@index([companyId, status])
+
+  @@index([companyId, createdAt])
 }
 
 /// Sprint 6 — one scheduled unit of campaign work. The daily cron finds due
@@ -875,6 +880,8 @@ model TrendDigest {
   // Idempotency: one digest per company per calendar day (see NON-NEGOTIABLE #6).
   @@unique([companyId, date])
   @@index([companyId])
+
+  @@index([companyId, date])
 }
 
 /// Sprint 2 — per-company Trend Intelligence configuration. 1:1 with Company.
@@ -939,6 +946,8 @@ model CompetitorProfile {
   snapshots CompetitorSnapshot[]
 
   @@index([companyId])
+
+  @@index([companyId, createdAt])
 }
 
 /// Sprint 4 — a point-in-time capture of a competitor's public signal. Each run
@@ -1088,6 +1097,8 @@ model Lead {
   @@index([companyId, source])
   @@index([companyId, category])
   @@index([discoveryProfileId])
+
+  @@index([companyId, updatedAt])
 }
 
 /// A detected public signal attached to a lead (funding, hiring, etc.).
@@ -1161,6 +1172,8 @@ model DiscoveryProfile {
   leads   Lead[]
 
   @@index([companyId])
+
+  @@index([companyId, createdAt])
 }
 
 /// One execution of a DiscoveryProfile against the public sources — the run
@@ -1202,6 +1215,8 @@ model EngagementTarget {
 
   @@unique([companyId, profileUrl])
   @@index([companyId])
+
+  @@index([companyId, createdAt])
 }
 
 /// An AI-drafted comment for a post the user was already viewing. The post text
@@ -1279,6 +1294,8 @@ model MarketingMemory {
 
   @@index([companyId, insightType])
   @@index([companyId, isActive])
+
+  @@index([companyId, generatedAt])
 }
 
 // ---------------------------------------------------------------------------

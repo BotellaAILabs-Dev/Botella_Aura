@@ -114,9 +114,29 @@ export async function createCompanyForUser({
 export async function getCompaniesForUser(
   userId: string,
 ): Promise<CompanySummary[]> {
+  /**
+   * Five columns, not the whole row.
+   *
+   * This is the hottest query in the application: `resolveActiveCompany` calls
+   * it on every dashboard navigation, for the layout's company switcher and
+   * again for whatever the page itself needs (React `cache` collapses those
+   * into one per request, but not into none).
+   *
+   * `include: { company: true }` is SELECT * — so each of those loads pulled
+   * `preferences` and `brandVoiceProfile`, both JSON bags that grow with brand
+   * assets, audience settings and an AI-written voice profile, plus the
+   * free-text `brandVoiceNotes` — and then threw all of it away to build a
+   * five-field summary. Same reasoning as the explicit column list on the
+   * Content Studio board query in server/content/content.service.ts.
+   */
   const memberships = await db.companyMember.findMany({
     where: { userId },
-    include: { company: true },
+    select: {
+      role: true,
+      company: {
+        select: { id: true, name: true, slug: true, logoUrl: true },
+      },
+    },
     orderBy: { createdAt: 'asc' },
   });
 

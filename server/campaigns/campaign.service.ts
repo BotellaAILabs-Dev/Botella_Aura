@@ -127,7 +127,20 @@ export async function listCampaigns(companyId: string) {
   return db.campaign.findMany({
     where: { companyId, status: { not: 'ARCHIVED' } },
     orderBy: { createdAt: 'desc' },
-    include: { _count: { select: { tasks: true } } },
+    include: {
+      _count: { select: { tasks: true } },
+      /**
+       * Two columns per task, so the list can say what each campaign NEEDS
+       * rather than only how many tasks it has.
+       *
+       * The stored status cannot answer that on its own — ACTIVE covers a
+       * campaign running perfectly, one with nine drafts waiting on approval,
+       * and one whose daily job has been failing for a week. Deriving the
+       * difference needs the task rows; selecting just these two keeps it to
+       * roughly thirty narrow rows per campaign rather than the full payloads.
+       */
+      tasks: { select: { status: true, scheduledDate: true } },
+    },
   });
 }
 

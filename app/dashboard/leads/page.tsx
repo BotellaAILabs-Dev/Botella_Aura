@@ -6,7 +6,10 @@ import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
 import { getMembership } from '@/server/services/company.service';
 import { can } from '@/lib/rbac';
-import { listLeads, listLeadCategories } from '@/server/outreach/lead.service';
+import {
+  listLeadSummaries,
+  listLeadCategories,
+} from '@/server/outreach/lead.service';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
@@ -26,7 +29,7 @@ export default async function LeadsPage() {
 
   const [membership, leads, categories] = await Promise.all([
     getMembership(user.id, active.id),
-    listLeads(active.id),
+    listLeadSummaries(active.id),
     listLeadCategories(active.id),
   ]);
   const canManage = membership ? can(membership.role, 'content:approve') : false;
@@ -44,8 +47,10 @@ export default async function LeadsPage() {
     fitRationale: l.fitRationale,
     fitMatched: l.fitMatched,
     fitMissed: l.fitMissed,
-    signalCount: l.signals.length,
-    messageCount: l.messages.length,
+    // Counted by the database. These used to be `.length` on fully loaded
+    // relation arrays — and the signal figure was capped at 5 by a `take`.
+    signalCount: l._count.signals,
+    messageCount: l._count.messages,
   }));
 
   const discoverBtn = (

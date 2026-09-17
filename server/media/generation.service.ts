@@ -98,11 +98,17 @@ export async function generateGraphics(
     providerRatios: provider.supportedRatios,
   });
 
-  const variations = Math.min(
-    Math.max(1, args.variations),
-    MAX_VARIATIONS,
-    provider.maxImagesPerRequest,
-  );
+  /**
+   * What the user asked for, and what this provider can deliver, kept apart.
+   *
+   * These used to be collapsed into one number, and the shortfall warning at
+   * the bottom compared the result against the ALREADY-CLAMPED figure — so a
+   * provider capped at one image satisfied "1 of 1" and said nothing, while
+   * the user who asked for four variations just got one and no explanation.
+   * Comparing against the request is what makes a shortfall visible.
+   */
+  const requested = Math.min(Math.max(1, args.variations), MAX_VARIATIONS);
+  const variations = Math.min(requested, provider.maxImagesPerRequest);
 
   /**
    * Resume, rather than restart.
@@ -244,10 +250,12 @@ export async function generateGraphics(
     ...(format.substituted && format.requested
       ? { substitutedFrom: format.requested }
       : {}),
-    ...(assets.length < variations
+    ...(assets.length < requested
       ? {
-          warning: `${provider.label} returned ${assets.length} of ${variations} images. ${
-            rejected[0] ?? ''
+          warning: `${provider.label} returned ${assets.length} of ${requested} images. ${
+            assets.length < requested && variations < requested
+              ? `This model produces up to ${provider.maxImagesPerRequest} per request.`
+              : (rejected[0] ?? '')
           }`.trim(),
         }
       : {}),

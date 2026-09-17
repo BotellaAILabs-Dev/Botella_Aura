@@ -9,6 +9,11 @@ import { getCampaign, CampaignNotFoundError } from '@/server/campaigns/campaign.
 import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  countTasks,
+  deriveCampaignState,
+  taskTypeLabel,
+} from '@/lib/campaign-status';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PauseButton } from '@/components/dashboard/campaigns/pause-button';
 import {
@@ -35,20 +40,20 @@ export default async function CampaignDetailPage({
     throw e;
   }
 
-  const total = campaign.tasks.length;
-  const done = campaign.tasks.filter((t) =>
-    ['GENERATED', 'APPROVED', 'SKIPPED'].includes(t.status),
-  ).length;
-  const pendingReview = campaign.tasks.filter((t) => t.status === 'GENERATED').length;
+  /**
+   * Counting and state derivation both live in lib/campaign-status.ts so the
+   * list page, this page and the timeline cannot disagree about what a
+   * campaign is doing — which they did while each computed its own view of
+   * the same enum.
+   */
+  const counts = countTasks(campaign.tasks);
+  const state = deriveCampaignState(campaign.status, counts);
+  const total = counts.total;
+  const done = counts.done;
+  const pendingReview = counts.awaitingReview;
   const pct = total ? Math.round((done / total) * 100) : 0;
   const plan = (campaign.plan ?? {}) as { overview?: string };
 
-  /**
-   * "PENDING" conflated two completely different states: work scheduled for a
-   * future date (nothing to do — the campaign is running correctly) and work
-   * that is due but has not run (genuinely stuck). Showing 25 PENDING beside
-   * "Awaiting your review: 0" read as a contradiction for that reason.
-   */
   const now = Date.now();
   const pendingTasks = campaign.tasks.filter((t) => t.status === 'PENDING');
   const scheduledAhead = pendingTasks.filter(
@@ -72,13 +77,6 @@ export default async function CampaignDetailPage({
     acc[t.taskType] = (acc[t.taskType] ?? 0) + 1;
     return acc;
   }, {});
-  const TYPE_LABEL: Record<string, string> = {
-    GENERATE_CONTENT: 'Content',
-    DRAFT_OUTREACH: 'Outreach',
-    RUN_DISCOVERY: 'Discovery',
-    REVIEW_CHECKPOINT: 'Checkpoint',
-  };
-
   const rows: TaskRow[] = campaign.tasks.map((t) => ({
     id: t.id,
     scheduledDate: t.scheduledDate.toISOString(),
@@ -108,15 +106,36 @@ export default async function CampaignDetailPage({
         }
       />
 
+      {/*
+        The required action, stated once and first.
+        A person opening a campaign has two questions — how far along is it,
+        and does it need me. The second was previously answerable only by
+        reading a status enum, three counters and a 30-row timeline and
+        working it out.
+      */}
+      {state.action && (
+        <div
+          className={`mb-6 rounded-lg border p-4 ${
+            state.needsAttention
+              ? 'border-warning/40 bg-warning/5'
+              : 'border-border bg-muted/30'
+          }`}
+        >
+          <p className="text-sm font-medium text-foreground">{state.action}</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">{state.summary}</p>
+        </div>
+      )}
+
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <Card>
+        <Card className={state.needsAttention ? 'border-warning/40' : undefined}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground">Status</CardTitle>
           </CardHeader>
           <CardContent>
-            <Badge variant={campaign.status === 'ACTIVE' ? 'success' : campaign.status === 'PAUSED' ? 'warning' : 'muted'}>
-              {campaign.status}
-            </Badge>
+            <Badge variant={state.tone}>{state.label}</Badge>
+            {/* The badge says what it is; this says what it means and what,
+                if anything, is being asked of the person reading it. */}
+            <p className="mt-2 text-xs text-muted-foreground">{state.summary}</p>
           </CardContent>
         </Card>
         <Card>
@@ -165,7 +184,7 @@ export default async function CampaignDetailPage({
         <span className="text-muted-foreground">
           ·{' '}
           {Object.entries(byType)
-            .map(([type, n]) => `${n} ${TYPE_LABEL[type] ?? type}`)
+            .map(([type, n]) => `${n} ${taskTypeLabel(type)}`)
             .join(' · ')}
         </span>
       </div>
@@ -177,7 +196,7 @@ export default async function CampaignDetailPage({
               Next up
             </p>
             <p className="mt-1 text-sm font-medium text-foreground">
-              {TYPE_LABEL[nextTask.taskType] ?? nextTask.taskType}
+              {taskTypeLabel(nextTask.taskType)}
               {nextTask.topic ? ` — ${nextTask.topic}` : ''}
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">

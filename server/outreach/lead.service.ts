@@ -33,18 +33,68 @@ export interface LeadListFilters {
  * "leads don't show up in Outreach" report is impossible by construction, and
  * the same filters apply on both screens.
  */
-export async function listLeads(companyId: string, filters: LeadListFilters = {}) {
+/**
+ * Ceiling on a single board load.
+ *
+ * Neither of these lists paginates, so without a limit one workspace with a
+ * productive discovery profile turns a page render into an unbounded read.
+ * 500 is far above what anyone scrolls and far below what hurts.
+ */
+const MAX_LEADS = 500;
+
+function leadWhere(companyId: string, filters: LeadListFilters): Prisma.LeadWhereInput {
   const where: Prisma.LeadWhereInput = { companyId };
   if (filters.category) where.category = filters.category;
   if (filters.source) where.source = filters.source as Prisma.LeadWhereInput['source'];
   if (filters.status) where.status = filters.status as Prisma.LeadWhereInput['status'];
+  return where;
+}
 
+/**
+ * Leads WITH their signals and drafted messages — for the outreach board,
+ * which renders both.
+ *
+ * `messages` was previously unbounded, so every draft ever written for a lead
+ * was loaded on every board render, full message bodies included. The board
+ * shows the current state of a conversation, not its entire history, so the
+ * most recent few are what it actually needs.
+ */
+export async function listLeads(companyId: string, filters: LeadListFilters = {}) {
   return db.lead.findMany({
-    where,
+    where: leadWhere(companyId, filters),
     orderBy: { updatedAt: 'desc' },
+    take: MAX_LEADS,
     include: {
       signals: { orderBy: { detectedAt: 'desc' }, take: 5 },
-      messages: { orderBy: { createdAt: 'desc' } },
+      messages: { orderBy: { createdAt: 'desc' }, take: 10 },
+      discoveryProfile: { select: { id: true, name: true, category: true } },
+    },
+  });
+}
+
+/**
+ * Leads with COUNTS rather than rows — for the leads table.
+ *
+ * That page renders `signals.length` and `messages.length` and nothing else
+ * from either relation, but was served by the query above: it loaded every
+ * outreach message body for every lead in order to call `.length` on the
+ * array. At four leads that is invisible; at four thousand it is the page.
+ *
+ * It was also WRONG. `signals` carried `take: 5`, so a lead with twelve
+ * signals displayed "5" — a count capped by a pagination limit nobody
+ * intended as a maximum. `_count` asks the database to count, which is both
+ * cheaper and correct.
+ */
+export async function listLeadSummaries(
+  companyId: string,
+  filters: LeadListFilters = {},
+) {
+  return db.lead.findMany({
+    where: leadWhere(companyId, filters),
+    orderBy: { updatedAt: 'desc' },
+    take: MAX_LEADS,
+    include: {
+      _count: { select: { signals: true, messages: true } },
       discoveryProfile: { select: { id: true, name: true, category: true } },
     },
   });

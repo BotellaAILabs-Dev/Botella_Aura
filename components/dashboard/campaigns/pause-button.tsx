@@ -31,7 +31,15 @@ export function PauseButton({ campaignId, status }: { campaignId: string; status
     }
   }
 
-  if (status === 'COMPLETED') return null;
+  /**
+   * Nothing left to pause.
+   *
+   * This guard existed but was unreachable, because nothing ever wrote
+   * COMPLETED — so a finished campaign kept offering to pause work that could
+   * never run again. The executor now closes campaigns out, which is what
+   * makes this branch real.
+   */
+  if (status === 'COMPLETED' || status === 'ARCHIVED') return null;
   return (
     <Button onClick={toggle} loading={busy} variant="outline" size="sm">
       {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
