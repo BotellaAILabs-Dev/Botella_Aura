@@ -6,6 +6,7 @@ import {
 } from '@/server/media/types';
 import { openAiImageProvider } from '@/server/media/providers/openai';
 import { googleImageProvider } from '@/server/media/providers/gemini';
+import { agnesImageProvider } from '@/server/media/providers/agnes';
 import { stabilityImageProvider } from '@/server/media/providers/stability';
 import { replicateImageProvider } from '@/server/media/providers/replicate';
 
@@ -23,6 +24,7 @@ import { replicateImageProvider } from '@/server/media/providers/replicate';
 const REGISTRY: ImageGenerationProvider[] = [
   openAiImageProvider,
   googleImageProvider,
+  agnesImageProvider,
   stabilityImageProvider,
   replicateImageProvider,
 ];

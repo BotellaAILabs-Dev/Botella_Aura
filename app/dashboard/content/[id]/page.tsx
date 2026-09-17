@@ -29,6 +29,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { DraftPreview } from '@/components/dashboard/content/draft-preview';
 import { DraftActions } from '@/components/dashboard/content/draft-actions';
 import { GraphicStudio } from '@/components/dashboard/content/graphic-studio';
+import { AgnesImageGenerator } from '@/components/dashboard/content/agnes-image-generator';
 import { PostComposer } from '@/components/dashboard/content/post-composer';
 import type { ContentTypeKey } from '@/lib/validations/content';
 
@@ -112,6 +113,10 @@ export default async function DraftDetailPage({
             activeJobId={activeJob?.id ?? null}
             canEdit={canEdit}
           />
+
+          {/* Text-to-image via Agnes AI. Talks to /api/generate-image, which
+              holds the credential server-side — the browser never sees it. */}
+          {canEdit && <AgnesImageGenerator />}
 
           <PostComposer
             draftId={draft.id}
