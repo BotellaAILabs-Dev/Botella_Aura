@@ -8,6 +8,10 @@ import { discoverPeopleFromSite } from '@/server/leads/discovery/sources/company
 import { discoverViaSearch } from '@/server/leads/discovery/sources/google-cse';
 import { scoreLead } from '@/server/leads/discovery/scoring';
 import {
+  businessContextToPrompt,
+  getBusinessContext,
+} from '@/server/business-context/business-context.service';
+import {
   dedupeWithin,
   findExistingMatch,
 } from '@/server/leads/discovery/dedup';
@@ -49,6 +53,11 @@ export async function runDiscovery(args: {
   if (!profile) throw new DiscoveryProfileNotFoundError();
   const company = await db.company.findUnique({ where: { id: companyId } });
   if (!company) throw new Error('Company not found.');
+  // Once per run: every lead is scored against the same business.
+  const companyContext = businessContextToPrompt(
+    await getBusinessContext(companyId, { sections: ['targeting'] }),
+    'qualification',
+  );
 
   const criteria: DiscoveryCriteria = discoveryCriteriaSchema.parse(
     profile.criteria ?? {},
@@ -158,7 +167,7 @@ export async function runDiscovery(args: {
       });
 
       // 3) AI fit score, grounded in criteria + company ICP.
-      const score = await scoreLead({ company, criteria, lead: cand });
+      const score = await scoreLead({ company, criteria, lead: cand, companyContext });
       await db.lead.update({
         where: { id: lead.id },
         data: {

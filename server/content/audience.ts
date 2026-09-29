@@ -3,7 +3,11 @@ import {
   readBusinessProfile,
   readMarketingProfile,
 } from '@/server/company/profile.service';
-import type { BusinessProfile, MarketMode } from '@/lib/validations/profile';
+import type {
+  BusinessProfile,
+  MarketingProfile,
+  MarketMode,
+} from '@/lib/validations/profile';
 
 /**
  * Who the content is for.
@@ -108,10 +112,56 @@ export async function getAudienceProfile(
   // from prospecting filters. Those exist to find companies; this exists to
   // describe a reader.
   const marketing = company ? readMarketingProfile(company) : null;
+  return composeAudienceProfile({ marketing, outreach, profiles });
+}
 
-  const roleTitles = new Set<string>();
-  const industries = new Set<string>();
-  const companyStages = new Set<string>();
+/**
+ * Tags where "Head of Ops" and "head of ops " are one entry, keeping the first
+ * spelling seen. Outreach and discovery are typed in separately, so the same
+ * title routinely arrives twice in different case and would otherwise be
+ * listed twice to the model.
+ */
+class TagSet implements Iterable<string> {
+  private readonly byKey = new Map<string, string>();
+  add(tag: string): void {
+    const value = tag.trim();
+    const key = value.toLowerCase();
+    if (value && !this.byKey.has(key)) this.byKey.set(key, value);
+  }
+  get size(): number {
+    return this.byKey.size;
+  }
+  [Symbol.iterator](): Iterator<string> {
+    return this.byKey.values();
+  }
+}
+
+/** The targeting fields composeAudienceProfile reads from OutreachConfig. */
+export interface AudienceTargeting {
+  roleTitles: string[];
+  industries: string[];
+  companyStages: string[];
+}
+
+/**
+ * The merge behind getAudienceProfile, without the reads.
+ *
+ * Pure so the Business Context (server/business-context) can build the same
+ * audience from rows it has already loaded, instead of a second copy of these
+ * rules drifting away from this one.
+ */
+export function composeAudienceProfile({
+  marketing,
+  outreach,
+  profiles,
+}: {
+  marketing: MarketingProfile | null;
+  outreach: AudienceTargeting | null;
+  profiles: { criteria: unknown }[];
+}): AudienceProfile | null {
+  const roleTitles = new TagSet();
+  const industries = new TagSet();
+  const companyStages = new TagSet();
   const sources: string[] = [];
 
   if (outreach) {

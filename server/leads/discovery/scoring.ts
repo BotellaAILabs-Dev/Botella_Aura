@@ -19,8 +19,13 @@ export async function scoreLead(args: {
   company: Company;
   criteria: DiscoveryCriteria;
   lead: DiscoveredLead;
+  /**
+   * The business-context preamble (businessContextToPrompt 'qualification'),
+   * loaded once per discovery run by the caller rather than once per lead.
+   */
+  companyContext?: string;
 }): Promise<FitScore & { model: string }> {
-  const { company, criteria, lead } = args;
+  const { company, criteria, lead, companyContext } = args;
 
   if (!isClaudeConfigured()) {
     return { ...deterministicScore(criteria, lead), model: 'none' };
@@ -40,10 +45,16 @@ export async function scoreLead(args: {
         'given, put it in `missed`. Respond with ONLY JSON: ' +
         '{"fitScore": number, "fitRationale": string, "matched": string[], "missed": string[]}.',
       prompt: [
-        `Our company: ${company.name}. ${company.brandVoiceNotes ?? ''}`.trim(),
+        // What the company does and who it sells to. This used to append
+        // brandVoiceNotes — a description of TONE — as if it described the
+        // business, leaving the scorer to guess what "fit" meant.
+        `Our company: ${company.name}.`,
+        companyContext ?? '',
         `Target criteria: ${JSON.stringify(criteria)}`,
         `Lead: ${lead.name ? `${lead.name}, ` : ''}${lead.title ? `${lead.title}, ` : ''}at ${lead.companyName}. ${lead.evidence ?? ''}`.trim(),
-      ].join('\n'),
+      ]
+        .filter(Boolean)
+        .join('\n'),
       // Structured output plus two string arrays does not fit in 300 tokens;
       // a truncated response fails validation and drops every lead to the
       // deterministic floor, which is what made every score identical.

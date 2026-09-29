@@ -1,20 +1,19 @@
 import type { Company } from '@prisma/client';
 
-import { db } from '@/lib/db';
 import {
-  getAudienceProfile,
-  getBusinessProfile,
+  getBusinessContext,
+  toAudienceProfile,
+} from '@/server/business-context/business-context.service';
+import {
   audienceToPrompt,
   businessToPrompt,
   contentRulesFor,
   type AudienceProfile,
 } from '@/server/content/audience';
-import {
-  getBrandVoiceProfile,
-  brandVoiceToPrompt,
-} from '@/server/content/brand-voice.service';
-import { retrieve, chunksToContext } from '@/server/knowledge/retrieve';
+import { brandVoiceToPrompt } from '@/server/content/brand-voice.service';
+import { chunksToContext, type RetrievedChunk } from '@/server/knowledge/retrieve';
 import type { BusinessProfile } from '@/lib/validations/profile';
+import type { BrandVoiceProfile } from '@/lib/validations/content';
 
 /**
  * Everything the workspace has told us about itself, in one place.
@@ -53,9 +52,9 @@ export interface BrandContext {
   /** Who it markets to, and whether they buy for a business or themselves. */
   audience: AudienceProfile | null;
   /** The AI-written, human-editable voice profile. */
-  voice: ReturnType<typeof getBrandVoiceProfile>;
+  voice: BrandVoiceProfile | null;
   /** Grounding passages from uploaded materials — only when a query is given. */
-  knowledge: Awaited<ReturnType<typeof retrieve>>;
+  knowledge: RetrievedChunk[];
 }
 
 export interface BrandContextOptions {
@@ -72,46 +71,43 @@ export interface BrandContextOptions {
   knowledgeLimit?: number;
 }
 
+/**
+ * The brand-facing slice of the Business Context.
+ *
+ * Kept for the call sites written against this shape. It is now a projection of
+ * getBusinessContext (server/business-context), so both read the same sources
+ * through the same resolution rules; new workflows should call
+ * getBusinessContext and businessContextToPrompt directly.
+ */
 export async function getBrandContext(
   companyId: string,
   options: BrandContextOptions = {},
 ): Promise<BrandContext | null> {
-  const company = await db.company.findUnique({
-    where: { id: companyId },
-    select: {
-      id: true,
-      name: true,
-      industry: true,
-      website: true,
-      preferences: true,
-      brandVoiceProfile: true,
-      brandVoiceNotes: true,
-    },
+  const ctx = await getBusinessContext(companyId, {
+    // Only the sections this shape exposes, so its cost does not grow with
+    // the full context.
+    sections: ['targeting'],
+    query: options.query,
+    knowledgeLimit: options.knowledgeLimit,
   });
-  if (!company) return null;
-
-  // Independent reads, so they cost one round trip rather than four.
-  const [business, audience, knowledge] = await Promise.all([
-    getBusinessProfile(companyId),
-    getAudienceProfile(companyId),
-    options.query
-      ? retrieve(companyId, options.query, {
-          limit: options.knowledgeLimit ?? 6,
-        })
-      : Promise.resolve([]),
-  ]);
+  if (!ctx) return null;
 
   return {
     company: {
-      id: company.id,
-      name: company.name,
-      industry: company.industry,
-      website: company.website,
+      id: ctx.identity.companyId,
+      name: ctx.identity.name,
+      industry: ctx.identity.industry,
+      website: ctx.identity.website,
     },
-    business,
-    audience,
-    voice: getBrandVoiceProfile(company),
-    knowledge,
+    business: ctx.identity.description || ctx.identity.offerings
+      ? {
+          description: ctx.identity.description ?? undefined,
+          offerings: ctx.identity.offerings ?? undefined,
+        }
+      : null,
+    audience: toAudienceProfile(ctx),
+    voice: ctx.voice.profile,
+    knowledge: ctx.knowledge.passages,
   };
 }
 
