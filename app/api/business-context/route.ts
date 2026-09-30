@@ -41,17 +41,18 @@ export async function PATCH(req: Request) {
     }
 
     const body = businessContextUpdateSchema.parse(await req.json());
-    const { changed } = await updateBusinessContext({
+    const { changed, confirmed } = await updateBusinessContext({
       companyId: company.id,
       userId: user.id,
       patch: body.patch,
       origin: 'api',
       expectedRevision: body.expectedRevision,
+      confirm: body.confirm,
       requestMeta: getRequestMeta(req),
     });
 
     const context = await getBusinessContext(company.id);
-    return jsonOk({ changed, context });
+    return jsonOk({ changed, confirmed, context });
   } catch (error) {
     return handleRouteError(error);
   }

@@ -293,9 +293,17 @@ describe('brand voice mapping', () => {
     );
     expect(ctx.voice.summary).toBe('Warm, specific, never salesy.');
     expect(ctx.voice.notes).toBe('friendly');
-    expect(ctx.meta.issues.filter((i) => i.field === 'voice.summary')).toEqual(
-      [],
-    );
+    // Layered, so the profile and notes are not a value conflict…
+    expect(
+      ctx.meta.issues.filter(
+        (i) => i.field === 'voice.summary' && i.kind === 'value_conflict',
+      ),
+    ).toEqual([]);
+    // …but a profile nobody has reviewed is still an AI draft.
+    expect(ctx.meta.facts['voice.summary']).toMatchObject({
+      sourceType: 'ai_derived',
+      trusted: false,
+    });
   });
 
   it('falls back to notes and says a profile has not been generated', () => {
@@ -415,12 +423,18 @@ describe('market mapping', () => {
         url: 'https://acme.co',
         tracked: true,
         source: 'competitor_profiles',
+        sourceType: 'user_provided',
+        confidence: 'confirmed',
+        capturedAt: null,
       },
       {
         name: 'Globex Beans',
         url: null,
         tracked: false,
         source: 'trend_config',
+        sourceType: 'user_provided',
+        confidence: 'confirmed',
+        capturedAt: null,
       },
     ]);
     const note = ctx.meta.issues.find((i) => i.field === 'market.competitors');

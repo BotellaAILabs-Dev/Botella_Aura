@@ -1,4 +1,9 @@
-import { REQUIRED_FIELDS } from '@/lib/business-context';
+import {
+  REQUIRED_FIELDS,
+  SOURCE_TYPE_INFO,
+  storedFactMetaSchema,
+  type SourceType,
+} from '@/lib/business-context';
 import type { BrandVoiceProfile } from '@/lib/validations/content';
 import { brandVoiceProfileSchema } from '@/lib/validations/content';
 import {
@@ -71,7 +76,37 @@ export interface WritePlan {
   changed: string[];
   /** References the service must confirm belong to the workspace (R5). */
   references: { logoAssetId?: string };
+  /** Fields a person reviewed and confirmed without changing them. */
+  confirmed: string[];
 }
+
+/** The source type each kind of write records against the fields it sets. */
+export const ORIGIN_SOURCE_TYPE: Record<UpdateOrigin, SourceType> = {
+  onboarding: 'onboarding',
+  settings: 'user_provided',
+  api: 'user_provided',
+  ai: 'ai_derived',
+};
+
+/**
+ * Fields that can be confirmed: every stored writable field. Confirming marks
+ * a value as reviewed by a person — it turns an AI-drafted voice profile into
+ * the business's own and resets the freshness clock on anything else.
+ */
+export const CONFIRMABLE_FIELDS = [
+  'identity.name',
+  'identity.website',
+  'identity.industry',
+  'identity.description',
+  'identity.offerings',
+  'audience.marketMode',
+  'audience.stated',
+  'objectives.goals',
+  'objectives.contentFormats',
+  'channels.preferred',
+  'voice.notes',
+  'voice.profile',
+] as const;
 
 /** Fields an AI-originated write may set (R6). */
 export const AI_WRITABLE_FIELDS = ['voice.profile'];
@@ -139,6 +174,7 @@ export function planBusinessContextWrite(
   patch: BusinessContextPatch,
   origin: UpdateOrigin,
   aliases: Record<string, string> = {},
+  options: { confirm?: readonly string[]; now?: Date } = {},
 ): WritePlan {
   const issues: ContextUpdateIssue[] = [];
   const changed: string[] = [];
@@ -293,10 +329,100 @@ export function planBusinessContextWrite(
     }
   }
 
+  // --- Confirmation: a person vouching for a value as it stands -------------
+  const valueAfter = (path: string): unknown => {
+    if (path.startsWith('identity.visual.')) return brand[path.slice(16)];
+    switch (path) {
+      case 'identity.name':
+        return data.name !== undefined ? data.name : current.name;
+      case 'identity.website':
+        return data.website !== undefined ? data.website : current.website;
+      case 'identity.industry':
+        return data.industry !== undefined ? data.industry : current.industry;
+      case 'identity.description':
+        return business.description;
+      case 'identity.offerings':
+        return business.offerings;
+      case 'audience.marketMode':
+        return marketing.marketMode;
+      case 'audience.stated':
+        return marketing.audience;
+      case 'objectives.goals':
+        return marketing.goals;
+      case 'objectives.contentFormats':
+        // An empty list is a real choice ("all formats"), so never blank.
+        return 'set';
+      case 'channels.preferred':
+        return marketing.channels;
+      case 'voice.notes':
+        return data.brandVoiceNotes !== undefined
+          ? data.brandVoiceNotes
+          : current.brandVoiceNotes;
+      case 'voice.profile':
+        return data.brandVoiceProfile !== undefined
+          ? data.brandVoiceProfile
+          : current.brandVoiceProfile;
+      default:
+        return undefined;
+    }
+  };
+  const isBlank = (v: unknown) =>
+    v === null ||
+    v === undefined ||
+    v === '' ||
+    (Array.isArray(v) && v.length === 0);
+
+  const confirmed: string[] = [];
+  for (const path of new Set(options.confirm ?? [])) {
+    if (!(CONFIRMABLE_FIELDS as readonly string[]).includes(path)) {
+      issues.push({
+        field: path,
+        message: 'This field cannot be confirmed here.',
+      });
+    } else if (origin === 'ai') {
+      issues.push({
+        field: path,
+        message: 'Only a person can confirm a business fact.',
+      });
+    } else if (isBlank(valueAfter(path))) {
+      issues.push({
+        field: path,
+        message: 'There is no value to confirm yet.',
+      });
+    } else if (!changed.includes(path)) {
+      confirmed.push(path);
+    }
+  }
+
   if (issues.length) throw new BusinessContextUpdateError(issues, aliases);
 
+  // --- Capture metadata: who set each fact, and when -------------------------
+  const now = (options.now ?? new Date()).toISOString();
+  const factMeta = asBag(bag.factMeta);
+  for (const path of changed) {
+    if (isBlank(valueAfter(path))) delete factMeta[path];
+    else
+      factMeta[path] = {
+        sourceType: ORIGIN_SOURCE_TYPE[origin],
+        capturedAt: now,
+      };
+  }
+  for (const path of confirmed) {
+    const prior = storedFactMetaSchema.safeParse(factMeta[path]);
+    const keepType =
+      prior.success && SOURCE_TYPE_INFO[prior.data.sourceType].trusted
+        ? prior.data.sourceType
+        : 'user_provided';
+    factMeta[path] = {
+      sourceType: keepType,
+      capturedAt: prior.success ? prior.data.capturedAt : now,
+      confirmedAt: now,
+    };
+  }
+  const metaChanged = changed.length > 0 || confirmed.length > 0;
+
   // --- R8: merge, stripping cleared keys the way the old writers did --------
-  if (touched.size) {
+  if (touched.size || metaChanged) {
     const strip = (section: Bag) => {
       for (const [k, v] of Object.entries(section)) {
         if (v === null || v === undefined || v === '') delete section[k];
@@ -311,10 +437,11 @@ export function planBusinessContextWrite(
     // An empty list is meaningful here ("offer all formats"), so no stripping.
     if (touched.has('contentFormats'))
       next.contentFormats = { enabled: ob.contentFormats };
+    if (metaChanged) next.factMeta = factMeta;
     data.preferences = next;
   }
 
-  return { data, changed, references };
+  return { data, changed, references, confirmed };
 }
 
 const REQUIRED_LABELS: Record<string, string> = {

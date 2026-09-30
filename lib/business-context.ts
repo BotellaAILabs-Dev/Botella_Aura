@@ -118,6 +118,140 @@ export const CONTEXT_SOURCE_INFO: Record<
 };
 
 // ---------------------------------------------------------------------------
+// Fact metadata: source type, confidence, freshness
+// ---------------------------------------------------------------------------
+
+/**
+ * What KIND of origin a fact has.
+ *
+ * `ContextSource` above says which table a value was read from; this says how
+ * far it can be trusted. The same table can hold both: a trend keyword the
+ * user typed is user-provided, the same column filled by the AI seeder is
+ * AI-derived — and only one of them is a business fact.
+ */
+export const SOURCE_TYPES = [
+  'user_provided',
+  'onboarding',
+  'connected_platform',
+  'uploaded_document',
+  'knowledge_base',
+  'marketing_memory',
+  'system_generated',
+  'ai_derived',
+] as const;
+
+export type SourceType = (typeof SOURCE_TYPES)[number];
+
+/**
+ * How reliable a fact is.
+ *
+ * confirmed  — the business stated it (typed it, or reviewed and confirmed it).
+ * high       — read from a system of record or the business's own documents.
+ * medium     — reasonable evidence, or a stated value used outside its scope
+ *              (e.g. last month's plan standing in for settings).
+ * low        — thin evidence (small-sample performance patterns).
+ * unverified — AI-derived and never confirmed by a person. An assumption, not
+ *              a fact, and never presented as one.
+ */
+export const CONFIDENCE_LEVELS = [
+  'confirmed',
+  'high',
+  'medium',
+  'low',
+  'unverified',
+] as const;
+
+export type ConfidenceLevel = (typeof CONFIDENCE_LEVELS)[number];
+
+export const CONFIDENCE_RANK: Record<ConfidenceLevel, number> = {
+  confirmed: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+  unverified: 0,
+};
+
+/** The lower of two confidence levels. */
+export function capConfidence(
+  a: ConfidenceLevel,
+  cap: ConfidenceLevel,
+): ConfidenceLevel {
+  return CONFIDENCE_RANK[a] <= CONFIDENCE_RANK[cap] ? a : cap;
+}
+
+export const SOURCE_TYPE_INFO: Record<
+  SourceType,
+  {
+    label: string;
+    trusted: boolean;
+    confidence: ConfidenceLevel;
+    description: string;
+  }
+> = {
+  user_provided: {
+    label: 'User-provided',
+    trusted: true,
+    confidence: 'confirmed',
+    description:
+      'Typed or confirmed by someone in the workspace after onboarding.',
+  },
+  onboarding: {
+    label: 'Onboarding',
+    trusted: true,
+    confidence: 'confirmed',
+    description: 'Answered in the onboarding wizard.',
+  },
+  connected_platform: {
+    label: 'Connected platform',
+    trusted: true,
+    confidence: 'high',
+    description:
+      'Read from a connected account (LinkedIn, analytics, email, …).',
+  },
+  uploaded_document: {
+    label: 'Uploaded document',
+    trusted: true,
+    confidence: 'high',
+    description: "The business's own uploaded material.",
+  },
+  knowledge_base: {
+    label: 'Knowledge base',
+    trusted: false,
+    confidence: 'medium',
+    description: 'Crawled from a website or blog. Evidence, not a statement.',
+  },
+  marketing_memory: {
+    label: 'Marketing memory',
+    trusted: false,
+    confidence: 'medium',
+    description:
+      'Patterns learned from real performance data; strength depends on sample size.',
+  },
+  system_generated: {
+    label: 'System-generated',
+    trusted: true,
+    confidence: 'high',
+    description: 'Computed deterministically by Aura (counts, coverage).',
+  },
+  ai_derived: {
+    label: 'AI-derived',
+    trusted: false,
+    confidence: 'unverified',
+    description: 'Suggested by a model and not yet confirmed by a person.',
+  },
+};
+
+/**
+ * fresh   — within 75% of the field's maximum age.
+ * aging   — past 75%; worth a review soon.
+ * stale   — past its maximum age, or its scope has ended (a past month's plan).
+ * unknown — no capture date (written before dates were recorded).
+ */
+export const FRESHNESS_STATES = ['fresh', 'aging', 'stale', 'unknown'] as const;
+
+export type Freshness = (typeof FRESHNESS_STATES)[number];
+
+// ---------------------------------------------------------------------------
 // Aura modules that consume the context
 // ---------------------------------------------------------------------------
 
@@ -235,6 +369,9 @@ export const marketSchema = z.object({
       /** True when it is a tracked CompetitorProfile, not only a watch-list name. */
       tracked: z.boolean(),
       source: z.enum(CONTEXT_SOURCES),
+      sourceType: z.enum(SOURCE_TYPES),
+      confidence: z.enum(CONFIDENCE_LEVELS),
+      capturedAt: z.string().nullable(),
     }),
   ),
   keywords: z.array(z.string()),
@@ -276,6 +413,8 @@ export const memorySchema = z.object({
       confidence: z.enum(['LOW', 'MEDIUM', 'HIGH']),
       sampleSize: z.number().int(),
       editedByUser: z.boolean(),
+      capturedAt: z.string().nullable(),
+      freshness: z.enum(FRESHNESS_STATES),
     }),
   ),
 });
@@ -291,13 +430,35 @@ export const provenanceSchema = z.object({
   inferred: z.boolean(),
 });
 
+/** Where one business fact came from, how reliable it is, and how current. */
+export const factSchema = z.object({
+  /** The table the winning value was read from. */
+  source: z.enum(CONTEXT_SOURCES),
+  sourceType: z.enum(SOURCE_TYPES),
+  confidence: z.enum(CONFIDENCE_LEVELS),
+  /** A business fact Aura may state as true: trusted source, not a fallback. */
+  trusted: z.boolean(),
+  /** Taken from a fallback source because the primary one was empty. */
+  inferred: z.boolean(),
+  /** When the value was captured. Null when it predates capture dates. */
+  capturedAt: z.string().nullable(),
+  ageDays: z.number().int().nullable(),
+  freshness: z.enum(FRESHNESS_STATES),
+  /** Another source holds a different value (see meta.issues). */
+  conflicted: z.boolean(),
+  /** Why the fact has the confidence or freshness it has, when not obvious. */
+  note: z.string().optional(),
+});
+
+export type BusinessFact = z.infer<typeof factSchema>;
+
 export const contextIssueSchema = z.object({
   field: z.string(),
   /**
    * value_conflict — two sources hold different values for the same fact.
    * consistency    — each value is valid, but together they do not add up.
    */
-  kind: z.enum(['value_conflict', 'consistency']),
+  kind: z.enum(['value_conflict', 'consistency', 'stale', 'unverified']),
   severity: z.enum(['info', 'warning']),
   message: z.string(),
   chosen: z
@@ -330,6 +491,8 @@ export const businessContextSchema = z.object({
     /** Optional sections actually loaded. Unloaded sections hold empty defaults. */
     sections: z.array(z.string()),
     provenance: z.record(provenanceSchema),
+    /** Source, confidence and freshness for every field that has a value. */
+    facts: z.record(factSchema),
     issues: z.array(contextIssueSchema),
     completeness: z.object({
       /** Every required field is present. */
@@ -657,3 +820,107 @@ export const CHANNEL_CONNECTORS: Record<
   Blog: ['wordpress'],
   Newsletter: ['mailchimp', 'klaviyo', 'hubspot'],
 };
+
+// ---------------------------------------------------------------------------
+// Freshness rules
+// ---------------------------------------------------------------------------
+
+/**
+ * How long each fact stays current before it should be reviewed.
+ *
+ * Null means it does not go stale on its own (a company name). Set per field
+ * from how fast that kind of fact actually changes: goals are quarterly,
+ * learned performance patterns decay within a couple of months, positioning
+ * lasts about a year.
+ */
+export const FRESHNESS_RULES: Record<
+  ContextFieldPath,
+  { maxAgeDays: number | null; why: string }
+> = {
+  'identity.name': { maxAgeDays: null, why: 'Changes only with a rebrand.' },
+  'identity.description': {
+    maxAgeDays: 365,
+    why: 'Positioning should be reviewed yearly.',
+  },
+  'identity.offerings': {
+    maxAgeDays: 180,
+    why: 'Products and pricing change within a year.',
+  },
+  'identity.industry': { maxAgeDays: null, why: 'Rarely changes.' },
+  'identity.website': {
+    maxAgeDays: 365,
+    why: 'Domains change rarely; review yearly.',
+  },
+  'identity.visual': {
+    maxAgeDays: 730,
+    why: 'Brand assets change with a rebrand.',
+  },
+  'audience.marketMode': {
+    maxAgeDays: null,
+    why: 'Changes only with a business-model change.',
+  },
+  'audience.stated': {
+    maxAgeDays: 180,
+    why: 'Target buyers drift; review twice a year.',
+  },
+  'audience.roleTitles': { maxAgeDays: 180, why: 'Prospecting targets drift.' },
+  'audience.industries': { maxAgeDays: 180, why: 'Prospecting targets drift.' },
+  'audience.companyStages': {
+    maxAgeDays: 180,
+    why: 'Prospecting targets drift.',
+  },
+  'objectives.goals': { maxAgeDays: 90, why: 'Goals are set per quarter.' },
+  'objectives.contentFormats': {
+    maxAgeDays: null,
+    why: 'A standing preference.',
+  },
+  'channels.preferred': {
+    maxAgeDays: 365,
+    why: 'Channel mix is reviewed yearly.',
+  },
+  'channels.connected': {
+    maxAgeDays: 30,
+    why: 'A connection that has not synced in a month may be broken.',
+  },
+  'voice.summary': { maxAgeDays: 365, why: 'Voice should be reviewed yearly.' },
+  'market.competitors': { maxAgeDays: 180, why: 'The competitive set shifts.' },
+  'market.keywords': { maxAgeDays: 180, why: 'Market topics shift.' },
+  'market.geo': { maxAgeDays: null, why: 'A standing preference.' },
+  'knowledge.coverage': {
+    maxAgeDays: 365,
+    why: 'Materials older than a year may describe an old business.',
+  },
+  'memory.insights': {
+    maxAgeDays: 60,
+    why: 'Performance patterns decay as audiences and algorithms change.',
+  },
+};
+
+/** Freshness of an individual memory insight. */
+export const INSIGHT_MAX_AGE_DAYS = 60;
+
+/** Freshness from an age and a maximum age. */
+export function freshnessOf(
+  ageDays: number | null,
+  maxAgeDays: number | null,
+): Freshness {
+  if (ageDays === null) return maxAgeDays === null ? 'fresh' : 'unknown';
+  if (maxAgeDays === null) return 'fresh';
+  if (ageDays >= maxAgeDays) return 'stale';
+  if (ageDays >= maxAgeDays * 0.75) return 'aging';
+  return 'fresh';
+}
+
+/**
+ * Per-field capture metadata, stored in `Company.preferences.factMeta` by the
+ * Business Context write service. Keyed by the written path
+ * (`identity.description`, `identity.visual.primaryColor`, `voice.profile`).
+ */
+export const storedFactMetaSchema = z.object({
+  sourceType: z.enum(SOURCE_TYPES),
+  capturedAt: z.string(),
+  /** Set when a person reviewed the value without changing it. */
+  confirmedAt: z.string().optional(),
+});
+
+export type StoredFactMeta = z.infer<typeof storedFactMetaSchema>;

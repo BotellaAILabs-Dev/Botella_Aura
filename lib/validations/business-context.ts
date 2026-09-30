@@ -164,6 +164,11 @@ export const businessContextUpdateSchema = z
      * overwriting someone else's edit.
      */
     expectedRevision: z.string().max(40).optional(),
+    /**
+     * Field paths the caller has reviewed and confirms as correct, e.g.
+     * ['voice.profile'] to accept an AI-drafted voice as the business's own.
+     */
+    confirm: z.array(z.string().max(60)).max(20).optional(),
   })
   .strict();
 

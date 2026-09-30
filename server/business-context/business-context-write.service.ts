@@ -38,6 +38,12 @@ export interface UpdateBusinessContextArgs {
   /** Raw patch. Validated here, whatever the caller already checked. */
   patch: unknown;
   origin: UpdateOrigin;
+  /**
+   * Fields a person has reviewed and vouches for as they stand. Records them
+   * as confirmed now, which makes an AI-drafted value trusted and resets its
+   * freshness. Not allowed from AI-originated writes.
+   */
+  confirm?: readonly string[];
   /** Refuse the write if the workspace changed after this `meta.revision`. */
   expectedRevision?: string;
   /** Context path → the caller's form field name, for error `details`. */
@@ -51,6 +57,8 @@ export interface UpdateBusinessContextArgs {
 export interface UpdateBusinessContextResult {
   /** Field paths that changed. Empty means nothing was written (rule R7). */
   changed: string[];
+  /** Field paths confirmed without being changed. */
+  confirmed: string[];
   /** The new `meta.revision`, or the unchanged one for a no-op. */
   revision: string;
 }
@@ -89,9 +97,14 @@ export async function updateBusinessContext(
       patch,
       args.origin,
       args.aliases,
+      { confirm: args.confirm },
     );
-    if (plan.changed.length === 0) {
-      return { changed: [], revision: row.updatedAt.toISOString() };
+    if (plan.changed.length === 0 && plan.confirmed.length === 0) {
+      return {
+        changed: [],
+        confirmed: [],
+        revision: row.updatedAt.toISOString(),
+      };
     }
 
     // R5: a logo must be one of this workspace's own assets. Without this, any
@@ -132,13 +145,18 @@ export async function updateBusinessContext(
           via: 'business-context',
           origin: args.origin,
           changedFields: plan.changed,
+          ...(plan.confirmed.length ? { confirmedFields: plan.confirmed } : {}),
         },
         ...args.requestMeta,
       },
       tx,
     );
 
-    return { changed: plan.changed, revision: updated.updatedAt.toISOString() };
+    return {
+      changed: plan.changed,
+      confirmed: plan.confirmed,
+      revision: updated.updatedAt.toISOString(),
+    };
   });
 }
 

@@ -4,7 +4,9 @@ import { db } from '@/lib/db';
 import {
   contextField,
   CONTEXT_SECTIONS,
+  SOURCE_TYPE_INFO,
   type BusinessContext,
+  type BusinessFact,
   type ContextFieldPath,
   type ContextSection,
 } from '@/lib/business-context';
@@ -83,7 +85,7 @@ export async function getBusinessContext(
       ? db.marketingPlan.findFirst({
           where: { companyId },
           orderBy: { month: 'desc' },
-          select: { inputs: true },
+          select: { inputs: true, month: true, updatedAt: true },
         })
       : skip,
     want.has('connections') ? loadConnections(companyId) : skip,
@@ -121,25 +123,30 @@ async function loadTargeting(companyId: string) {
   const [outreach, discoveryProfiles] = await Promise.all([
     db.outreachConfig.findUnique({
       where: { companyId },
-      select: { roleTitles: true, industries: true, companyStages: true },
+      select: {
+        roleTitles: true,
+        industries: true,
+        companyStages: true,
+        updatedAt: true,
+      },
     }),
     // Same filter getAudienceProfile uses, so both see the same buyers.
     db.discoveryProfile.findMany({
       where: { companyId, isActive: true },
       orderBy: { createdAt: 'desc' },
       take: 3,
-      select: { criteria: true },
+      select: { criteria: true, updatedAt: true },
     }),
   ]);
   return { outreach, discoveryProfiles };
 }
 
 async function loadMarket(companyId: string) {
-  const [competitors, trendConfig] = await Promise.all([
+  const [competitors, trendConfig, trendEdits] = await Promise.all([
     db.competitorProfile.findMany({
       where: { companyId },
       orderBy: { createdAt: 'asc' },
-      select: { name: true, url: true, trackingEnabled: true },
+      select: { name: true, url: true, trackingEnabled: true, updatedAt: true },
     }),
     db.companyTrendConfig.findUnique({
       where: { companyId },
@@ -150,32 +157,50 @@ async function loadMarket(companyId: string) {
         geoRegion: true,
         geoCity: true,
         language: true,
+        updatedAt: true,
+        defaultsSeeded: true,
       },
     }),
+    // AI seeding logs AI_SUGGESTION_GENERATED; only a person saving the
+    // settings logs this. It is what separates their list from a model's guess.
+    db.auditLog.count({
+      where: { companyId, action: 'TREND_CONFIG_UPDATED' },
+    }),
   ]);
-  return { competitors, trendConfig };
+  return { competitors, trendConfig, trendEditedByUser: trendEdits > 0 };
 }
 
 async function loadConnections(companyId: string) {
   const [connections, linkedIn] = await Promise.all([
     db.connection.findMany({
       where: { companyId, status: 'CONNECTED' },
-      select: { connectorId: true },
+      select: { connectorId: true, lastSyncedAt: true, updatedAt: true },
     }),
-    db.linkedInConnection.count({ where: { companyId, status: 'ACTIVE' } }),
+    db.linkedInConnection.findFirst({
+      where: { companyId, status: 'ACTIVE' },
+      select: { updatedAt: true },
+    }),
   ]);
+  const synced = [
+    ...connections.map((c) => c.lastSyncedAt ?? c.updatedAt),
+    ...(linkedIn ? [linkedIn.updatedAt] : []),
+  ];
   return {
     connectorIds: connections.map((c) => c.connectorId),
-    linkedInConnected: linkedIn > 0,
+    linkedInConnected: Boolean(linkedIn),
+    lastSyncedAt: synced.length
+      ? new Date(Math.max(...synced.map((d) => d.getTime())))
+      : null,
   };
 }
 
 async function loadKnowledge(companyId: string) {
   const [groups, sites] = await Promise.all([
     db.knowledgeChunk.groupBy({
-      by: ['category'],
+      by: ['category', 'sourceType'],
       where: { companyId },
       _count: { _all: true },
+      _max: { createdAt: true },
     }),
     db.knowledgeSource.findMany({
       where: { companyId, type: 'WEBSITE', url: { not: null } },
@@ -186,6 +211,8 @@ async function loadKnowledge(companyId: string) {
     chunkCounts: groups.map((g) => ({
       category: g.category,
       chunks: g._count._all,
+      sourceType: g.sourceType,
+      newestAt: g._max.createdAt,
     })),
     websiteUrls: sites.map((s) => s.url).filter((u): u is string => Boolean(u)),
   };
@@ -345,7 +372,24 @@ function buyerBlock(ctx: BusinessContext): string {
 }
 
 function voiceBlock(ctx: BusinessContext): string {
-  if (ctx.voice.profile) return brandVoiceToPrompt(ctx.voice.profile);
+  if (ctx.voice.profile) {
+    const fact = ctx.meta.facts['voice.summary'];
+    if (fact?.source === 'brand_voice_profile' && !fact.trusted) {
+      // An AI draft nobody has reviewed is style guidance, not the company's
+      // stated voice — and where the company did say something itself, that
+      // goes alongside it so the verified source is never lost.
+      return [
+        brandVoiceToPrompt(ctx.voice.profile).replace(
+          'BRAND VOICE — write exactly in this voice:',
+          'BRAND VOICE — drafted by AI from their content and not yet reviewed by the company. Use it as style guidance:',
+        ),
+        ctx.voice.notes ? `In the company's own words: ${ctx.voice.notes}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+    }
+    return brandVoiceToPrompt(ctx.voice.profile);
+  }
   // No structured profile yet: the user's own words beat no voice at all.
   if (ctx.voice.summary) {
     return [
@@ -361,8 +405,12 @@ function memoryBlock(
   filter: ContextPromptOptions['memory'],
 ): string {
   if (!filter) return '';
+  // A stale pattern describes an audience and an algorithm that have moved
+  // on; it is left out rather than applied with a caveat.
   const insights = ctx.memory.insights.filter(
-    (m) => filter === true || (filter as readonly string[]).includes(m.type),
+    (m) =>
+      m.freshness !== 'stale' &&
+      (filter === true || (filter as readonly string[]).includes(m.type)),
   );
   if (insights.length === 0) return '';
   return [
@@ -370,11 +418,111 @@ function memoryBlock(
     'these are data-backed patterns from real past performance):',
     ...insights
       .slice(0, 12)
-      .map((m) => `- [${m.type}] ${m.insight} (confidence: ${m.confidence})`),
+      .map(
+        (m) =>
+          `- [${m.type}] ${m.insight} (confidence: ${m.confidence}${
+            m.editedByUser
+              ? ', confirmed by the company'
+              : m.confidence === 'LOW'
+                ? ', tentative — small sample'
+                : ''
+          })`,
+      ),
     // The resolution rule for memory, stated to the model: learned patterns
     // are advice, never a reason to break what the business has told us.
     'These patterns never override the brand voice, the stated audience, or topics to avoid.',
   ].join('\n');
+}
+
+/** Fields each prompt block puts in front of the model. */
+const BLOCK_FIELDS: Partial<
+  Record<keyof ContextPromptOptions, ContextFieldPath[]>
+> = {
+  identity: ['identity.description', 'identity.offerings', 'identity.industry'],
+  audience: [
+    'audience.marketMode',
+    'audience.stated',
+    'audience.roleTitles',
+    'audience.industries',
+    'objectives.goals',
+  ],
+  buyer: [
+    'audience.marketMode',
+    'audience.stated',
+    'audience.roleTitles',
+    'audience.industries',
+    'audience.companyStages',
+  ],
+  voice: ['voice.summary'],
+  channels: ['channels.preferred', 'channels.connected'],
+  market: ['market.competitors', 'market.keywords'],
+};
+
+/**
+ * Labelled inline where they are rendered, so not repeated as a caveat: the AI
+ * voice draft, AI-suggested competitors and keywords, and memory (whose stale
+ * patterns are dropped and thin ones marked tentative).
+ */
+function labelledInline(path: string, fact: BusinessFact): boolean {
+  if (path === 'voice.summary' && fact.source === 'brand_voice_profile')
+    return true;
+  if (
+    (path === 'market.competitors' || path === 'market.keywords') &&
+    fact.sourceType === 'ai_derived'
+  )
+    return true;
+  return false;
+}
+
+export interface ContextCaveat {
+  field: ContextFieldPath;
+  label: string;
+  reason: string;
+}
+
+/**
+ * Facts a workflow will use that are not trusted or not current.
+ *
+ * A workflow uses this to tell the user what its output rests on; the prompt
+ * renderer uses the same list, so the model and the user are warned about the
+ * same things.
+ */
+export function contextCaveats(
+  ctx: BusinessContext,
+  options: ContextPromptOptions,
+): ContextCaveat[] {
+  const paths = new Set<ContextFieldPath>();
+  for (const [flag, fields] of Object.entries(BLOCK_FIELDS)) {
+    if (options[flag as keyof ContextPromptOptions])
+      fields?.forEach((f) => paths.add(f));
+  }
+  const caveats: ContextCaveat[] = [];
+  for (const path of paths) {
+    const fact = ctx.meta.facts[path];
+    if (!fact || labelledInline(path, fact)) continue;
+    const reasons: string[] = [];
+    if (!fact.trusted) {
+      reasons.push(
+        fact.note ??
+          `comes from ${SOURCE_TYPE_INFO[fact.sourceType].label.toLowerCase()}, not confirmed by the company`,
+      );
+    }
+    if (fact.freshness === 'stale') {
+      reasons.push(
+        fact.ageDays !== null
+          ? `last updated ${fact.ageDays} days ago and may be out of date`
+          : 'may be out of date',
+      );
+    }
+    if (reasons.length) {
+      caveats.push({
+        field: path,
+        label: contextField(path).label,
+        reason: reasons.join('; '),
+      });
+    }
+  }
+  return caveats;
 }
 
 /**
@@ -430,15 +578,33 @@ export function businessContextToPrompt(
 
   if (o.market) {
     const lines: string[] = [];
-    if (ctx.market.competitors.length) {
+    const known = ctx.market.competitors.filter(
+      (c) => c.confidence !== 'unverified',
+    );
+    const guessed = ctx.market.competitors.filter(
+      (c) => c.confidence === 'unverified',
+    );
+    if (known.length) {
       lines.push(
-        `Competitors: ${ctx.market.competitors.map((c) => c.name).join(', ')}.`,
+        `Competitors: ${known.map((c) => c.name).join(', ')}.`,
         'Position against them with a differentiated angle; never copy their claims.',
       );
     }
-    if (ctx.market.keywords.length) {
+    if (guessed.length) {
       lines.push(
-        `Market topics they follow: ${ctx.market.keywords.slice(0, 12).join(', ')}.`,
+        `Possibly competitors (suggested by AI, never confirmed by the company): ${guessed
+          .map((c) => c.name)
+          .join(
+            ', ',
+          )}. Use only as background; never name them as competitors in output.`,
+      );
+    }
+    if (ctx.market.keywords.length) {
+      const unverified = ctx.meta.facts['market.keywords']?.trusted === false;
+      lines.push(
+        unverified
+          ? `Topics that may matter to them (suggested by AI, unconfirmed): ${ctx.market.keywords.slice(0, 12).join(', ')}.`
+          : `Market topics they follow: ${ctx.market.keywords.slice(0, 12).join(', ')}.`,
       );
     }
     if (lines.length) blocks.push(['MARKET:', ...lines].join('\n'));
@@ -455,6 +621,17 @@ export function businessContextToPrompt(
   }
 
   blocks.push(memoryBlock(ctx, o.memory));
+
+  const caveats = contextCaveats(ctx, o);
+  if (caveats.length) {
+    blocks.push(
+      [
+        'RELIABILITY NOTES:',
+        ...caveats.map((c) => `- ${c.label}: ${c.reason}`),
+        'Treat these as working assumptions. Use them to guide the work, but never state them as verified facts about the company.',
+      ].join('\n'),
+    );
+  }
 
   if (o.knowledge && ctx.knowledge.passages.length) {
     blocks.push(
@@ -485,7 +662,10 @@ export const WORKFLOW_REQUIREMENTS: Record<
   ContextWorkflow,
   { sections: ContextSection[]; requires: ContextFieldPath[] }
 > = {
-  content: { sections: ['targeting', 'memory'], requires: ['identity.description'] },
+  content: {
+    sections: ['targeting', 'memory'],
+    requires: ['identity.description'],
+  },
   planning: {
     sections: ['targeting', 'market', 'connections', 'memory'],
     requires: ['identity.description'],
@@ -499,12 +679,34 @@ export const WORKFLOW_REQUIREMENTS: Record<
   image: { sections: ['targeting'], requires: [] },
   qualification: { sections: ['targeting'], requires: [] },
   opportunity: {
-    sections: ['targeting', 'market', 'connections', 'knowledge', 'memory', 'plan'],
-    requires: ['identity.description', 'audience.marketMode', 'audience.stated'],
+    sections: [
+      'targeting',
+      'market',
+      'connections',
+      'knowledge',
+      'memory',
+      'plan',
+    ],
+    requires: [
+      'identity.description',
+      'audience.marketMode',
+      'audience.stated',
+    ],
   },
   recommendation: {
-    sections: ['targeting', 'market', 'connections', 'knowledge', 'memory', 'plan'],
-    requires: ['identity.description', 'audience.marketMode', 'audience.stated'],
+    sections: [
+      'targeting',
+      'market',
+      'connections',
+      'knowledge',
+      'memory',
+      'plan',
+    ],
+    requires: [
+      'identity.description',
+      'audience.marketMode',
+      'audience.stated',
+    ],
   },
 };
 
@@ -516,6 +718,11 @@ export interface WorkflowContext {
   ready: boolean;
   /** Required-but-missing fields, with where the user fixes each one. */
   missing: { field: ContextFieldPath; label: string; href?: string }[];
+  /**
+   * Facts this workflow uses that are unconfirmed or stale. Show them next to
+   * the output so a user can see what it rests on.
+   */
+  caveats: ContextCaveat[];
 }
 
 /**
@@ -552,6 +759,7 @@ export async function getWorkflowContext(
   return {
     context,
     prompt: businessContextToPrompt(context, workflow),
+    caveats: contextCaveats(context, WORKFLOW_PRESETS[workflow]),
     ready: missing.length === 0,
     missing,
   };

@@ -13,7 +13,11 @@ import {
   type ContextProvenance,
   type ContextSection,
   type ContextSource,
+  freshnessOf,
+  INSIGHT_MAX_AGE_DAYS,
+  SOURCE_TYPE_INFO,
 } from '@/lib/business-context';
+import { deriveFacts, factIssues, trendSourceType } from './facts';
 import { MATERIAL_CATEGORIES } from '@/lib/materials';
 import { CONTENT_CHANNELS } from '@/lib/validations/planner';
 import { brandVoiceProfileSchema } from '@/lib/validations/content';
@@ -52,15 +56,18 @@ export interface BusinessContextSources {
     /** Becomes `meta.revision`, for optimistic concurrency on updates. */
     updatedAt?: Date;
   };
+  // Timestamps below are optional so older callers and tests still build a
+  // context; a fact without one reports freshness 'unknown' rather than guess.
   targeting?: {
-    outreach: AudienceTargeting | null;
-    discoveryProfiles: { criteria: unknown }[];
+    outreach: (AudienceTargeting & { updatedAt?: Date }) | null;
+    discoveryProfiles: { criteria: unknown; updatedAt?: Date }[];
   };
   market?: {
     competitors: {
       name: string;
       url: string | null;
       trackingEnabled: boolean;
+      updatedAt?: Date;
     }[];
     trendConfig: {
       keywords: string[];
@@ -69,12 +76,27 @@ export interface BusinessContextSources {
       geoRegion: string | null;
       geoCity: string | null;
       language: string;
+      updatedAt?: Date;
+      /** True once AI defaults were seeded (or a user saved the settings). */
+      defaultsSeeded?: boolean;
     } | null;
+    /** A person has saved the trend settings (TREND_CONFIG_UPDATED exists). */
+    trendEditedByUser?: boolean;
   };
-  plan?: { inputs: unknown } | null;
-  connections?: { connectorIds: string[]; linkedInConnected: boolean };
+  plan?: { inputs: unknown; month?: Date; updatedAt?: Date } | null;
+  connections?: {
+    connectorIds: string[];
+    linkedInConnected: boolean;
+    /** Most recent successful sync across connected accounts. */
+    lastSyncedAt?: Date | null;
+  };
   knowledge?: {
-    chunkCounts: { category: MaterialCategory | null; chunks: number }[];
+    chunkCounts: {
+      category: MaterialCategory | null;
+      chunks: number;
+      sourceType?: string;
+      newestAt?: Date | null;
+    }[];
     websiteUrls: string[];
   };
   memory?: {
@@ -84,6 +106,7 @@ export interface BusinessContextSources {
     confidence: string;
     sampleSize: number;
     supportingDataSummary: unknown;
+    generatedAt?: Date;
   }[];
   passages?: RetrievedChunk[];
 }
@@ -275,6 +298,7 @@ const CONFIDENCE_RANK: Record<string, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 };
  */
 export function mapMemory(
   rows: NonNullable<BusinessContextSources['memory']>,
+  now: Date = new Date(),
 ): ContextInsight[] {
   const mapped = rows
     .map((m) => {
@@ -294,6 +318,13 @@ export function mapMemory(
         : 'LOW') as ContextInsight['confidence'],
       sampleSize: row.sampleSize,
       editedByUser: summary.editedByUser === true,
+      capturedAt: row.generatedAt ? row.generatedAt.toISOString() : null,
+      freshness: freshnessOf(
+        row.generatedAt
+          ? Math.floor((now.getTime() - row.generatedAt.getTime()) / 86_400_000)
+          : null,
+        INSIGHT_MAX_AGE_DAYS,
+      ),
     }))
     .filter((m) => m.insight);
 
@@ -336,8 +367,12 @@ function mapCompetitors(
       url: c.url,
       tracked: c.trackingEnabled,
       source: 'competitor_profiles',
+      sourceType: 'user_provided',
+      confidence: 'confirmed',
+      capturedAt: c.updatedAt ? c.updatedAt.toISOString() : null,
     });
   }
+  const watchType = trendSourceType(market);
   const watchOnly: string[] = [];
   for (const name of market.trendConfig?.competitorNames ?? []) {
     const key = normaliseText(name);
@@ -347,6 +382,11 @@ function mapCompetitors(
       url: null,
       tracked: false,
       source: 'trend_config',
+      sourceType: watchType,
+      confidence: SOURCE_TYPE_INFO[watchType].confidence,
+      capturedAt: market.trendConfig?.updatedAt
+        ? market.trendConfig.updatedAt.toISOString()
+        : null,
     });
     watchOnly.push(name.trim());
   }
@@ -362,7 +402,10 @@ function mapCompetitors(
       field: 'market.competitors',
       kind: 'consistency',
       severity: 'info',
-      message: `On the trend watch list but not tracked as competitors: ${watchOnly.join(', ')}.`,
+      message:
+        watchType === 'ai_derived'
+          ? `Suggested by AI and never confirmed: ${watchOnly.join(', ')}. Aura treats them as possible competitors, not facts, until you track or remove them.`
+          : `On the trend watch list but not tracked as competitors: ${watchOnly.join(', ')}.`,
     });
   }
   return [...byName.values()];
@@ -619,7 +662,7 @@ export function buildBusinessContext(
     };
 
   // --- Memory -------------------------------------------------------------
-  const insights = src.memory ? mapMemory(src.memory) : [];
+  const insights = src.memory ? mapMemory(src.memory, now) : [];
   if (insights.length)
     resolver.provenance['memory.insights'] = {
       sources: ['marketing_memory'],
@@ -678,6 +721,7 @@ export function buildBusinessContext(
       revision: company.updatedAt ? company.updatedAt.toISOString() : null,
       sections,
       provenance: resolver.provenance,
+      facts: {},
       issues: resolver.issues,
       completeness: {
         complete: true,
@@ -687,6 +731,8 @@ export function buildBusinessContext(
       },
     },
   };
+  ctx.meta.facts = deriveFacts(ctx, src, now);
+  ctx.meta.issues.push(...factIssues(ctx));
   ctx.meta.completeness = completenessOf(ctx);
   return ctx;
 }
@@ -695,7 +741,16 @@ export function buildBusinessContext(
 export function fieldPresence(
   ctx: BusinessContext,
 ): Record<ContextFieldPath, boolean> {
-  const { identity, audience, objectives, channels, voice, market, knowledge, memory } = ctx;
+  const {
+    identity,
+    audience,
+    objectives,
+    channels,
+    voice,
+    market,
+    knowledge,
+    memory,
+  } = ctx;
   return {
     'identity.name': Boolean(identity.name),
     'identity.description': Boolean(identity.description),
@@ -715,7 +770,9 @@ export function fieldPresence(
     'voice.summary': Boolean(voice.summary),
     'market.competitors': market.competitors.length > 0,
     'market.keywords': market.keywords.length > 0,
-    'market.geo': Boolean(market.geo.country || market.geo.region || market.geo.city),
+    'market.geo': Boolean(
+      market.geo.country || market.geo.region || market.geo.city,
+    ),
     'knowledge.coverage': knowledge.totalChunks > 0,
     'memory.insights': memory.insights.length > 0,
   };
@@ -725,12 +782,17 @@ export function fieldPresence(
  * Fields that can be judged in this context: a field in a section that was
  * not loaded is unknown, not missing.
  */
-export function isEvaluable(ctx: BusinessContext, path: ContextFieldPath): boolean {
+export function isEvaluable(
+  ctx: BusinessContext,
+  path: ContextFieldPath,
+): boolean {
   const def = CONTEXT_FIELDS.find((f) => f.path === path);
   return !def || !('section' in def) || ctx.meta.sections.includes(def.section);
 }
 
-function completenessOf(ctx: BusinessContext): BusinessContext['meta']['completeness'] {
+function completenessOf(
+  ctx: BusinessContext,
+): BusinessContext['meta']['completeness'] {
   const present = fieldPresence(ctx);
   const evaluable = CONTEXT_FIELDS.filter((f) => isEvaluable(ctx, f.path));
   const missing = (req: string) =>
@@ -740,7 +802,10 @@ function completenessOf(ctx: BusinessContext): BusinessContext['meta']['complete
   const missingRequired = missing('required');
   const weightOf = (req: string) =>
     req === 'required' ? 2 : req === 'recommended' ? 1 : 0;
-  const possible = evaluable.reduce((sum, f) => sum + weightOf(f.requirement), 0);
+  const possible = evaluable.reduce(
+    (sum, f) => sum + weightOf(f.requirement),
+    0,
+  );
   const earned = evaluable.reduce(
     (sum, f) => sum + (present[f.path] ? weightOf(f.requirement) : 0),
     0,

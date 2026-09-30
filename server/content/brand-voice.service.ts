@@ -97,6 +97,9 @@ export async function updateBrandVoiceProfile(
     userId,
     patch: { voice: { profile } },
     origin: 'settings',
+    // Saving the card is a person reviewing the voice, so it is confirmed even
+    // when nothing was edited — the AI draft becomes the business's own voice.
+    confirm: ['voice.profile'],
     aliases: { 'voice.profile': 'profile' },
     auditAction: 'BRAND_VOICE_UPDATED',
   });

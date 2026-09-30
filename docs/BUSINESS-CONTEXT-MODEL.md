@@ -14,7 +14,8 @@ memory.
 | Update: transactional write | [`server/business-context/business-context-write.service.ts`](../server/business-context/business-context-write.service.ts) |
 | Screen → patch adapters | [`server/business-context/adapters.ts`](../server/business-context/adapters.ts) |
 | HTTP | `GET` and `PATCH /api/business-context` |
-| Tests | [`tests/business-context.test.ts`](../tests/business-context.test.ts), [`tests/business-context-service.test.ts`](../tests/business-context-service.test.ts) |
+| Source, confidence, freshness | [`server/business-context/facts.ts`](../server/business-context/facts.ts) (pure) |
+| Tests | [`tests/business-context.test.ts`](../tests/business-context.test.ts), [`tests/business-context-service.test.ts`](../tests/business-context-service.test.ts), [`tests/business-facts.test.ts`](../tests/business-facts.test.ts) |
 
 ---
 
@@ -117,7 +118,7 @@ defaults when there is no data or the section was not loaded.
 | `market` | `competitors[]` (`name`, `url`, `tracked`, `source`), `keywords[]`, `geo` (country, region, city, language) |
 | `knowledge` | `totalChunks`, `covered[]`, `missing[]`, `uncategorisedChunks`, `websiteUrls[]`, `passages[]` (only when a query is given) |
 | `memory` | `insights[]` (`type`, `insight`, `confidence`, `sampleSize`, `editedByUser`) |
-| `meta` | `generatedAt`, `revision` (last stored change; used for optimistic concurrency), `sections`, `provenance` (per field: sources used, winner first, and `inferred`), `issues[]`, `completeness` |
+| `meta` | `generatedAt`, `revision` (last stored change; used for optimistic concurrency), `facts` (source, confidence and freshness per field; see §9), `sections`, `provenance` (per field: sources used, winner first, and `inferred`), `issues[]`, `completeness` |
 
 ---
 
@@ -369,3 +370,120 @@ are unchanged. The adapter translates the parsed input into a context patch.
 The old direct writers (`saveBrandAssets`, `saveMarketingProfile`,
 `saveContentFormats`) are deprecated. The only remaining caller is
 `scripts/verify-onboarding.ts`.
+
+---
+
+## 9. Source, confidence and freshness
+
+Every business fact in the context carries a record in `meta.facts[fieldPath]`:
+
+| Property | Meaning |
+| --- | --- |
+| `source` | The table the winning value was read from (`workspace_profile`, `trend_config`, …). |
+| `sourceType` | What kind of origin it has (see below). |
+| `confidence` | `confirmed` · `high` · `medium` · `low` · `unverified` |
+| `trusted` | Whether Aura may state it as a fact about the business: a trusted source type, not a fallback, and not unverified. |
+| `inferred` | Taken from a fallback source because the primary one was empty. |
+| `capturedAt`, `ageDays` | When the value was captured. Null for values saved before capture dates were recorded. |
+| `freshness` | `fresh` · `aging` (past 75% of its maximum age) · `stale` · `unknown` |
+| `conflicted` | Another source holds a different value (details in `meta.issues`). |
+| `note` | Why, when it isn't obvious (for example, "Taken from this month's plan because settings are empty"). |
+
+Competitors carry `sourceType`, `confidence` and `capturedAt` individually, and
+memory insights carry `capturedAt` and `freshness`, because a single list can
+mix a tracked competitor with an AI guess.
+
+### Source types
+
+| Source type | Trusted | Default confidence | Where it comes from |
+| --- | :-: | --- | --- |
+| `user_provided` | ✓ | confirmed | Typed or confirmed in Settings or through the API |
+| `onboarding` | ✓ | confirmed | The onboarding wizard |
+| `connected_platform` | ✓ | high | Connected accounts (`Connection`, `LinkedInConnection`) |
+| `uploaded_document` | ✓ | high | The business's own uploads in the knowledge base |
+| `system_generated` | ✓ | high | Computed by Aura |
+| `knowledge_base` | | medium | Crawled website or blog content |
+| `marketing_memory` | | from the insights (high/medium/low; user-edited = confirmed) | Learned from real performance |
+| `ai_derived` | | unverified | Suggested by a model and never confirmed by a person |
+
+How each source type is determined:
+- **Workspace fields.** Every write through `updateBusinessContext` stamps
+  `preferences.factMeta[path] = { sourceType, capturedAt }`. Onboarding writes
+  get `onboarding`, Settings and API writes get `user_provided`, and AI writes
+  get `ai_derived`. Clearing a field removes its entry.
+- **Voice profile.** A profile with no record of human review is treated as an
+  AI draft, because every profile starts as one.
+- **Trend keywords and watch-list competitors.** These are `ai_derived` when the
+  settings were AI-seeded and no person has saved them since (no
+  `TREND_CONFIG_UPDATED` audit entry). Otherwise they are `user_provided`.
+- **Other tables.** Each fact takes its date from that table's own timestamp.
+
+A value borrowed from a fallback source (last month's plan, the synced
+website) is capped at `medium` and is never `trusted`.
+
+### Freshness rules
+
+| Field | Max age | Why |
+| --- | --- | --- |
+| `objectives.goals` | 90 days | Goals are set per quarter |
+| `memory.insights` (and each insight) | 60 days | Performance patterns decay |
+| `channels.connected` | 30 days since last sync | A connection that hasn't synced may be broken |
+| `identity.offerings`, `audience.*` targeting and stated audience, `market.competitors`, `market.keywords` | 180 days | These drift within a year |
+| `identity.description`, `identity.website`, `channels.preferred`, `voice.summary`, `knowledge.coverage` | 365 days | Review yearly |
+| `identity.visual` | 730 days | Changes with a rebrand |
+| name, industry, market mode, content formats, geo | none | Standing facts |
+
+A value taken from a marketing plan whose month has ended is stale
+immediately, whatever its age.
+
+### Identifying stale, unverified and conflicting facts
+
+The builder adds these to `meta.issues`:
+- **`stale`** for important fields (required or recommended) and for any
+  AI-derived fact past its maximum age. It is a warning for required fields.
+  When the stale value also won a conflict, the message says another source has
+  a different value.
+- **`unverified`** for important fields that aren't trusted, and for every
+  AI-derived fact. The message says it is an assumption until someone reviews it.
+- **`value_conflict`** and **`consistency`**, as before (§6). A conflicted fact
+  has `conflicted: true`.
+
+Conflict resolution itself is unchanged (§6): the registered precedence decides
+the winner. The fact record then shows how much that winner can be trusted and
+how current it is. A trusted value is never replaced automatically by a newer
+untrusted one; the conflict is reported for a person to settle.
+
+### Confirming a fact
+
+`updateBusinessContext({ …, confirm: ['voice.profile'] })` records that a
+person reviewed a value without changing it. The fact becomes trusted, and its
+freshness restarts from the confirmation date. Rules:
+- **AI writes cannot confirm.**
+- **Only a value that exists can be confirmed.**
+- **Only the stored writable fields can be confirmed.**
+- **The original source type is kept.** A re-confirmed onboarding answer stays
+  `onboarding`; only an untrusted value becomes `user_provided`.
+
+Saving the brand voice card confirms the profile, so a reviewed AI draft becomes
+the business's own voice. `PATCH /api/business-context` accepts `confirm`.
+
+### What AI workflows receive
+
+`businessContextToPrompt` never presents an assumption as a verified fact:
+- **Unreviewed AI voice profile.** Headed "drafted by AI … not yet reviewed",
+  with the company's own notes alongside.
+- **AI-suggested competitors.** Listed separately as "Possibly competitors
+  (suggested by AI, never confirmed)", and the model is told never to name them
+  as competitors.
+- **AI-suggested keywords.** Labelled unconfirmed.
+- **Memory.** Stale patterns are left out. Low-confidence ones are marked
+  "tentative — small sample", and user-edited ones "confirmed by the company".
+- **Any other rendered fact that is untrusted or stale.** Listed under
+  `RELIABILITY NOTES` with the reason, and the model is told to treat these as
+  working assumptions and never state them as verified facts. When everything is
+  confirmed and current, the block is omitted.
+
+`getWorkflowContext` returns the same list as `caveats: [{ field, label, reason }]`,
+so an Opportunity or Recommendation screen can show the user exactly what its
+output rests on.
+
