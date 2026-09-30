@@ -140,6 +140,11 @@ async function mergeSection(
   });
 }
 
+/**
+ * @deprecated Writes past the Business Context update rules. Screens and
+ * services use updateBusinessContext (server/business-context/
+ * business-context-write.service.ts); this remains for scripts/verify-onboarding.ts.
+ */
 export async function saveBrandAssets(
   companyId: string,
   assets: BrandAssets,
@@ -147,6 +152,11 @@ export async function saveBrandAssets(
   await mergeSection(companyId, 'brand', assets);
 }
 
+/**
+ * @deprecated Writes past the Business Context update rules. Screens and
+ * services use updateBusinessContext (server/business-context/
+ * business-context-write.service.ts); this remains for scripts/verify-onboarding.ts.
+ */
 export async function saveMarketingProfile(
   companyId: string,
   profile: MarketingProfile,
@@ -155,6 +165,9 @@ export async function saveMarketingProfile(
 }
 
 /**
+ * @deprecated Writes past the Business Context update rules; use
+ * updateBusinessContext.
+ *
  * Persist the chosen formats.
  *
  * An empty list is a meaningful value here — it is how a workspace says "offer

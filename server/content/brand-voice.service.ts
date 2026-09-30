@@ -1,7 +1,6 @@
 import type { Company } from '@prisma/client';
-import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { recordAudit } from '@/server/services/audit.service';
+import { updateBusinessContext } from '@/server/business-context/business-context-write.service';
 import { completeStructured, isClaudeConfigured } from '@/server/ai/claude';
 import { retrieve, chunksToContext } from '@/server/knowledge/retrieve';
 import {
@@ -74,15 +73,15 @@ export async function generateBrandVoiceProfile({
     profile = heuristicProfile(company);
   }
 
-  await db.company.update({
-    where: { id: company.id },
-    data: { brandVoiceProfile: profile },
-  });
-  await recordAudit({
-    action: 'BRAND_VOICE_GENERATED',
-    userId: userId ?? null,
+  // Written as an AI-originated change, which the update rules limit to the
+  // voice profile: generation can never overwrite what the business stated.
+  await updateBusinessContext({
     companyId: company.id,
-    metadata: { source },
+    userId: userId ?? null,
+    patch: { voice: { profile } },
+    origin: 'ai',
+    auditAction: 'BRAND_VOICE_GENERATED',
+    auditMetadata: { source },
   });
   return profile;
 }
@@ -93,15 +92,13 @@ export async function updateBrandVoiceProfile(
   input: unknown,
 ): Promise<BrandVoiceProfile> {
   const profile = brandVoiceProfileSchema.parse(input);
-  await db.company.update({
-    where: { id: companyId },
-    data: { brandVoiceProfile: profile },
-  });
-  await recordAudit({
-    action: 'BRAND_VOICE_UPDATED',
-    userId,
+  await updateBusinessContext({
     companyId,
-    metadata: {},
+    userId,
+    patch: { voice: { profile } },
+    origin: 'settings',
+    aliases: { 'voice.profile': 'profile' },
+    auditAction: 'BRAND_VOICE_UPDATED',
   });
   return profile;
 }

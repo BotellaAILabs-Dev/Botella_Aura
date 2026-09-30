@@ -64,8 +64,16 @@ export function handleRouteError(error: unknown) {
     typeof (error as { status: unknown }).status === 'number' &&
     'message' in error
   ) {
-    const e = error as { status: number; message: string };
-    return jsonError(e.message, e.status);
+    const e = error as {
+      status: number;
+      message: string;
+      details?: Record<string, string[] | undefined>;
+    };
+    // Per-field messages (e.g. BusinessContextUpdateError) travel in the same
+    // `details` shape a ZodError produces, so forms need only one reader.
+    const details =
+      e.details && typeof e.details === 'object' ? e.details : undefined;
+    return jsonError(e.message, e.status, details);
   }
 
   // Unknown, unexpected error → capture for monitoring (Sprint 6) + return 500.

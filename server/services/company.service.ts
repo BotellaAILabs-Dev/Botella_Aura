@@ -2,6 +2,18 @@ import type { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { slugify } from '@/lib/utils';
 import { recordAudit } from '@/server/services/audit.service';
+import { businessContextPatchSchema } from '@/lib/validations/business-context';
+import {
+  COMPANY_PROFILE_ALIASES,
+  ONBOARDING_ALIASES,
+  companyProfilePatch,
+  onboardingPatch,
+} from '@/server/business-context/adapters';
+import {
+  EMPTY_STORED_CONTEXT,
+  planBusinessContextWrite,
+} from '@/server/business-context/update';
+import { updateBusinessContext } from '@/server/business-context/business-context-write.service';
 import type {
   CreateCompanyInput,
   UpdateCompanyInput,
@@ -45,39 +57,29 @@ export async function createCompanyForUser({
     const slug = await uniqueSlug(tx, input.name);
 
     /**
-     * Everything the wizard collected, persisted in one go.
+     * Everything the wizard collected, through the Business Context rules.
      *
-     * The business description, market mode, audience and goals live in the
-     * `preferences` bag alongside brand assets and autopilot settings — the
-     * established extension point for workspace profile data (see
-     * lib/validations/profile.ts), so no migration is needed and older
-     * workspaces keep parsing cleanly.
-     *
-     * Before this, the wizard's answers to these questions had nowhere to go:
-     * createCompanyForUser wrote four columns and dropped the rest, so a user
-     * who described their buyers during onboarding still arrived at a
-     * dashboard that believed it had never been told.
+     * The same patch schema and update rules as every settings screen decide
+     * what enters the trusted context (server/business-context/update.ts), so
+     * onboarding cannot store a value the settings pages would refuse. It is
+     * planned against an empty workspace and written as part of the create,
+     * keeping workspace creation a single atomic step.
      */
-    const preferences: Prisma.InputJsonValue = {
-      business: {
-        ...(input.description ? { description: input.description } : {}),
-        ...(input.offerings ? { offerings: input.offerings } : {}),
-      },
-      marketingProfile: {
-        ...(input.marketMode ? { marketMode: input.marketMode } : {}),
-        ...(input.audience ? { audience: input.audience } : {}),
-        ...(input.goals ? { goals: input.goals } : {}),
-      },
-    };
+    const plan = planBusinessContextWrite(
+      EMPTY_STORED_CONTEXT,
+      businessContextPatchSchema.parse(onboardingPatch(input)),
+      'onboarding',
+      ONBOARDING_ALIASES,
+    );
 
     const company = await tx.company.create({
       data: {
-        name: input.name,
+        name: plan.data.name ?? input.name,
         slug,
-        website: input.website ?? null,
-        industry: input.industry || null,
-        brandVoiceNotes: input.brandVoiceNotes || null,
-        preferences,
+        website: plan.data.website ?? null,
+        industry: plan.data.industry ?? null,
+        brandVoiceNotes: plan.data.brandVoiceNotes ?? null,
+        preferences: (plan.data.preferences ?? {}) as Prisma.InputJsonObject,
         onboardedAt: new Date(),
         members: {
           create: { userId, role: 'OWNER' },
@@ -90,7 +92,11 @@ export async function createCompanyForUser({
         action: 'COMPANY_CREATED',
         userId,
         companyId: company.id,
-        metadata: { name: company.name, slug: company.slug },
+        metadata: {
+          name: company.name,
+          slug: company.slug,
+          changedFields: plan.changed,
+        },
         ...requestMeta,
       },
       tx,
@@ -177,79 +183,42 @@ interface UpdateCompanyArgs {
   requestMeta?: { ipAddress?: string | null; userAgent?: string | null };
 }
 
-/** Update a company profile and audit exactly which fields changed. */
+/**
+ * Update the company profile from the settings page.
+ *
+ * Business fields go through the Business Context service, so they are held
+ * to the same rules as onboarding and every other screen, and each change is
+ * audited with the exact context fields it touched. `logoUrl` is the display
+ * avatar, not business context, so it is written directly.
+ */
 export async function updateCompany({
   userId,
   companyId,
   input,
   requestMeta,
 }: UpdateCompanyArgs) {
-  const data: Prisma.CompanyUpdateInput = {};
-  if (input.name !== undefined) data.name = input.name;
-  if (input.website !== undefined) data.website = input.website || null;
-  if (input.industry !== undefined) data.industry = input.industry || null;
-  if (input.brandVoiceNotes !== undefined)
-    data.brandVoiceNotes = input.brandVoiceNotes || null;
-  if (input.logoUrl !== undefined) data.logoUrl = input.logoUrl || null;
-
-  const editsBusiness =
-    input.description !== undefined || input.offerings !== undefined;
-
-  return db.$transaction(async (tx: Prisma.TransactionClient) => {
-    /**
-     * Merge, never replace.
-     *
-     * `preferences` is shared with brand assets, the marketing profile and
-     * autopilot settings, so writing a fresh object here would silently delete
-     * whatever else the workspace had configured. Read-modify-write inside the
-     * same transaction keeps the other keys intact.
-     */
-    if (editsBusiness) {
-      const current = await tx.company.findUnique({
-        where: { id: companyId },
-        select: { preferences: true },
-      });
-      const bag =
-        current?.preferences &&
-        typeof current.preferences === 'object' &&
-        !Array.isArray(current.preferences)
-          ? (current.preferences as Record<string, unknown>)
-          : {};
-      const business =
-        bag.business && typeof bag.business === 'object' && !Array.isArray(bag.business)
-          ? (bag.business as Record<string, unknown>)
-          : {};
-
-      data.preferences = {
-        ...bag,
-        business: {
-          ...business,
-          ...(input.description !== undefined
-            ? { description: input.description || undefined }
-            : {}),
-          ...(input.offerings !== undefined
-            ? { offerings: input.offerings || undefined }
-            : {}),
-        },
-      } as Prisma.InputJsonValue;
-    }
-
-    const company = await tx.company.update({
-      where: { id: companyId },
-      data,
-    });
-
-    await recordAudit(
-      {
-        action: 'COMPANY_UPDATED',
-        userId,
-        companyId,
-        metadata: { changedFields: Object.keys(data) },
-        ...requestMeta,
-      },
-      tx,
-    );
-
-    return company;
+  await updateBusinessContext({
+    companyId,
+    userId,
+    patch: companyProfilePatch(input),
+    origin: 'settings',
+    aliases: COMPANY_PROFILE_ALIASES,
+    requestMeta,
   });
+
+  if (input.logoUrl !== undefined) {
+    await db.company.update({
+      where: { id: companyId },
+      data: { logoUrl: input.logoUrl || null },
+    });
+    await recordAudit({
+      action: 'COMPANY_UPDATED',
+      userId,
+      companyId,
+      metadata: { changedFields: ['logoUrl'] },
+      ...requestMeta,
+    });
+  }
+
+  return db.company.findUniqueOrThrow({ where: { id: companyId } });
 }

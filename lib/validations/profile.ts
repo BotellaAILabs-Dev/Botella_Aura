@@ -14,7 +14,7 @@ import { CONTENT_TYPES, type ContentTypeKey } from '@/lib/validations/content';
  */
 
 /** A CSS hex colour. Stored normalised to lowercase `#rrggbb`. */
-const hexColor = z
+export const hexColor = z
   .string()
   .trim()
   .regex(/^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, 'Use a hex colour like #1d4ed8')

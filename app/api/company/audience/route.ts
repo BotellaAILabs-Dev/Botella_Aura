@@ -1,8 +1,9 @@
 import { requireActiveCompany } from '@/lib/auth-helpers';
 import { can } from '@/lib/rbac';
-import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
+import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 import { marketingProfileSchema } from '@/lib/validations/profile';
-import { saveMarketingProfile } from '@/server/company/profile.service';
+import { updateBusinessContext } from '@/server/business-context/business-context-write.service';
+import { AUDIENCE_ALIASES, audiencePatch } from '@/server/business-context/adapters';
 
 /**
  * PATCH /api/company/audience — who this workspace markets to, and what it is
@@ -17,13 +18,23 @@ export const dynamic = 'force-dynamic';
 
 export async function PATCH(req: Request) {
   try {
-    const { company, membership } = await requireActiveCompany();
+    const { company, membership, user } = await requireActiveCompany();
     if (!can(membership.role, 'company:update')) {
       return jsonError('Only owners and admins can change this.', 403);
     }
 
-    const input = marketingProfileSchema.parse(await req.json());
-    await saveMarketingProfile(company.id, input);
+    const raw = (await req.json()) as unknown;
+    const input = marketingProfileSchema.parse(raw);
+    // Through the Business Context service: same rules as every other screen,
+    // errors come back under this form's field names.
+    await updateBusinessContext({
+      companyId: company.id,
+      userId: user.id,
+      patch: audiencePatch(input, raw),
+      origin: 'settings',
+      aliases: AUDIENCE_ALIASES,
+      requestMeta: getRequestMeta(req),
+    });
 
     return jsonOk({ profile: input });
   } catch (error) {

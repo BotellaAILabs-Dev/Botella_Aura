@@ -49,6 +49,8 @@ export interface BusinessContextSources {
     brandVoiceNotes: string | null;
     brandVoiceProfile: unknown;
     preferences: unknown;
+    /** Becomes `meta.revision`, for optimistic concurrency on updates. */
+    updatedAt?: Date;
   };
   targeting?: {
     outreach: AudienceTargeting | null;
@@ -624,54 +626,7 @@ export function buildBusinessContext(
       inferred: false,
     };
 
-  // --- Completeness -------------------------------------------------------
-  const present: Record<ContextFieldPath, boolean> = {
-    'identity.name': Boolean(name),
-    'identity.description': Boolean(description),
-    'identity.offerings': Boolean(offerings),
-    'identity.industry': Boolean(industry),
-    'identity.website': Boolean(website),
-    'identity.visual': Boolean(visual),
-    'audience.marketMode': Boolean(marketMode),
-    'audience.stated': Boolean(stated),
-    'audience.roleTitles': composed?.roleTitles.length ? true : false,
-    'audience.industries': composed?.industries.length ? true : false,
-    'audience.companyStages': composed?.companyStages.length ? true : false,
-    'objectives.goals': Boolean(goals),
-    'objectives.contentFormats': contentFormats.length > 0,
-    'channels.preferred': preferred.length > 0,
-    'channels.connected': connected.length > 0,
-    'voice.summary': Boolean(voiceSummary),
-    'market.competitors': competitors.length > 0,
-    'market.keywords': keywords.length > 0,
-    'market.geo': Boolean(
-      trend?.geoCountry || trend?.geoRegion || trend?.geoCity,
-    ),
-    'knowledge.coverage': totalChunks > 0,
-    'memory.insights': insights.length > 0,
-  };
-  // A field in a section that was not loaded is unknown, not missing.
-  const evaluable = CONTEXT_FIELDS.filter(
-    (f) => !('section' in f) || sections.includes(f.section),
-  );
-  const missing = (req: string) =>
-    evaluable
-      .filter((f) => f.requirement === req && !present[f.path])
-      .map((f) => f.path as string);
-  const missingRequired = missing('required');
-  const missingRecommended = missing('recommended');
-  const weightOf = (req: string) =>
-    req === 'required' ? 2 : req === 'recommended' ? 1 : 0;
-  const possible = evaluable.reduce(
-    (sum, f) => sum + weightOf(f.requirement),
-    0,
-  );
-  const earned = evaluable.reduce(
-    (sum, f) => sum + (present[f.path] ? weightOf(f.requirement) : 0),
-    0,
-  );
-
-  return {
+  const ctx: BusinessContext = {
     version: BUSINESS_CONTEXT_VERSION,
     identity: {
       companyId: company.id,
@@ -720,15 +675,80 @@ export function buildBusinessContext(
     memory: { insights },
     meta: {
       generatedAt: now.toISOString(),
+      revision: company.updatedAt ? company.updatedAt.toISOString() : null,
       sections,
       provenance: resolver.provenance,
       issues: resolver.issues,
       completeness: {
-        complete: missingRequired.length === 0,
-        missingRequired,
-        missingRecommended,
-        score: possible === 0 ? 0 : Math.round((earned / possible) * 100),
+        complete: true,
+        missingRequired: [],
+        missingRecommended: [],
+        score: 0,
       },
     },
+  };
+  ctx.meta.completeness = completenessOf(ctx);
+  return ctx;
+}
+
+/** Whether each registered field has a value in a built context. */
+export function fieldPresence(
+  ctx: BusinessContext,
+): Record<ContextFieldPath, boolean> {
+  const { identity, audience, objectives, channels, voice, market, knowledge, memory } = ctx;
+  return {
+    'identity.name': Boolean(identity.name),
+    'identity.description': Boolean(identity.description),
+    'identity.offerings': Boolean(identity.offerings),
+    'identity.industry': Boolean(identity.industry),
+    'identity.website': Boolean(identity.website),
+    'identity.visual': Boolean(identity.visual),
+    'audience.marketMode': Boolean(audience.marketMode),
+    'audience.stated': Boolean(audience.stated),
+    'audience.roleTitles': audience.roleTitles.length > 0,
+    'audience.industries': audience.industries.length > 0,
+    'audience.companyStages': audience.companyStages.length > 0,
+    'objectives.goals': Boolean(objectives.goals),
+    'objectives.contentFormats': objectives.contentFormats.length > 0,
+    'channels.preferred': channels.preferred.length > 0,
+    'channels.connected': channels.connected.length > 0,
+    'voice.summary': Boolean(voice.summary),
+    'market.competitors': market.competitors.length > 0,
+    'market.keywords': market.keywords.length > 0,
+    'market.geo': Boolean(market.geo.country || market.geo.region || market.geo.city),
+    'knowledge.coverage': knowledge.totalChunks > 0,
+    'memory.insights': memory.insights.length > 0,
+  };
+}
+
+/**
+ * Fields that can be judged in this context: a field in a section that was
+ * not loaded is unknown, not missing.
+ */
+export function isEvaluable(ctx: BusinessContext, path: ContextFieldPath): boolean {
+  const def = CONTEXT_FIELDS.find((f) => f.path === path);
+  return !def || !('section' in def) || ctx.meta.sections.includes(def.section);
+}
+
+function completenessOf(ctx: BusinessContext): BusinessContext['meta']['completeness'] {
+  const present = fieldPresence(ctx);
+  const evaluable = CONTEXT_FIELDS.filter((f) => isEvaluable(ctx, f.path));
+  const missing = (req: string) =>
+    evaluable
+      .filter((f) => f.requirement === req && !present[f.path])
+      .map((f) => f.path as string);
+  const missingRequired = missing('required');
+  const weightOf = (req: string) =>
+    req === 'required' ? 2 : req === 'recommended' ? 1 : 0;
+  const possible = evaluable.reduce((sum, f) => sum + weightOf(f.requirement), 0);
+  const earned = evaluable.reduce(
+    (sum, f) => sum + (present[f.path] ? weightOf(f.requirement) : 0),
+    0,
+  );
+  return {
+    complete: missingRequired.length === 0,
+    missingRequired,
+    missingRecommended: missing('recommended'),
+    score: possible === 0 ? 0 : Math.round((earned / possible) * 100),
   };
 }

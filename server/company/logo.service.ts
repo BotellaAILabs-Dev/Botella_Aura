@@ -4,7 +4,7 @@ import { validateImageBytes } from '@/server/media/validate';
 import { putImage } from '@/server/media/storage';
 import { createAsset } from '@/server/media/asset.service';
 import { closestRatioFor } from '@/server/media/aspect';
-import { saveBrandAssets } from '@/server/company/profile.service';
+import { updateBusinessContext } from '@/server/business-context/business-context-write.service';
 
 /**
  * The workspace logo.
@@ -83,7 +83,12 @@ export async function storeCompanyLogo(args: {
     },
   });
 
-  await saveBrandAssets(args.companyId, { logoAssetId: assetId });
+  await updateBusinessContext({
+    companyId: args.companyId,
+    userId: args.userId,
+    patch: { identity: { visual: { logoAssetId: assetId } } },
+    origin: 'settings',
+  });
 
   return { assetId, width: validated.width, height: validated.height };
 }

@@ -8,7 +8,7 @@ import { MARKET_MODES } from '@/lib/validations/profile';
  */
 
 // Accept a bare domain or a full URL; normalize to include a protocol.
-const websiteSchema = z
+export const websiteSchema = z
   .string()
   .trim()
   .max(200)

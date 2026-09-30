@@ -9,8 +9,12 @@ memory.
 | Schema, field registry, source list | [`lib/business-context.ts`](../lib/business-context.ts) (pure, client-safe) |
 | Mapping + conflict resolution | [`server/business-context/build.ts`](../server/business-context/build.ts) (pure) |
 | Retrieval + prompt rendering | [`server/business-context/business-context.service.ts`](../server/business-context/business-context.service.ts) |
-| HTTP read | `GET /api/business-context` |
-| Tests | [`tests/business-context.test.ts`](../tests/business-context.test.ts) |
+| Update: patch schema + errors | [`lib/validations/business-context.ts`](../lib/validations/business-context.ts) (pure, client-safe) |
+| Update rules | [`server/business-context/update.ts`](../server/business-context/update.ts) (pure) |
+| Update: transactional write | [`server/business-context/business-context-write.service.ts`](../server/business-context/business-context-write.service.ts) |
+| Screen → patch adapters | [`server/business-context/adapters.ts`](../server/business-context/adapters.ts) |
+| HTTP | `GET` and `PATCH /api/business-context` |
+| Tests | [`tests/business-context.test.ts`](../tests/business-context.test.ts), [`tests/business-context-service.test.ts`](../tests/business-context-service.test.ts) |
 
 ---
 
@@ -33,6 +37,28 @@ No module had a definition of what a complete business profile is.
 ---
 
 ## 2. Interface for AI workflows
+
+New workflows should start from `getWorkflowContext`. One call returns the
+context, the rendered preamble, and whether the workflow has enough to run:
+
+```ts
+import { getWorkflowContext } from '@/server/business-context/business-context.service';
+
+const wf = await getWorkflowContext(companyId, 'opportunity', { query });
+if (!wf?.ready) return emptyState(wf?.missing); // [{ field, label, href }]
+await model({ system: wf.prompt /* ... */ });
+```
+
+Each workflow in `WORKFLOW_REQUIREMENTS` declares the sections it loads (so it
+pays only for what its preset renders) and the fields it cannot run without:
+
+| Workflow | Loads | Refuses to run without |
+| --- | --- | --- |
+| `opportunity`, `recommendation` | targeting, market, connections, knowledge, memory, plan | description, market mode, stated audience |
+| `content`, `planning`, `advisor`, `outreach` | what their preset renders | description |
+| `engagement`, `image`, `qualification` | what their preset renders | nothing |
+
+The lower-level pair is still available when a workflow needs control:
 
 ```ts
 import {
@@ -64,6 +90,8 @@ custom option set:
 | `engagement` | ✓ | | | ✓ | | | | | | |
 | `image` | ✓ | ✓ | | | | | | ✓ | | |
 | `qualification` | ✓ | | ✓ | | | | | | | |
+| `opportunity` | ✓ | ✓ | | | | ✓ | ✓ | | ✓ | all |
+| `recommendation` | ✓ | ✓ | | ✓ | | ✓ | ✓ | | ✓ | all |
 
 Outreach and engagement leave out the audience block because they address one
 named person or reply to someone else's post. Qualification gets the buyer as
@@ -89,7 +117,7 @@ defaults when there is no data or the section was not loaded.
 | `market` | `competitors[]` (`name`, `url`, `tracked`, `source`), `keywords[]`, `geo` (country, region, city, language) |
 | `knowledge` | `totalChunks`, `covered[]`, `missing[]`, `uncategorisedChunks`, `websiteUrls[]`, `passages[]` (only when a query is given) |
 | `memory` | `insights[]` (`type`, `insight`, `confidence`, `sampleSize`, `editedByUser`) |
-| `meta` | `generatedAt`, `sections`, `provenance` (per field: sources used, winner first, and `inferred`), `issues[]`, `completeness` |
+| `meta` | `generatedAt`, `revision` (last stored change; used for optimistic concurrency), `sections`, `provenance` (per field: sources used, winner first, and `inferred`), `issues[]`, `completeness` |
 
 ---
 
@@ -246,3 +274,98 @@ into. They map to `identity.industry` and `audience.industries` respectively.
 Each remaining migration is a mechanical swap of that workflow's hand-assembled
 blocks for one preset call. Do them one PR at a time, so any change in prompt
 output can be reviewed per workflow.
+
+---
+
+## 8. Updating the context
+
+Every write to business information goes through `updateBusinessContext`:
+onboarding, all the settings screens, logo upload, AI voice generation, and
+`PATCH /api/business-context`. A value can only enter the trusted context by
+passing the same checks, wherever it was typed.
+
+```ts
+await updateBusinessContext({
+  companyId,
+  userId,
+  origin: 'settings', // 'onboarding' | 'settings' | 'api' | 'ai'
+  patch: { audience: { stated: 'Ops leads at logistics firms' } },
+  expectedRevision, // optional: ctx.meta.revision from the last read
+});
+// -> { changed: ['audience.stated'], revision }
+```
+
+**Patch semantics:** an omitted key is unchanged, and `null` or `''` clears the
+field.
+
+### Writable fields
+
+| Section | Fields |
+| --- | --- |
+| `identity` | `name`, `website`, `industry`, `description`, `offerings`, `visual.{logoAssetId, primaryColor, secondaryColor, accentColor}` |
+| `audience` | `marketMode`, `stated` |
+| `objectives` | `goals`, `contentFormats` |
+| `channels` | `preferred` |
+| `voice` | `notes`, `profile` |
+
+Everything else in the context is read-only here, because another module owns
+it. Sending it is rejected with a message that says where to edit it instead:
+
+| Read-only field | Owned by |
+| --- | --- |
+| buyer role titles, industries, stages | Outreach targeting, Lead discovery |
+| connected channels | Settings → Connections |
+| competitors, keywords, geo | Competitors, Settings → Trends |
+| knowledge coverage | Knowledge base |
+| memory insights | Marketing Memory (it has its own edit and dismiss operations) |
+
+### Update rules
+
+| # | Rule | Enforced in |
+| --- | --- | --- |
+| R1 | Only writable fields. Unknown or module-owned fields are rejected. | patch schema (`.strict()`) |
+| R2 | Shape: enums (market mode, channels, formats), length caps, website URL, hex colours, asset id format. Control characters are stripped, spaces collapsed, lists de-duplicated. | patch schema |
+| R3 | Quality, applied to **changed** values only: name ≥ 2 characters, description ≥ 20, audience ≥ 10. Placeholder answers (`n/a`, `tbd`, `test`, `asdf` and similar) are refused in prose fields. | `update.ts` |
+| R4 | Required fields cannot be cleared, and onboarding must supply all of them. | `update.ts` |
+| R5 | References must belong to the workspace. A logo asset id must be one of its own assets. | write service |
+| R6 | AI-originated writes may only set `voice.profile`. A model can never rewrite what the business stated. | `update.ts` |
+| R7 | A write that changes nothing is not stored and not audited. | `update.ts` |
+| R8 | Merge, never replace. Other `preferences` sections (such as autopilot) survive every write. | `update.ts` |
+| R9 | Optimistic concurrency: a stale `expectedRevision` is refused with 409. | write service |
+
+R3 applies only to changed values because the settings form re-sends every
+field. Without that, a workspace with an older, shorter description could not
+save an unrelated edit.
+
+**Errors.**
+- **422:** a shape failure (ZodError) or a rule refusal (`BusinessContextUpdateError`). The response carries per-field `details`, and every refused field is reported at once.
+- **409:** the stored context changed since `expectedRevision`.
+- **403:** the caller lacks `company:update`.
+
+Rule refusals are keyed by each screen's own field names (for example,
+`audience.stated` → `audience`), so existing forms show them next to the right
+input.
+
+**Audit.** Each real change writes one audit entry with `via: 'business-context'`,
+the `origin`, and the exact `changedFields`. Brand voice edits keep their
+`BRAND_VOICE_UPDATED` / `BRAND_VOICE_GENERATED` actions.
+
+### Connected screens
+
+| Screen / writer | Route or service | Adapter |
+| --- | --- | --- |
+| Onboarding wizard | `POST /api/companies` → `createCompanyForUser` (rules planned against an empty workspace, written in the create transaction) | `onboardingPatch` |
+| Company profile | `PATCH /api/companies/:id` → `updateCompany` | `companyProfilePatch` |
+| Audience & goals | `PATCH /api/company/audience` | `audiencePatch` |
+| Brand colours | `PATCH /api/company/brand` | `brandPatch` |
+| Logo upload | `POST /api/company/logo` → `storeCompanyLogo` | direct patch |
+| Content formats | `PATCH /api/company/formats` | `formatsPatch` |
+| Brand voice edit | `PUT /api/brand-voice` → `updateBrandVoiceProfile` | direct patch |
+| Brand voice generation | `generateBrandVoiceProfile` (origin `ai`) | direct patch |
+
+Each screen keeps its own request schema, so its existing validation messages
+are unchanged. The adapter translates the parsed input into a context patch.
+
+The old direct writers (`saveBrandAssets`, `saveMarketingProfile`,
+`saveContentFormats`) are deprecated. The only remaining caller is
+`scripts/verify-onboarding.ts`.

@@ -322,6 +322,11 @@ export const businessContextSchema = z.object({
   memory: memorySchema,
   meta: z.object({
     generatedAt: z.string(),
+    /**
+     * When the workspace's stored business information last changed. Pass it
+     * back as `expectedRevision` on an update to refuse stale overwrites.
+     */
+    revision: z.string().nullable(),
     /** Optional sections actually loaded. Unloaded sections hold empty defaults. */
     sections: z.array(z.string()),
     provenance: z.record(provenanceSchema),

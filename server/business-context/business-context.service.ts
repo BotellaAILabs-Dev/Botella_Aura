@@ -2,8 +2,10 @@ import type { InsightType } from '@prisma/client';
 
 import { db } from '@/lib/db';
 import {
+  contextField,
   CONTEXT_SECTIONS,
   type BusinessContext,
+  type ContextFieldPath,
   type ContextSection,
 } from '@/lib/business-context';
 import {
@@ -14,7 +16,12 @@ import {
 } from '@/server/content/audience';
 import { brandVoiceToPrompt } from '@/server/content/brand-voice.service';
 import { chunksToContext, retrieve } from '@/server/knowledge/retrieve';
-import { buildBusinessContext, type BusinessContextSources } from './build';
+import {
+  buildBusinessContext,
+  fieldPresence,
+  isEvaluable,
+  type BusinessContextSources,
+} from './build';
 
 /**
  * The one way an AI workflow asks "what do we know about this business?".
@@ -67,6 +74,7 @@ export async function getBusinessContext(
         brandVoiceNotes: true,
         brandVoiceProfile: true,
         preferences: true,
+        updatedAt: true,
       },
     }),
     want.has('targeting') ? loadTargeting(companyId) : skip,
@@ -253,6 +261,29 @@ export const WORKFLOW_PRESETS = {
   engagement: { identity: true, voice: true },
   image: { identity: true, audience: true, visual: true },
   qualification: { identity: true, buyer: true },
+  /**
+   * Finding marketing opportunities: what the business is, who it sells to,
+   * where it can act, what the market is doing and what has worked. No voice —
+   * an opportunity is a decision about WHAT to do, not copy.
+   */
+  opportunity: {
+    identity: true,
+    audience: true,
+    channels: true,
+    market: true,
+    knowledge: true,
+    memory: true,
+  },
+  /** Recommending specific next actions, which may include wording. */
+  recommendation: {
+    identity: true,
+    audience: true,
+    voice: true,
+    channels: true,
+    market: true,
+    knowledge: true,
+    memory: true,
+  },
 } as const satisfies Record<string, ContextPromptOptions>;
 
 export type ContextWorkflow = keyof typeof WORKFLOW_PRESETS;
@@ -436,4 +467,92 @@ export function businessContextToPrompt(
   }
 
   return blocks.filter(Boolean).join('\n\n');
+}
+
+// ---------------------------------------------------------------------------
+// Workflow retrieval interface
+// ---------------------------------------------------------------------------
+
+/**
+ * What each workflow loads and what it cannot run without.
+ *
+ * `sections` keeps each workflow's query cost to what its preset renders.
+ * `requires` is the minimum for output worth showing: an opportunity for a
+ * business nobody described is invented, so the workflow should say what is
+ * missing instead of running.
+ */
+export const WORKFLOW_REQUIREMENTS: Record<
+  ContextWorkflow,
+  { sections: ContextSection[]; requires: ContextFieldPath[] }
+> = {
+  content: { sections: ['targeting', 'memory'], requires: ['identity.description'] },
+  planning: {
+    sections: ['targeting', 'market', 'connections', 'memory'],
+    requires: ['identity.description'],
+  },
+  advisor: {
+    sections: ['targeting', 'market', 'connections', 'memory'],
+    requires: ['identity.description'],
+  },
+  outreach: { sections: ['memory'], requires: ['identity.description'] },
+  engagement: { sections: [], requires: [] },
+  image: { sections: ['targeting'], requires: [] },
+  qualification: { sections: ['targeting'], requires: [] },
+  opportunity: {
+    sections: ['targeting', 'market', 'connections', 'knowledge', 'memory', 'plan'],
+    requires: ['identity.description', 'audience.marketMode', 'audience.stated'],
+  },
+  recommendation: {
+    sections: ['targeting', 'market', 'connections', 'knowledge', 'memory', 'plan'],
+    requires: ['identity.description', 'audience.marketMode', 'audience.stated'],
+  },
+};
+
+export interface WorkflowContext {
+  context: BusinessContext;
+  /** The rendered preamble for this workflow. */
+  prompt: string;
+  /** False when a field this workflow requires is missing. */
+  ready: boolean;
+  /** Required-but-missing fields, with where the user fixes each one. */
+  missing: { field: ContextFieldPath; label: string; href?: string }[];
+}
+
+/**
+ * The entry point for an AI workflow.
+ *
+ *   const wf = await getWorkflowContext(companyId, 'opportunity');
+ *   if (!wf.ready) return emptyState(wf.missing);
+ *   await model({ system: wf.prompt, ... });
+ *
+ * One call returns the context, the rendered preamble and whether the
+ * workflow has enough to run, so a new workflow cannot forget any of the three.
+ */
+export async function getWorkflowContext(
+  companyId: string,
+  workflow: ContextWorkflow,
+  options: Pick<BusinessContextOptions, 'query' | 'knowledgeLimit'> = {},
+): Promise<WorkflowContext | null> {
+  const req = WORKFLOW_REQUIREMENTS[workflow];
+  const context = await getBusinessContext(companyId, {
+    sections: req.sections,
+    query: options.query,
+    knowledgeLimit: options.knowledgeLimit,
+  });
+  if (!context) return null;
+
+  const present = fieldPresence(context);
+  const missing = req.requires
+    .filter((path) => isEvaluable(context, path) && !present[path])
+    .map((path) => {
+      const def = contextField(path);
+      return { field: path, label: def.label, href: def.href };
+    });
+
+  return {
+    context,
+    prompt: businessContextToPrompt(context, workflow),
+    ready: missing.length === 0,
+    missing,
+  };
 }

@@ -1,8 +1,9 @@
 import { requireActiveCompany } from '@/lib/auth-helpers';
 import { can } from '@/lib/rbac';
-import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
+import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 import { contentFormatsSchema } from '@/lib/validations/profile';
-import { saveContentFormats } from '@/server/company/profile.service';
+import { updateBusinessContext } from '@/server/business-context/business-context-write.service';
+import { FORMATS_ALIASES, formatsPatch } from '@/server/business-context/adapters';
 
 /**
  * PATCH /api/company/formats — which content formats this workspace uses.
@@ -16,13 +17,20 @@ export const dynamic = 'force-dynamic';
 
 export async function PATCH(req: Request) {
   try {
-    const { company, membership } = await requireActiveCompany();
+    const { company, membership, user } = await requireActiveCompany();
     if (!can(membership.role, 'company:update')) {
       return jsonError('Only owners and admins can change this.', 403);
     }
 
     const input = contentFormatsSchema.parse(await req.json());
-    await saveContentFormats(company.id, input);
+    await updateBusinessContext({
+      companyId: company.id,
+      userId: user.id,
+      patch: formatsPatch(input),
+      origin: 'settings',
+      aliases: FORMATS_ALIASES,
+      requestMeta: getRequestMeta(req),
+    });
 
     return jsonOk({ formats: input });
   } catch (error) {
