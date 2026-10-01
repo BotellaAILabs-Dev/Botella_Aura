@@ -148,6 +148,14 @@ const PROSE_FIELDS = new Set([
 const PLACEHOLDER =
   /^(n\/?a|na|none|nil|null|undefined|tbd|tba|todo|test(ing)?|asdf+|qwerty|lorem ipsum.*|x+|-+|\.+|\?+|placeholder|same|idk|nothing)$/i;
 
+/** The same tidying the patch schema applies to incoming text. */
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+function tidy(value: string | null): string | null {
+  if (value === null) return null;
+  return value.replace(CONTROL_CHARS, '').replace(/[ \t]+/g, ' ').trim() || null;
+}
+
 export function isPlaceholder(value: string): boolean {
   return PLACEHOLDER.test(value.trim());
 }
@@ -204,7 +212,12 @@ export function planBusinessContextWrite(
     after: string | null | undefined,
   ) => {
     if (after === undefined) return false;
-    if ((before ?? null) === (after ?? null)) return false;
+    // Compare like with like: incoming text is tidied by the patch schema, so
+    // tidy the stored value the same way. Otherwise a value saved before
+    // tidying existed (a double space) reads as "changed" every time a form
+    // re-sends it — a false audit entry and a reset freshness clock for a
+    // field nobody touched.
+    if (tidy(before) === (after ?? null)) return false;
     if (after !== null) {
       const rule = MIN_LENGTH[path];
       if (rule && after.length < rule.min) {

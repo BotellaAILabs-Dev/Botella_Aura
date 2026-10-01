@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { tx, db } = vi.hoisted(() => {
   const tx = {
-    company: { findUnique: vi.fn(), update: vi.fn() },
+    company: { findUnique: vi.fn(), updateMany: vi.fn() },
     generatedAsset: { findFirst: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   };
@@ -240,6 +240,24 @@ describe('update rules — what may be stored', () => {
     ]);
   });
 
+  it('R7: a re-sent legacy value with stray spaces is not a change', () => {
+    const legacy = stored({
+      preferences: {
+        business: { description: 'We roast single-origin coffee in small batches.' },
+        marketingProfile: {
+          marketMode: 'B2C',
+          audience: 'People  who\talready own a grinder. ',
+        },
+      },
+    });
+    // The audience form re-sends the stored audience along with a new goal.
+    const p = plan(legacy, {
+      audience: { stated: 'People  who\talready own a grinder. ' },
+      objectives: { goals: 'Grow subscriptions' },
+    });
+    expect(p.changed).toEqual(['objectives.goals']);
+  });
+
   it('R3: never treats a company name as a placeholder', () => {
     for (const name of ['XX', 'Same', 'Nothing', 'Test Kitchen']) {
       expect(plan(stored(), { identity: { name } }).changed, name).toEqual([
@@ -382,13 +400,17 @@ describe('screen adapters', () => {
 describe('updateBusinessContext — the transactional write', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    tx.company.findUnique.mockResolvedValue({
-      ...stored(),
-      updatedAt: REVISION,
-    });
-    tx.company.update.mockResolvedValue({
-      updatedAt: new Date('2026-09-30T11:00:00Z'),
-    });
+    // First read: the row as stored. Read after a successful swap: the new
+    // updatedAt the write produced.
+    tx.company.findUnique.mockImplementation(
+      ({ select }: { select: Record<string, boolean> }) =>
+        Promise.resolve(
+          select.name
+            ? { ...stored(), updatedAt: REVISION }
+            : { updatedAt: new Date('2026-09-30T11:00:00Z') },
+        ),
+    );
+    tx.company.updateMany.mockResolvedValue({ count: 1 });
     tx.auditLog.create.mockResolvedValue({});
   });
 
@@ -401,13 +423,91 @@ describe('updateBusinessContext — the transactional write', () => {
     });
     expect(result.changed).toEqual(['objectives.goals']);
     expect(result.revision).toBe('2026-09-30T11:00:00.000Z');
-    expect(tx.company.update).toHaveBeenCalledTimes(1);
+    expect(tx.company.updateMany).toHaveBeenCalledTimes(1);
+    // Compare-and-swap: only if the row is unchanged since it was read.
+    expect(tx.company.updateMany.mock.calls[0]![0].where).toEqual({
+      id: 'c1',
+      updatedAt: REVISION,
+    });
     const audit = tx.auditLog.create.mock.calls[0]![0].data;
     expect(audit.action).toBe('COMPANY_UPDATED');
     expect(audit.metadata).toMatchObject({
       origin: 'settings',
       changedFields: ['objectives.goals'],
     });
+  });
+
+  it('re-plans from fresh data when another write lands first, keeping both', async () => {
+    // Between our read and our write, autopilot settings were saved.
+    const later = new Date('2026-09-30T10:30:00Z');
+    let reads = 0;
+    tx.company.findUnique.mockImplementation(
+      ({ select }: { select: Record<string, boolean> }) => {
+        if (!select.name)
+          return Promise.resolve({
+            updatedAt: new Date('2026-09-30T11:00:00Z'),
+          });
+        reads += 1;
+        const prefs = stored().preferences as Record<string, unknown>;
+        return Promise.resolve(
+          reads === 1
+            ? { ...stored(), updatedAt: REVISION }
+            : {
+                ...stored(),
+                preferences: {
+                  ...prefs,
+                  autopilot: { enabled: false, perWeek: 2 },
+                },
+                updatedAt: later,
+              },
+        );
+      },
+    );
+    tx.company.updateMany
+      .mockResolvedValueOnce({ count: 0 }) // lost the race
+      .mockResolvedValueOnce({ count: 1 });
+
+    const result = await updateBusinessContext({
+      companyId: 'c1',
+      userId: 'u1',
+      patch: { objectives: { goals: '200 subscribers this quarter' } },
+      origin: 'settings',
+    });
+
+    expect(result.changed).toEqual(['objectives.goals']);
+    expect(tx.company.updateMany).toHaveBeenCalledTimes(2);
+    const second = tx.company.updateMany.mock.calls[1]![0];
+    expect(second.where.updatedAt).toEqual(later);
+    // Both changes survive: the other writer's autopilot and our goal.
+    expect(second.data.preferences).toMatchObject({
+      autopilot: { enabled: false, perWeek: 2 },
+      marketingProfile: { goals: '200 subscribers this quarter' },
+    });
+    expect(tx.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses rather than overwrite when the caller pinned a revision and lost the race', async () => {
+    let reads = 0;
+    tx.company.findUnique.mockImplementation(
+      ({ select }: { select: Record<string, boolean> }) => {
+        if (!select.name) return Promise.resolve({ updatedAt: new Date() });
+        reads += 1;
+        return Promise.resolve({
+          ...stored(),
+          updatedAt: reads === 1 ? REVISION : new Date('2026-09-30T10:30:00Z'),
+        });
+      },
+    );
+    tx.company.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(
+      updateBusinessContext({
+        companyId: 'c1',
+        userId: 'u1',
+        patch: { objectives: { goals: '200 subscribers this quarter' } },
+        origin: 'api',
+        expectedRevision: REVISION.toISOString(),
+      }),
+    ).rejects.toBeInstanceOf(BusinessContextConflictError);
   });
 
   it('skips the write and the audit when nothing changed', async () => {
@@ -418,7 +518,7 @@ describe('updateBusinessContext — the transactional write', () => {
       origin: 'settings',
     });
     expect(result.changed).toEqual([]);
-    expect(tx.company.update).not.toHaveBeenCalled();
+    expect(tx.company.updateMany).not.toHaveBeenCalled();
     expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
 
@@ -432,7 +532,7 @@ describe('updateBusinessContext — the transactional write', () => {
         expectedRevision: '2026-09-29T00:00:00.000Z',
       }),
     ).rejects.toBeInstanceOf(BusinessContextConflictError);
-    expect(tx.company.update).not.toHaveBeenCalled();
+    expect(tx.company.updateMany).not.toHaveBeenCalled();
   });
 
   it('refuses a logo that belongs to another workspace', async () => {
@@ -450,7 +550,7 @@ describe('updateBusinessContext — the transactional write', () => {
         where: { id: 'someone_elses', companyId: 'c1' },
       }),
     );
-    expect(tx.company.update).not.toHaveBeenCalled();
+    expect(tx.company.updateMany).not.toHaveBeenCalled();
   });
 
   it('rejects an unsupported field before touching the database', async () => {

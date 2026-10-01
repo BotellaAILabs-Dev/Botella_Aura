@@ -70,6 +70,40 @@ export async function updateBusinessContext(
   // offending fields named (handleRouteError).
   const patch = businessContextPatchSchema.parse(args.patch);
 
+  /**
+   * Compare-and-swap, retried.
+   *
+   * `preferences` is one JSON bag shared with other writers (autopilot
+   * settings, and this service running concurrently — e.g. AI voice
+   * generation saving while the user edits their goals). Each writer reads the
+   * bag, merges its part and writes the whole bag back, so a plain update
+   * would let the later write silently erase the earlier one. The update only
+   * applies if the row is unchanged since it was read; otherwise the write is
+   * re-planned from a fresh read, so both changes survive.
+   */
+  for (let attempt = 1; attempt <= MAX_WRITE_ATTEMPTS; attempt++) {
+    try {
+      return await writeOnce(args, patch);
+    } catch (err) {
+      if (!(err instanceof LostRace) || attempt === MAX_WRITE_ATTEMPTS) {
+        if (err instanceof LostRace) throw new BusinessContextConflictError();
+        throw err;
+      }
+    }
+  }
+  // Unreachable: the loop either returns or throws.
+  throw new BusinessContextConflictError();
+}
+
+const MAX_WRITE_ATTEMPTS = 3;
+
+/** Another write landed between this write's read and its update. */
+class LostRace extends Error {}
+
+async function writeOnce(
+  args: UpdateBusinessContextArgs,
+  patch: ReturnType<typeof businessContextPatchSchema.parse>,
+): Promise<UpdateBusinessContextResult> {
   return db.$transaction(async (tx) => {
     const row = await tx.company.findUnique({
       where: { id: args.companyId },
@@ -129,11 +163,17 @@ export async function updateBusinessContext(
       }
     }
 
-    const updated = await tx.company.update({
+    // Only if nobody wrote since our read; otherwise re-plan from fresh data.
+    const swapped = await tx.company.updateMany({
+      where: { id: args.companyId, updatedAt: row.updatedAt },
+      data: toCompanyData(plan.data) as Prisma.CompanyUpdateManyMutationInput,
+    });
+    if (swapped.count === 0) throw new LostRace();
+    const updated = await tx.company.findUnique({
       where: { id: args.companyId },
-      data: toCompanyData(plan.data),
       select: { updatedAt: true },
     });
+    if (!updated) throw new CompanyNotFoundError();
 
     await recordAudit(
       {

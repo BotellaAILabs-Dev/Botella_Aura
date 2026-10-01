@@ -42,21 +42,35 @@ export async function PATCH(req: Request) {
 
     const input = settingsSchema.parse(await req.json());
 
-    const current = await db.company.findUnique({
-      where: { id: company.id },
-      select: { preferences: true },
-    });
-    const bag =
-      current?.preferences && typeof current.preferences === 'object' && !Array.isArray(current.preferences)
-        ? (current.preferences as Record<string, unknown>)
-        : {};
-
-    await db.company.update({
-      where: { id: company.id },
-      // Merge, not replace: brand assets and the marketing profile live in the
-      // same bag and must survive this write.
-      data: { preferences: { ...bag, autopilot: input } as never },
-    });
+    // Merge, not replace: brand assets and the marketing profile live in the
+    // same bag and must survive this write. Compare-and-swap on updatedAt so
+    // a business-context edit landing between our read and our write is not
+    // silently erased — re-read and re-merge instead.
+    let saved = false;
+    for (let attempt = 0; attempt < 3 && !saved; attempt++) {
+      const current = await db.company.findUnique({
+        where: { id: company.id },
+        select: { preferences: true, updatedAt: true },
+      });
+      if (!current) return jsonError('Company not found', 404);
+      const bag =
+        current.preferences &&
+        typeof current.preferences === 'object' &&
+        !Array.isArray(current.preferences)
+          ? (current.preferences as Record<string, unknown>)
+          : {};
+      const result = await db.company.updateMany({
+        where: { id: company.id, updatedAt: current.updatedAt },
+        data: { preferences: { ...bag, autopilot: input } as never },
+      });
+      saved = result.count === 1;
+    }
+    if (!saved) {
+      return jsonError(
+        'Your workspace was being updated at the same moment. Try again.',
+        409,
+      );
+    }
 
     await recordAudit({
       action: 'COMPANY_UPDATED',
@@ -66,7 +80,10 @@ export async function PATCH(req: Request) {
       ...getRequestMeta(req),
     });
 
-    return jsonOk({ settings: input, maxAutoPublishPerWeek: MAX_AUTO_PUBLISH_PER_WEEK });
+    return jsonOk({
+      settings: input,
+      maxAutoPublishPerWeek: MAX_AUTO_PUBLISH_PER_WEEK,
+    });
   } catch (error) {
     return handleRouteError(error);
   }
