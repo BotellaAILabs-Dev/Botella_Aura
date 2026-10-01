@@ -129,9 +129,14 @@ const MIN_LENGTH: Record<string, { min: number; message: string }> = {
   },
 };
 
-/** Fields where a placeholder answer would be trusted as fact (R3). */
+/**
+ * Fields where a placeholder answer would be trusted as fact (R3).
+ *
+ * Not the company name: a name is whatever the business is called, and real
+ * companies are called "X", "Same" or "Nothing". The 2-character minimum is
+ * the only rule a name gets.
+ */
 const PROSE_FIELDS = new Set([
-  'identity.name',
   'identity.description',
   'identity.offerings',
   'identity.industry',

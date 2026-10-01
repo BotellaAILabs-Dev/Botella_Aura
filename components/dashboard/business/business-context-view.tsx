@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -69,6 +69,20 @@ export function BusinessContextView({ context: ctx, canEdit, logoSrc }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
 
+  /**
+   * The newest revision this page knows about.
+   *
+   * Taken from the save response as well as from props: router.refresh()
+   * delivers the new props a moment after a save, and a second save in that
+   * window would otherwise send the old revision and be refused as if someone
+   * else had changed the business. Revisions are ISO timestamps, so the later
+   * one is simply the larger string.
+   */
+  const revisionRef = useRef(ctx.meta.revision);
+  if ((ctx.meta.revision ?? '') > (revisionRef.current ?? '')) {
+    revisionRef.current = ctx.meta.revision;
+  }
+
   /** One write path for edits and confirmations. */
   async function send(body: Record<string, unknown>): Promise<SaveResult> {
     const res = await fetch('/api/business-context', {
@@ -76,12 +90,18 @@ export function BusinessContextView({ context: ctx, canEdit, logoSrc }: Props) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...body,
-        expectedRevision: ctx.meta.revision ?? undefined,
+        expectedRevision: revisionRef.current ?? undefined,
       }),
     }).catch(() => null);
     if (!res)
       return { ok: false, message: 'Could not reach the server. Try again.' };
     if (res.ok) {
+      const saved = (await res.json().catch(() => ({}))) as {
+        context?: { meta?: { revision?: string | null } };
+      };
+      const next = saved.context?.meta?.revision;
+      if (next && next > (revisionRef.current ?? ''))
+        revisionRef.current = next;
       router.refresh();
       return { ok: true };
     }
@@ -635,6 +655,13 @@ function FieldEditor({
   const str = typeof value === 'string' ? value : '';
   const list = Array.isArray(value) ? value : [];
   const over = field.max !== undefined && str.length > field.max;
+  // Nothing to save until the value actually differs — otherwise Save sends a
+  // no-op and the "saved" toast claims a change that never happened.
+  const normalise = (v: string | string[] | null) =>
+    Array.isArray(v)
+      ? [...v].sort().join('|')
+      : (v ?? '').replace(/\s+/g, ' ').trim();
+  const dirty = normalise(value) !== normalise(initial);
 
   return (
     <div className="space-y-2">
@@ -719,7 +746,7 @@ function FieldEditor({
         </p>
       )}
       <div className="flex gap-2">
-        <Button size="sm" onClick={save} disabled={saving || over}>
+        <Button size="sm" onClick={save} disabled={saving || over || !dirty}>
           {saving ? 'Saving…' : 'Save'}
         </Button>
         <Button size="sm" variant="ghost" onClick={onCancel} disabled={saving}>

@@ -240,6 +240,14 @@ describe('update rules — what may be stored', () => {
     ]);
   });
 
+  it('R3: never treats a company name as a placeholder', () => {
+    for (const name of ['XX', 'Same', 'Nothing', 'Test Kitchen']) {
+      expect(plan(stored(), { identity: { name } }).changed, name).toEqual([
+        'identity.name',
+      ]);
+    }
+  });
+
   it('R4: a required field cannot be cleared', () => {
     const err = refused(() => plan(stored(), { audience: { stated: '' } }));
     expect(err.issues[0]).toMatchObject({ field: 'audience.stated' });

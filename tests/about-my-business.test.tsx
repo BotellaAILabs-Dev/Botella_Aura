@@ -306,10 +306,61 @@ describe('the page', () => {
     );
     render(<BusinessContextView context={ctxOf()} canEdit logoSrc={null} />);
     fireEvent.click(screen.getByRole('button', { name: 'Edit Industry' }));
+    fireEvent.change(screen.getByLabelText('Industry'), {
+      target: { value: 'Coffee' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(
       await screen.findByText(/Someone else changed this page/),
     ).toBeInTheDocument();
+  });
+
+  it('sends the revision from the last save, so a quick second edit is not refused', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        context: { meta: { revision: '2099-01-01T00:00:00.000Z' } },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<BusinessContextView context={ctxOf()} canEdit logoSrc={null} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Industry' }));
+    fireEvent.change(screen.getByLabelText('Industry'), {
+      target: { value: 'Coffee' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByLabelText('Industry')).toBeNull());
+
+    // The props have not been refreshed yet; the second save must still use
+    // the revision the first save returned.
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Website' }));
+    fireEvent.change(screen.getByLabelText('Website'), {
+      target: { value: 'verdant.co' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body).expectedRevision).toBe(
+      '2099-01-01T00:00:00.000Z',
+    );
+  });
+
+  it('does not offer Save until the value changes', () => {
+    render(<BusinessContextView context={ctxOf()} canEdit logoSrc={null} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Industry' }));
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save).toBeDisabled();
+    // Whitespace alone is not a change.
+    fireEvent.change(screen.getByLabelText('Industry'), {
+      target: { value: 'Food & beverage  ' },
+    });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Industry'), {
+      target: { value: 'Coffee' },
+    });
+    expect(save).toBeEnabled();
   });
 
   it('is read-only for people who cannot edit', () => {
