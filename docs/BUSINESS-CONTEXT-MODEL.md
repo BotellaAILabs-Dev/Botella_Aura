@@ -15,7 +15,11 @@ memory.
 | Screen → patch adapters | [`server/business-context/adapters.ts`](../server/business-context/adapters.ts) |
 | HTTP | `GET` and `PATCH /api/business-context` |
 | Source, confidence, freshness | [`server/business-context/facts.ts`](../server/business-context/facts.ts) (pure) |
-| Tests | [`tests/business-context.test.ts`](../tests/business-context.test.ts), [`tests/business-context-service.test.ts`](../tests/business-context-service.test.ts), [`tests/business-facts.test.ts`](../tests/business-facts.test.ts) |
+| Snapshot: structure, views, TTL | [`lib/business-context-snapshot.ts`](../lib/business-context-snapshot.ts) (pure, client-safe) |
+| Snapshot: build, views, prompt | [`server/business-context/snapshot.ts`](../server/business-context/snapshot.ts) (pure) |
+| Snapshot: storage + refresh | [`server/business-context/snapshot.service.ts`](../server/business-context/snapshot.service.ts), table `BusinessContextSnapshot` |
+| Snapshot HTTP | `GET` and `POST /api/business-context/snapshot` |
+| Tests | [`tests/business-context.test.ts`](../tests/business-context.test.ts), [`tests/business-context-service.test.ts`](../tests/business-context-service.test.ts), [`tests/business-facts.test.ts`](../tests/business-facts.test.ts), [`tests/context-snapshot.test.ts`](../tests/context-snapshot.test.ts) |
 
 ---
 
@@ -486,4 +490,116 @@ the business's own voice. `PATCH /api/business-context` accepts `confirm`.
 `getWorkflowContext` returns the same list as `caveats: [{ field, label, reason }]`,
 so an Opportunity or Recommendation screen can show the user exactly what its
 output rests on.
+
+---
+
+## 10. Business Context Snapshot
+
+The full context (§3) is built for resolution and audit. An AI workflow needs
+something smaller: a current statement of what is **true** about the business,
+kept apart from what is only assumed. The snapshot is that statement, and it is
+the recommended way for AI workflows, including the upcoming Recommendation
+and Content workflows, to receive business context.
+
+```ts
+import { getContextSnapshot } from '@/server/business-context/snapshot.service';
+
+const { snapshot, prompt, status } = await getContextSnapshot(companyId, {
+  view: 'recommendation', // or 'content', 'opportunity', 'planning', 'outreach', 'engagement', 'full'
+  strict: false,          // true = leave assumptions out entirely
+});
+// prompt: compact fact sheet to put in the model's context
+// snapshot.fingerprint: record it with the AI output, so the output can be
+// traced to the exact business context it was produced from
+```
+
+### Structure
+
+| Section | Contents | Built from |
+| --- | --- | --- |
+| `business` | name, description, industry, website | identity |
+| `products` | offerings; up to 3 highlights quoted from the business's own uploaded differentiators, product docs, company info or pitch deck | identity.offerings + knowledge base |
+| `audience` | market mode, buyer description, roles, industries, company stages | audience |
+| `goals` | current goal | objectives.goals |
+| `voice` | summary, tone, topics to avoid, vocabulary, emoji, hashtags, the business's own notes | voice |
+| `channels` | where it publishes; which channels are connected | channels |
+| `learning` | up to 8 learned performance patterns, with confidence and sample size | marketing memory |
+| `market` | confirmed competitors, market topics | market |
+| `trust` | source type, confidence, capture date and freshness for every included fact | `meta.facts` (§9) |
+| `assumptions` | present but untrusted or stale, each with its reason | `meta.facts` (§9) |
+| `omitted` | left out, and why | |
+| `gaps` | required information the business hasn't supplied | completeness |
+| `fingerprint`, `revision`, `generatedAt` | which business state it describes | |
+
+### What goes in
+
+| Fact | Where it goes |
+| --- | --- |
+| Trusted and not stale | Main section, with its `trust` entry |
+| Untrusted (AI-derived, fallback, crawled) or stale | `assumptions`, with the reason; `omitted` in strict mode |
+| Learned pattern: stale | `omitted` |
+| Learned pattern: low confidence and not confirmed by the user | `assumptions` ("small sample") |
+| AI-suggested competitor | `assumptions` ("Possible competitors"), never in `market.competitors` |
+| Unreviewed AI voice profile | `assumptions`; the business's own notes stay in `voice.notes` |
+| Product evidence | Only from uploaded material in product-related categories; crawled pages are never quoted |
+
+Learning is included as evidence, labelled with its strength, and never
+presented as a business fact.
+
+### Views
+
+| View | Sections |
+| --- | --- |
+| `full`, `recommendation`, `planning` | all |
+| `content` | business, products, audience, goals, voice, channels, learning (no market) |
+| `opportunity` | all except voice |
+| `outreach` | business, products, voice, learning (no audience persona) |
+| `engagement` | business, voice |
+
+A view also filters `trust`, `assumptions`, `omitted` and `gaps` to its own
+sections. All views of the same state share the full snapshot's `fingerprint`.
+
+### Optimised for AI consumption
+
+- **Bounded size.** Lists are capped (6 roles or industries, 8 insights, 8
+  competitors, 10 keywords, 3 product highlights of at most 280 characters), so
+  the size is predictable. `meta.estimatedTokens` reports it.
+- **Facts, not instructions.** `prompt` is a compact fact sheet headed "confirmed,
+  current facts", followed by an `ASSUMPTIONS` block ("never state them as
+  facts") and a `NOT PROVIDED` line ("do not invent these"). Each workflow adds
+  its own task and writing rules.
+- **Stable fingerprint.** The fingerprint hashes the content, not the build
+  time: an unchanged business keeps the same fingerprint across rebuilds.
+
+### Refresh and update behaviour
+
+One full snapshot is stored per workspace in `BusinessContextSnapshot`, and
+views are cut from it on read. A read rebuilds it first when:
+
+| Reason | When |
+| --- | --- |
+| `missing` | Never built |
+| `version` | The snapshot format changed in a deploy, or the stored payload no longer parses |
+| `invalidated` | A writer the source stamp cannot see asked for a rebuild |
+| `sources_changed` | The source stamp no longer matches |
+| `expired` | Older than 6 hours, because freshness depends on today's date |
+| `forced` | `POST /api/business-context/snapshot`, or `force: true` |
+
+**Source stamp.** The stamp is a hash of the latest change time and row count
+of every source table: Company, OutreachConfig, active DiscoveryProfiles,
+CompetitorProfiles, CompanyTrendConfig, MarketingPlans, connected Connections,
+active LinkedInConnection, KnowledgeChunks and active MarketingMemory.
+- **Coverage.** It catches edits, additions and deletions in every module with
+  no hooks there. Every write through the Business Context service bumps
+  `Company.updatedAt`, so all context updates refresh the snapshot.
+- **The exception.** Editing a memory insight's text in place has no timestamp,
+  so `updateMemoryInsight` calls `invalidateContextSnapshot`. Invalidation is
+  best-effort; the TTL bounds how long a missed one can last.
+- **Timing.** The stamp is taken before building. A change made during a build
+  leaves the stored stamp behind, so the next read rebuilds.
+
+**HTTP.**
+- `GET /api/business-context/snapshot?view=content&strict=1` returns
+  `{ snapshot, prompt, status: 'current' | 'rebuilt', reason? }`.
+- `POST` rebuilds immediately (owners and admins only).
 

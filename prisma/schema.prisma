@@ -574,6 +574,7 @@ model Company {
   generatedAssets       GeneratedAsset[]
   contentMedia          ContentMedia[]
   briefings             WorkspaceBriefing[]
+  contextSnapshot       BusinessContextSnapshot?
 
   @@index([slug])
 }
@@ -1700,4 +1701,33 @@ model WorkspaceBriefing {
   /// One briefing per company per week; a re-run replaces rather than duplicates.
   @@unique([companyId, weekStart])
   @@index([companyId, weekStart])
+}
+
+// ---------------------------------------------------------------------------
+// Business Context Snapshot
+// ---------------------------------------------------------------------------
+
+/// The latest AI-ready snapshot of a workspace's business context (see
+/// server/business-context/snapshot.service.ts). One row per company, rebuilt
+/// when its sources change, when it ages past its TTL, or on demand.
+///
+/// `sourceStamp` is a hash of the version of every table the snapshot reads,
+/// taken at build time; comparing it with a fresh stamp is how a reader knows
+/// the snapshot is current without rebuilding it. `fingerprint` hashes the
+/// snapshot content itself, so an AI output can record exactly which business
+/// context it was produced from.
+model BusinessContextSnapshot {
+  id            String    @id @default(cuid())
+  companyId     String    @unique
+  /// Snapshot format version; a mismatch forces a rebuild after a deploy.
+  version       Int
+  fingerprint   String
+  sourceStamp   String
+  payload       Json
+  generatedAt   DateTime  @default(now())
+  /// Set by writers whose changes the source stamp cannot see (e.g. editing a
+  /// memory insight's text). The next read rebuilds.
+  invalidatedAt DateTime?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }

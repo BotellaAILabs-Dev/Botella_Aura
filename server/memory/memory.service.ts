@@ -1,5 +1,6 @@
 import type { MarketingMemory } from '@prisma/client';
 import { db } from '@/lib/db';
+import { invalidateContextSnapshot } from '@/server/business-context/snapshot.service';
 
 /**
  * Marketing Memory retrieval + prompt injection (Sprint 5, Module 2). This is
@@ -45,13 +46,17 @@ export async function updateMemoryInsight(
   });
   if (!existing) throw new Error('Insight not found.');
   const summary = (existing.supportingDataSummary ?? {}) as Record<string, unknown>;
-  return db.marketingMemory.update({
+  const updated = await db.marketingMemory.update({
     where: { id: memoryId },
     data: {
       insight: insight.trim(),
       supportingDataSummary: { ...summary, editedByUser: true },
     },
   });
+  // MarketingMemory has no updatedAt, so the snapshot's source stamp cannot
+  // see an edit in place. Ask for a rebuild instead.
+  await invalidateContextSnapshot(companyId);
+  return updated;
 }
 
 /**
