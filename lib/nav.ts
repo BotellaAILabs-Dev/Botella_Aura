@@ -15,6 +15,7 @@ import {
   Gauge,
   Lightbulb,
   CalendarRange,
+  Building2,
 } from 'lucide-react';
 
 /**
@@ -183,6 +184,14 @@ export const NAV_ITEMS: NavItem[] = [
     ready: true,
     sprint: 6,
     description: 'Real numbers from what you published — reach, replies, and trends.',
+  },
+  {
+    label: 'About my business',
+    href: '/dashboard/business',
+    section: 'setup',
+    icon: Building2,
+    ready: true,
+    description: 'What Aura knows about your business, and what you still need to tell it.',
   },
   {
     label: 'Your tools',

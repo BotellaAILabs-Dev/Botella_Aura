@@ -550,7 +550,7 @@ describe('workflow retrieval interface', () => {
       'audience.marketMode',
       'audience.stated',
     ]);
-    expect(wf?.missing[0]?.href).toBe('/dashboard/settings');
+    expect(wf?.missing[0]?.href).toBe('/dashboard/business');
   });
 
   it('returns null for an unknown workspace', async () => {

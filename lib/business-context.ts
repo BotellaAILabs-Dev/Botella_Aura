@@ -649,7 +649,7 @@ export const CONTEXT_FIELDS = [
       'intelligence',
       'briefing',
     ],
-    href: '/dashboard/settings',
+    href: '/dashboard/business',
   },
   {
     path: 'identity.description',
@@ -658,7 +658,7 @@ export const CONTEXT_FIELDS = [
     sources: ['workspace_profile'],
     resolution: 'precedence',
     consumers: ALL_WRITERS,
-    href: '/dashboard/settings',
+    href: '/dashboard/business',
   },
   {
     path: 'identity.offerings',
@@ -667,7 +667,7 @@ export const CONTEXT_FIELDS = [
     sources: ['workspace_profile'],
     resolution: 'precedence',
     consumers: ALL_WRITERS,
-    href: '/dashboard/settings',
+    href: '/dashboard/business',
   },
   {
     path: 'identity.industry',
@@ -676,7 +676,7 @@ export const CONTEXT_FIELDS = [
     sources: ['workspace_profile'],
     resolution: 'precedence',
     consumers: [...ALL_WRITERS, 'trends'],
-    href: '/dashboard/settings',
+    href: '/dashboard/business',
   },
   {
     path: 'identity.website',
@@ -685,7 +685,7 @@ export const CONTEXT_FIELDS = [
     sources: ['workspace_profile', 'knowledge_base'],
     resolution: 'precedence',
     consumers: ['content', 'competitors', 'onboarding'],
-    href: '/dashboard/settings',
+    href: '/dashboard/business',
   },
   {
     path: 'identity.visual',
@@ -703,7 +703,7 @@ export const CONTEXT_FIELDS = [
     sources: ['workspace_profile'],
     resolution: 'precedence',
     consumers: ['content', 'media', 'planner', 'campaigns', 'advisor'],
-    href: '/dashboard/settings/audience',
+    href: '/dashboard/business',
   },
   {
     path: 'audience.stated',
@@ -712,7 +712,7 @@ export const CONTEXT_FIELDS = [
     sources: ['workspace_profile', 'marketing_plan'],
     resolution: 'precedence',
     consumers: ['content', 'media', 'planner', 'campaigns', 'advisor'],
-    href: '/dashboard/settings/audience',
+    href: '/dashboard/business',
   },
   {
     path: 'audience.roleTitles',
@@ -751,7 +751,7 @@ export const CONTEXT_FIELDS = [
     sources: ['workspace_profile', 'marketing_plan'],
     resolution: 'precedence',
     consumers: ['content', 'planner', 'campaigns', 'advisor', 'briefing'],
-    href: '/dashboard/settings/audience',
+    href: '/dashboard/business',
   },
   {
     path: 'objectives.contentFormats',
@@ -769,7 +769,7 @@ export const CONTEXT_FIELDS = [
     sources: ['workspace_profile', 'marketing_plan'],
     resolution: 'precedence',
     consumers: ['planner', 'campaigns', 'advisor'],
-    href: '/dashboard/settings/audience',
+    href: '/dashboard/business',
   },
   {
     path: 'channels.connected',
@@ -788,7 +788,7 @@ export const CONTEXT_FIELDS = [
     sources: ['brand_voice_profile', 'onboarding_notes', 'marketing_plan'],
     resolution: 'layered',
     consumers: [...ALL_WRITERS, 'trends'],
-    href: '/dashboard/settings/knowledge-base',
+    href: '/dashboard/business',
   },
   {
     path: 'market.competitors',

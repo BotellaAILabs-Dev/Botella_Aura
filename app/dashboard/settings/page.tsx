@@ -14,6 +14,7 @@ import {
   ListChecks,
   LayoutGrid,
   Bot,
+  Building2,
 } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
@@ -26,7 +27,6 @@ import { getTeam } from '@/server/services/team.service';
 import { can } from '@/lib/rbac';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { getWorkspaceProfile } from '@/server/company/profile.service';
-import { CompanyProfileForm } from '@/components/dashboard/company-profile-form';
 import { TeamManager } from '@/components/dashboard/team-manager';
 import { EmailDiagnosticsCard } from '@/components/dashboard/email-diagnostics-card';
 import { Button } from '@/components/ui/button';
@@ -71,18 +71,26 @@ export default async function SettingsPage() {
         }
       />
 
-      <CompanyProfileForm
-        companyId={company.id}
-        canEdit={canEdit}
-        initial={{
-          name: company.name,
-          website: company.website,
-          industry: company.industry,
-          description: profile.business?.description ?? null,
-          offerings: profile.business?.offerings ?? null,
-          brandVoiceNotes: company.brandVoiceNotes,
-        }}
-      />
+      {/* Business details live on About my business, the one place they are
+          shown and edited — with where each came from and what is missing. */}
+      <Link href="/dashboard/business" className="group block">
+        <Card className="transition-shadow group-hover:shadow-md">
+          <CardHeader>
+            <div className="mb-1 flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-primary" />
+              <CardTitle className="text-base">About my business</CardTitle>
+            </div>
+            <CardDescription>
+              {profile.business?.description
+                ? `${company.name}: ${profile.business.description}`
+                : 'Tell Aura what you do, who you sell to and how you sound.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
+            {canEdit ? 'Review and edit' : 'View'} <ChevronRight className="h-4 w-4" />
+          </CardContent>
+        </Card>
+      </Link>
 
       {/* Team collaboration — invite members + role-based access */}
       <TeamManager
