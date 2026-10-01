@@ -7,16 +7,13 @@ import {
   isClaudeConfigured,
   DEFAULT_MODEL,
 } from '@/server/ai/claude';
-import {
-  generateBrandVoiceProfile,
-  brandVoiceToPrompt,
-} from '@/server/content/brand-voice.service';
+import { generateBrandVoiceProfile } from '@/server/content/brand-voice.service';
 import { retrieve, chunksToContext } from '@/server/knowledge/retrieve';
 import {
-  getBusinessProfile,
-  businessToPrompt,
-} from '@/server/content/audience';
-import { getActiveMemories, memoriesToPrompt } from '@/server/memory/memory.service';
+  businessContextToPrompt,
+  getBusinessContext,
+  WORKFLOW_PRESETS,
+} from '@/server/business-context/business-context.service';
 import { getLeadOrThrow } from '@/server/outreach/lead.service';
 
 /**
@@ -122,34 +119,25 @@ async function buildDrafts(args: {
   }
 
   try {
-    const [company, chunks, business] = await Promise.all([
+    const [company, chunks] = await Promise.all([
       db.company.findUnique({ where: { id: companyId } }),
       retrieve(companyId, `${leadCompany} ${signalText}`, { limit: 4 }),
-      /**
-       * What we do, which outreach was never told.
-       *
-       * "You write outreach on behalf of Verdant" names a sender and describes
-       * no offer, so the model had to infer what was being pitched from
-       * whatever knowledge passages happened to match the lead's signal.
-       *
-       * Deliberately identity only, NOT the marketing audience block: outreach
-       * is addressed to one named lead, and telling the model to write for the
-       * workspace's general buyer persona would fight the specific person in
-       * the prompt below.
-       */
-      getBusinessProfile(companyId),
     ]);
-    const voice = await generateBrandVoiceProfile({ company: company!, userId });
-    // Sprint 5 — inject learned outreach patterns (empty when no data yet).
-    const memoryBlock = memoriesToPrompt(await getActiveMemories(companyId), {
-      types: ['OUTREACH_APPROACH', 'TIMING'],
-    });
+    await generateBrandVoiceProfile({ company: company!, userId });
+    /**
+     * What we do, how we sound, and what has worked in outreach — from the
+     * Business Context layer's `outreach` preset.
+     *
+     * Deliberately no audience block: outreach is addressed to one named
+     * lead, and the workspace's general buyer persona would fight the
+     * specific person in the prompt below. Knowledge passages stay in the
+     * user prompt, retrieved against this lead's signal.
+     */
+    const context = await getBusinessContext(companyId, { sections: ['memory'] });
 
     const system = [
       `You write outreach on behalf of ${companyName}.`,
-      businessToPrompt(business, company?.industry ?? null),
-      brandVoiceToPrompt(voice),
-      memoryBlock,
+      businessContextToPrompt(context, { ...WORKFLOW_PRESETS.outreach, knowledge: false }),
       'Rules: reference the ACTUAL signal naturally; be specific and human, not ' +
         'salesy or generic; no flattery cliches. The connectionNote MUST be under ' +
         '300 characters (LinkedIn limit). The followup is a short message to send ' +

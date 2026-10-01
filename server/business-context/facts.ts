@@ -246,6 +246,26 @@ function originOf(
         cap: best,
       };
     }
+
+    case 'campaigns':
+      // A campaign's goal and audience are typed by a person in the builder.
+      return {
+        sourceType: 'user_provided',
+        capturedAt: newest((src.campaigns ?? []).map((c) => c.updatedAt)),
+      };
+
+    case 'content_history':
+      // A record of what was actually approved and published, not a claim.
+      return {
+        sourceType: 'system_generated',
+        capturedAt: newest(ctx.history.recentContent.map((c) => c.date)),
+      };
+
+    case 'analytics':
+      return {
+        sourceType: 'system_generated',
+        capturedAt: iso(src.history?.analytics?.generatedAt),
+      };
   }
 }
 

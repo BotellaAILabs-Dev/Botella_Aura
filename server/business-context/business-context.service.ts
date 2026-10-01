@@ -65,6 +65,8 @@ export async function getBusinessContext(
     knowledge,
     memory,
     passages,
+    campaigns,
+    history,
   ] = await Promise.all([
     db.company.findUnique({
       where: { id: companyId },
@@ -77,6 +79,7 @@ export async function getBusinessContext(
         brandVoiceProfile: true,
         preferences: true,
         updatedAt: true,
+        logoUrl: true,
       },
     }),
     want.has('targeting') ? loadTargeting(companyId) : skip,
@@ -102,6 +105,24 @@ export async function getBusinessContext(
           limit: options.knowledgeLimit ?? 6,
         })
       : skip,
+    // Campaigns ride with the plan section: both describe current focus.
+    want.has('plan')
+      ? db.campaign.findMany({
+          where: { companyId, status: { in: ['ACTIVE', 'PAUSED'] } },
+          orderBy: { updatedAt: 'desc' },
+          take: 5,
+          select: {
+            name: true,
+            status: true,
+            goal: true,
+            targetAudience: true,
+            themes: true,
+            endDate: true,
+            updatedAt: true,
+          },
+        })
+      : skip,
+    want.has('history') ? loadHistory(companyId) : skip,
   ]);
   if (!company) return null;
 
@@ -115,8 +136,45 @@ export async function getBusinessContext(
     knowledge,
     memory,
     passages,
+    campaigns,
+    history,
   };
   return buildBusinessContext(sources);
+}
+
+/** What was recently published or approved, and the latest analytics period. */
+async function loadHistory(companyId: string) {
+  const since = new Date(Date.now() - 90 * 86_400_000);
+  const [recentContent, analytics] = await Promise.all([
+    db.contentDraft.findMany({
+      where: {
+        companyId,
+        status: { in: ['PUBLISHED', 'APPROVED'] }, // scheduled = APPROVED + scheduledFor
+        updatedAt: { gte: since },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 10,
+      select: {
+        title: true,
+        type: true,
+        status: true,
+        publishedAt: true,
+        scheduledFor: true,
+        updatedAt: true,
+      },
+    }),
+    db.analyticsReport.findFirst({
+      where: { companyId },
+      orderBy: { periodStart: 'desc' },
+      select: {
+        periodStart: true,
+        periodEnd: true,
+        metrics: true,
+        generatedAt: true,
+      },
+    }),
+  ]);
+  return { recentContent, analytics };
 }
 
 async function loadTargeting(companyId: string) {
@@ -146,7 +204,13 @@ async function loadMarket(companyId: string) {
     db.competitorProfile.findMany({
       where: { companyId },
       orderBy: { createdAt: 'asc' },
-      select: { name: true, url: true, trackingEnabled: true, updatedAt: true },
+      select: {
+        name: true,
+        url: true,
+        trackingEnabled: true,
+        updatedAt: true,
+        notes: true,
+      },
     }),
     db.companyTrendConfig.findUnique({
       where: { companyId },
@@ -247,6 +311,10 @@ export interface ContextPromptOptions {
   writingRules?: boolean;
   channels?: boolean;
   market?: boolean;
+  /** Running campaigns: their goals, audiences and themes. */
+  campaigns?: boolean;
+  /** Recently published content and the latest activity numbers. */
+  history?: boolean;
   visual?: boolean;
   knowledge?: boolean;
   /** Insight types to include. `true` = all, `false` = none. */
@@ -268,6 +336,8 @@ export const WORKFLOW_PRESETS = {
     voice: true,
     channels: true,
     market: true,
+    campaigns: true,
+    history: true,
     knowledge: true,
     memory: true,
   },
@@ -277,6 +347,7 @@ export const WORKFLOW_PRESETS = {
     voice: true,
     channels: true,
     market: true,
+    campaigns: true,
     memory: true,
   },
   outreach: {
@@ -298,6 +369,8 @@ export const WORKFLOW_PRESETS = {
     audience: true,
     channels: true,
     market: true,
+    campaigns: true,
+    history: true,
     knowledge: true,
     memory: true,
   },
@@ -308,6 +381,8 @@ export const WORKFLOW_PRESETS = {
     voice: true,
     channels: true,
     market: true,
+    campaigns: true,
+    history: true,
     knowledge: true,
     memory: true,
   },
@@ -456,6 +531,8 @@ const BLOCK_FIELDS: Partial<
   voice: ['voice.summary'],
   channels: ['channels.preferred', 'channels.connected'],
   market: ['market.competitors', 'market.keywords'],
+  campaigns: ['objectives.campaigns'],
+  history: ['history.recentContent', 'history.performance'],
 };
 
 /**
@@ -587,6 +664,9 @@ export function businessContextToPrompt(
     if (known.length) {
       lines.push(
         `Competitors: ${known.map((c) => c.name).join(', ')}.`,
+        ...known
+          .filter((c) => c.notes)
+          .map((c) => `- Their notes on ${c.name}: ${c.notes}`),
         'Position against them with a differentiated angle; never copy their claims.',
       );
     }
@@ -608,6 +688,43 @@ export function businessContextToPrompt(
       );
     }
     if (lines.length) blocks.push(['MARKET:', ...lines].join('\n'));
+  }
+
+  if (o.campaigns && ctx.objectives.campaigns.length) {
+    blocks.push(
+      [
+        'RUNNING CAMPAIGNS:',
+        ...ctx.objectives.campaigns.map((c) =>
+          [
+            `- ${c.name}${c.status === 'PAUSED' ? ' (paused)' : ''}`,
+            c.goal ? ` — goal: ${c.goal}` : '',
+            c.audience ? `; audience: ${c.audience}` : '',
+            c.themes.length ? `; themes: ${c.themes.join(', ')}` : '',
+          ].join(''),
+        ),
+        'Work should support these where it fits, not compete with them.',
+      ].join('\n'),
+    );
+  }
+
+  if (o.history) {
+    const h = ctx.history;
+    const lines: string[] = [];
+    if (h.recentContent.length) {
+      lines.push(
+        'Already published or scheduled recently — do not repeat these topics:',
+        ...h.recentContent.map((c) => `- ${c.title}`),
+      );
+    }
+    if (h.performance) {
+      const m = Object.entries(h.performance.metrics)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(', ');
+      lines.push(
+        `Recorded activity ${h.performance.periodStart.slice(0, 10)} to ${h.performance.periodEnd.slice(0, 10)}: ${m}.`,
+      );
+    }
+    if (lines.length) blocks.push(['RECENT HISTORY:', ...lines].join('\n'));
   }
 
   if (o.visual && ctx.identity.visual) {
@@ -667,11 +784,18 @@ export const WORKFLOW_REQUIREMENTS: Record<
     requires: ['identity.description'],
   },
   planning: {
-    sections: ['targeting', 'market', 'connections', 'memory'],
+    sections: [
+      'targeting',
+      'market',
+      'connections',
+      'memory',
+      'plan',
+      'history',
+    ],
     requires: ['identity.description'],
   },
   advisor: {
-    sections: ['targeting', 'market', 'connections', 'memory'],
+    sections: ['targeting', 'market', 'connections', 'memory', 'plan'],
     requires: ['identity.description'],
   },
   outreach: { sections: ['memory'], requires: ['identity.description'] },
@@ -686,6 +810,7 @@ export const WORKFLOW_REQUIREMENTS: Record<
       'knowledge',
       'memory',
       'plan',
+      'history',
     ],
     requires: [
       'identity.description',
@@ -701,6 +826,7 @@ export const WORKFLOW_REQUIREMENTS: Record<
       'knowledge',
       'memory',
       'plan',
+      'history',
     ],
     requires: [
       'identity.description',

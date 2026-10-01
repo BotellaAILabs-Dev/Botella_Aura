@@ -116,12 +116,13 @@ defaults when there is no data or the section was not loaded.
 | --- | --- |
 | `identity` | `companyId`, `name`, `website`, `industry`, `description`, `offerings`, `visual` (logo asset, primary/secondary/accent colour) |
 | `audience` | `marketMode` (B2B/B2C), `stated`, `roleTitles[]`, `industries[]`, `companyStages[]` |
-| `objectives` | `goals`, `contentFormats[]` (empty = all formats) |
+| `objectives` | `goals`, `contentFormats[]` (empty = all formats), `campaigns[]` (running and paused: name, goal, audience, themes, end date) |
 | `channels` | `preferred[]` (where it publishes; drives planning), `connected[]` (where Aura can act; drives execution) |
 | `voice` | `profile` (structured brand voice), `notes` (raw onboarding notes), `planGuidelines`, `summary` (resolved one-liner) |
 | `market` | `competitors[]` (`name`, `url`, `tracked`, `source`), `keywords[]`, `geo` (country, region, city, language) |
 | `knowledge` | `totalChunks`, `covered[]`, `missing[]`, `uncategorisedChunks`, `websiteUrls[]`, `passages[]` (only when a query is given) |
 | `memory` | `insights[]` (`type`, `insight`, `confidence`, `sampleSize`, `editedByUser`) |
+| `history` | `recentContent[]` (published or approved in the last 90 days), `performance` (latest analytics period's metrics) |
 | `meta` | `generatedAt`, `revision` (last stored change; used for optimistic concurrency), `facts` (source, confidence and freshness per field; see §9), `sections`, `provenance` (per field: sources used, winner first, and `inferred`), `issues[]`, `completeness` |
 
 ---
@@ -157,6 +158,9 @@ defaults when there is no data or the section was not loaded.
 | `market.keywords` | optional | trend config | precedence | trends, advisor |
 | `market.geo` | optional | trend config | precedence | trends |
 | `memory.insights` | optional | marketing memory | union | content, outreach, campaigns, planner, advisor |
+| `objectives.campaigns` | optional | campaigns | union | planner, campaigns, advisor, content |
+| `history.recentContent` | optional | content history | union | planner, advisor, content, briefing |
+| `history.performance` | optional | analytics | precedence | advisor, planner, intelligence, briefing |
 
 "Workspace profile" means the onboarding wizard and the Settings pages. Both
 write to the same storage, so the most recent edit is already the stored value.
@@ -264,21 +268,25 @@ into. They map to `identity.industry` and `audience.industries` respectively.
 
 ## 7. Migration status
 
-| Workflow | Status |
-| --- | --- |
-| Campaign planner (`server/campaigns/planner.ts`) | Via `getBrandContext` → Business Context |
-| Monthly planner (`server/planner/plan.service.ts`) | Via `getBrandContext` → Business Context |
-| Lead qualification (`server/leads/discovery/scoring.ts`) | `businessContextToPrompt(…, 'qualification')`, loaded once per discovery run. Replaces tone notes used as the company description. |
-| Content generator | To migrate → `content` preset |
-| Outreach drafting | To migrate → `outreach` preset |
-| Engagement comments | To migrate → `engagement` preset |
-| Image prompts | To migrate → `image` preset |
-| Advisor | To migrate → `advisor` preset (currently reads raw `brandVoiceNotes` as fallback) |
-| Trend digest and trend seeding | To migrate → `voice.summary` in place of raw `brandVoiceNotes` |
+Every AI workflow now reads the business through this layer. See
+[BUSINESS-CONTEXT-SOURCES-AUDIT.md](BUSINESS-CONTEXT-SOURCES-AUDIT.md) §5 for
+the before-and-after of each module, and §1 of that document for the full
+field-by-field audit of Aura's existing sources.
 
-Each remaining migration is a mechanical swap of that workflow's hand-assembled
-blocks for one preset call. Do them one PR at a time, so any change in prompt
-output can be reviewed per workflow.
+| Workflow | Reads the context via |
+| --- | --- |
+| Content generator, draft refine | `content` preset |
+| Outreach drafting | `outreach` preset |
+| Engagement comments | `engagement` preset |
+| Image prompts | context data, visual rendering |
+| Advisor | identity, audience and channels block, plus `voice.summary` and `objectives.goals` |
+| Trend digest, trend seeding | identity block and `voice.summary`; identity and buyer facts for seeding |
+| Campaign planner, monthly planner | `getBrandContext` (a projection of the context) |
+| Lead qualification | `qualification` preset |
+
+`pnpm verify:context-sources` proves against a real database that every stored
+business value is reachable, superseded with a recorded conflict, or
+intentionally unmapped with a reason.
 
 ---
 

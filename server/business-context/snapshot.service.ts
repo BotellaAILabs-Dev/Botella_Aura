@@ -79,6 +79,9 @@ export async function computeSourceStamp(
     linkedIn,
     chunks,
     memory,
+    campaigns,
+    content,
+    analytics,
   ] = await Promise.all([
     db.company.findUnique({
       where: { id: companyId },
@@ -126,6 +129,21 @@ export async function computeSourceStamp(
       _max: { generatedAt: true },
       _count: { _all: true },
     }),
+    db.campaign.aggregate({
+      where: { companyId, status: { in: ['ACTIVE', 'PAUSED'] } },
+      _max: { updatedAt: true },
+      _count: { _all: true },
+    }),
+    db.contentDraft.aggregate({
+      where: { companyId, status: { in: ['PUBLISHED', 'APPROVED'] } },
+      _max: { updatedAt: true },
+      _count: { _all: true },
+    }),
+    db.analyticsReport.aggregate({
+      where: { companyId },
+      _max: { generatedAt: true },
+      _count: { _all: true },
+    }),
   ]);
   if (!company) return null;
 
@@ -141,6 +159,9 @@ export async function computeSourceStamp(
     `linkedin:${t(linkedIn?.updatedAt)}`,
     `knowledge:${t(chunks._max.createdAt)}:${chunks._count._all}`,
     `memory:${t(memory._max.generatedAt)}:${memory._count._all}`,
+    `campaigns:${t(campaigns._max.updatedAt)}:${campaigns._count._all}`,
+    `content:${t(content._max.updatedAt)}:${content._count._all}`,
+    `analytics:${t(analytics._max.generatedAt)}:${analytics._count._all}`,
   ];
   return createHash('sha256')
     .update(parts.join('|'))

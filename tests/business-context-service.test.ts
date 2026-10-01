@@ -28,6 +28,9 @@ const { tx, db } = vi.hoisted(() => {
     connection: { findMany: vi.fn().mockResolvedValue([]) },
     linkedInConnection: { findFirst: vi.fn().mockResolvedValue(null) },
     auditLog: { count: vi.fn().mockResolvedValue(0) },
+    campaign: { findMany: vi.fn().mockResolvedValue([]) },
+    contentDraft: { findMany: vi.fn().mockResolvedValue([]) },
+    analyticsReport: { findFirst: vi.fn().mockResolvedValue(null) },
     knowledgeChunk: {
       groupBy: vi.fn().mockResolvedValue([]),
       findMany: vi.fn().mockResolvedValue([]),

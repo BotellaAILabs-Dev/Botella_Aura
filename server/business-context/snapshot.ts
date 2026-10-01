@@ -204,6 +204,44 @@ export function buildSnapshot(
   const goal = admit('objectives.goals', objectives.goals)
     ? objectives.goals
     : null;
+  const campaigns = admit(
+    'objectives.campaigns',
+    objectives.campaigns.map((c) => c.name).join(', ') || null,
+  )
+    ? objectives.campaigns.slice(0, 3).map((c) => ({
+        name: c.name,
+        goal: c.goal,
+        audience: c.audience,
+        themes: c.themes.slice(0, 4),
+      }))
+    : [];
+
+  // --- history ---------------------------------------------------------------
+  // A record of what happened, not a claim: included while current. Stale
+  // activity numbers describe another period and are left out.
+  const recentTopics = admit(
+    'history.recentContent',
+    ctx.history.recentContent.map((c) => c.title).join('; ') || null,
+  )
+    ? ctx.history.recentContent
+        .map((c) => c.title)
+        .slice(0, SNAPSHOT_LIMITS.recentTopics)
+    : [];
+  const perf = ctx.history.performance;
+  const performance =
+    perf && verdict(facts['history.performance']) === 'include'
+      ? {
+          period: `${perf.periodStart.slice(0, 10)} to ${perf.periodEnd.slice(0, 10)}`,
+          metrics: perf.metrics,
+        }
+      : null;
+  if (performance) admit('history.performance', null);
+  else if (perf) {
+    omitted.push({
+      field: 'history.performance',
+      reason: 'The latest analytics period is out of date.',
+    });
+  }
 
   // --- voice -----------------------------------------------------------------
   // The business's own notes are always its words; the structured profile is
@@ -348,7 +386,9 @@ export function buildSnapshot(
       stages.length
         ? { marketMode, description, roles, industries, stages }
         : null,
-    goals: goal ? { current: goal } : null,
+    goals: goal || campaigns.length ? { current: goal, campaigns } : null,
+    history:
+      recentTopics.length || performance ? { recentTopics, performance } : null,
     voice: voiceSection,
     channels:
       publishesOn.length || connected.length
@@ -432,6 +472,7 @@ export function viewSnapshot(
     audience: sections.includes('audience') ? full.audience : null,
     goals: sections.includes('goals') ? full.goals : null,
     voice: sections.includes('voice') ? full.voice : null,
+    history: sections.includes('history') ? full.history : null,
     channels: sections.includes('channels') ? full.channels : null,
     learning: sections.includes('learning') ? full.learning : null,
     market: sections.includes('market') ? full.market : null,
@@ -519,7 +560,16 @@ export function snapshotToPrompt(s: BusinessContextSnapshot): string {
         `Buyer company stages: ${s.audience.stages.join(', ')}`,
     );
   }
-  if (s.goals) push(`Current goal: ${s.goals.current}`);
+  if (s.goals) {
+    push(s.goals.current && `Current goal: ${s.goals.current}`);
+    for (const c of s.goals.campaigns) {
+      push(
+        `Running campaign: ${c.name}${c.goal ? ` — ${c.goal}` : ''}${
+          c.audience ? ` (for ${c.audience})` : ''
+        }${c.themes.length ? `; themes: ${c.themes.join(', ')}` : ''}`,
+      );
+    }
+  }
   if (s.voice) {
     push(s.voice.summary && `Voice: ${s.voice.summary}`);
     push(s.voice.tone.length > 0 && `Tone: ${s.voice.tone.join(', ')}`);
@@ -562,6 +612,21 @@ export function snapshotToPrompt(s: BusinessContextSnapshot): string {
     push(
       s.market.keywords.length > 0 &&
         `Market topics: ${s.market.keywords.join(', ')}`,
+    );
+  }
+
+  if (s.history) {
+    push(
+      s.history.recentTopics.length > 0 &&
+        `Recently published (do not repeat): ${s.history.recentTopics.join('; ')}`,
+    );
+    push(
+      s.history.performance &&
+        `Recorded activity ${s.history.performance.period}: ${Object.entries(
+          s.history.performance.metrics,
+        )
+          .map(([k, v]) => `${k} ${v}`)
+          .join(', ')}`,
     );
   }
 

@@ -50,6 +50,9 @@ export const CONTEXT_SOURCES = [
   'connections',
   'knowledge_base',
   'marketing_memory',
+  'campaigns',
+  'content_history',
+  'analytics',
 ] as const;
 
 export type ContextSource = (typeof CONTEXT_SOURCES)[number];
@@ -114,6 +117,22 @@ export const CONTEXT_SOURCE_INFO: Record<
     label: 'Marketing memory',
     storage: 'MarketingMemory (active, with real data)',
     writtenBy: 'Memory analysis of real performance; user edits',
+  },
+  campaigns: {
+    label: 'Campaigns',
+    storage: 'Campaign (ACTIVE and PAUSED): goal, targetAudience, themes',
+    writtenBy: 'Campaign builder',
+  },
+  content_history: {
+    label: 'Content history',
+    storage:
+      'ContentDraft (PUBLISHED and APPROVED, incl. scheduled — last 90 days)',
+    writtenBy: 'Content Studio and autopilot, after human approval',
+  },
+  analytics: {
+    label: 'Analytics',
+    storage: 'AnalyticsReport (latest period)',
+    writtenBy: 'Analytics job, from recorded activity',
   },
 };
 
@@ -319,6 +338,8 @@ export const identitySchema = z.object({
       primaryColor: z.string().optional(),
       secondaryColor: z.string().optional(),
       accentColor: z.string().optional(),
+      /** Legacy avatar URL (Company.logoUrl), used when no logo was uploaded. */
+      logoUrl: z.string().optional(),
     })
     .nullable(),
 });
@@ -338,6 +359,17 @@ export const objectivesSchema = z.object({
   goals: nullableText,
   /** Formats the workspace has enabled. Empty means "all formats". */
   contentFormats: z.array(z.enum(CONTENT_TYPES)),
+  /** Running and paused campaigns: what each is for and who it targets. */
+  campaigns: z.array(
+    z.object({
+      name: z.string(),
+      status: z.enum(['ACTIVE', 'PAUSED']),
+      goal: z.string().nullable(),
+      audience: z.string().nullable(),
+      themes: z.array(z.string()),
+      endDate: z.string().nullable(),
+    }),
+  ),
 });
 
 /** Where the business publishes. */
@@ -368,6 +400,8 @@ export const marketSchema = z.object({
       url: nullableText,
       /** True when it is a tracked CompetitorProfile, not only a watch-list name. */
       tracked: z.boolean(),
+      /** The user's own notes about this competitor. */
+      notes: z.string().nullable(),
       source: z.enum(CONTEXT_SOURCES),
       sourceType: z.enum(SOURCE_TYPES),
       confidence: z.enum(CONFIDENCE_LEVELS),
@@ -417,6 +451,27 @@ export const memorySchema = z.object({
       freshness: z.enum(FRESHNESS_STATES),
     }),
   ),
+});
+
+/** What the business has already done, and how it went. */
+export const historySchema = z.object({
+  /** Recently published, scheduled or approved content — so nothing is repeated. */
+  recentContent: z.array(
+    z.object({
+      title: z.string(),
+      type: z.string(),
+      status: z.string(),
+      date: z.string().nullable(),
+    }),
+  ),
+  /** The latest analytics period, as recorded activity counts. */
+  performance: z
+    .object({
+      periodStart: z.string(),
+      periodEnd: z.string(),
+      metrics: z.record(z.number()),
+    })
+    .nullable(),
 });
 
 export const provenanceSchema = z.object({
@@ -469,7 +524,7 @@ export const contextIssueSchema = z.object({
     .optional(),
 });
 
-export const BUSINESS_CONTEXT_VERSION = 1;
+export const BUSINESS_CONTEXT_VERSION = 2;
 
 export const businessContextSchema = z.object({
   version: z.literal(BUSINESS_CONTEXT_VERSION),
@@ -481,6 +536,7 @@ export const businessContextSchema = z.object({
   market: marketSchema,
   knowledge: knowledgeSchema,
   memory: memorySchema,
+  history: historySchema,
   meta: z.object({
     generatedAt: z.string(),
     /**
@@ -524,6 +580,7 @@ export const CONTEXT_SECTIONS = [
   'connections',
   'knowledge',
   'memory',
+  'history',
 ] as const;
 
 export type ContextSection = (typeof CONTEXT_SECTIONS)[number];
@@ -783,6 +840,36 @@ export const CONTEXT_FIELDS = [
     section: 'memory',
     href: '/dashboard/memory',
   },
+  {
+    path: 'objectives.campaigns',
+    label: 'Active campaigns',
+    requirement: 'optional',
+    sources: ['campaigns'],
+    resolution: 'union',
+    consumers: ['planner', 'campaigns', 'advisor', 'content'],
+    section: 'plan',
+    href: '/dashboard/campaigns',
+  },
+  {
+    path: 'history.recentContent',
+    label: 'Recently published content',
+    requirement: 'optional',
+    sources: ['content_history'],
+    resolution: 'union',
+    consumers: ['planner', 'advisor', 'content', 'briefing'],
+    section: 'history',
+    href: '/dashboard/content',
+  },
+  {
+    path: 'history.performance',
+    label: 'Recent performance',
+    requirement: 'optional',
+    sources: ['analytics'],
+    resolution: 'precedence',
+    consumers: ['advisor', 'planner', 'intelligence', 'briefing'],
+    section: 'history',
+    href: '/dashboard/analytics',
+  },
 ] as const satisfies readonly ContextFieldDef[];
 
 export type ContextFieldPath = (typeof CONTEXT_FIELDS)[number]['path'];
@@ -838,6 +925,18 @@ export const FRESHNESS_RULES: Record<
   { maxAgeDays: number | null; why: string }
 > = {
   'identity.name': { maxAgeDays: null, why: 'Changes only with a rebrand.' },
+  'objectives.campaigns': {
+    maxAgeDays: 90,
+    why: 'A campaign untouched for a quarter may no longer reflect what is running.',
+  },
+  'history.recentContent': {
+    maxAgeDays: 90,
+    why: 'Only the last quarter of content matters for avoiding repeats.',
+  },
+  'history.performance': {
+    maxAgeDays: 45,
+    why: 'Activity numbers older than a month and a half describe a different period.',
+  },
   'identity.description': {
     maxAgeDays: 365,
     why: 'Positioning should be reviewed yearly.',

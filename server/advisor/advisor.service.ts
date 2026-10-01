@@ -8,13 +8,10 @@ import {
   getModel,
   isClaudeConfigured,
 } from '@/server/ai/claude';
-import { getBrandVoiceProfile } from '@/server/content/brand-voice.service';
 import {
-  audienceToPrompt,
-  businessToPrompt,
-  getAudienceProfile,
-  getBusinessProfile,
-} from '@/server/content/audience';
+  businessContextToPrompt,
+  getBusinessContext,
+} from '@/server/business-context/business-context.service';
 import { normalizeDigestPayload } from '@/server/trends/digest.service';
 import type { ChangesSummary } from '@/server/competitors/types';
 import type {
@@ -86,7 +83,6 @@ interface Signal {
   coverage: AdvisorCoverage;
   competitorNames: string[];
   ownTopics: string[];
-  brandVoiceSummary: string;
 }
 
 /** Gather every real observation the advisor is allowed to reason from. */
@@ -235,12 +231,6 @@ async function collectSignal(companyId: string): Promise<Signal> {
     });
   }
 
-  const company = await db.company.findUnique({
-    where: { id: companyId },
-    select: { brandVoiceProfile: true },
-  });
-  const voice = company ? getBrandVoiceProfile(company) : null;
-
   return {
     evidence,
     coverage: {
@@ -253,7 +243,6 @@ async function collectSignal(companyId: string): Promise<Signal> {
     },
     competitorNames: competitors.map((c) => c.name),
     ownTopics,
-    brandVoiceSummary: voice?.summary ?? '',
   };
 }
 
@@ -354,10 +343,9 @@ export async function generateAdvisorReport(args: {
    * it does not sell to. Both blocks degrade to '' for a workspace that has
    * said nothing, leaving the old prompt untouched.
    */
-  const [advisorAudience, advisorBusiness] = await Promise.all([
-    getAudienceProfile(companyId),
-    getBusinessProfile(companyId),
-  ]);
+  const context = await getBusinessContext(companyId, {
+    sections: ['targeting', 'connections'],
+  });
   if (!company) throw new Error('Company not found.');
 
   const signal = await collectSignal(companyId);
@@ -397,12 +385,15 @@ export async function generateAdvisorReport(args: {
         system:
           `You are the marketing strategist for ${company.name}` +
           `${company.industry ? ` (${company.industry})` : ''}.\n` +
-          `${businessToPrompt(advisorBusiness, company.industry)}\n` +
-          `${audienceToPrompt(advisorAudience)}\n` +
+          // Identity, reader and channels, with unconfirmed or stale facts
+          // labelled, so an opportunity is never argued from an assumption.
+          `${businessContextToPrompt(context, { identity: true, audience: true, channels: true })}\n` +
           'Every opportunity must be aimed at THAT reader — an opportunity a ' +
           'different audience would care about is the wrong opportunity, ' +
           'however good the evidence behind it.\n' +
-          `Brand voice: ${signal.brandVoiceSummary || company.brandVoiceNotes || 'professional, practical, no hype'}. ` +
+          // Resolved by the context layer: reviewed profile, then the owner's
+          // notes, then plan guidelines — the order this used to inline.
+          `Brand voice: ${context?.voice.summary || 'professional, practical, no hype'}. ` +
           'You are given numbered EVIDENCE about competitor activity, market ' +
           'trends, what this company already published, and what it has learned. ' +
           'Propose campaign opportunities that are DIRECTLY traceable to that ' +
@@ -416,8 +407,8 @@ export async function generateAdvisorReport(args: {
         prompt: [
           `Company: ${company.name}`,
           `Industry: ${company.industry ?? 'unspecified'}`,
-          advisorAudience?.goals
-            ? `What the business is working towards: ${advisorAudience.goals}`
+          context?.objectives.goals
+            ? `What the business is working towards: ${context.objectives.goals}`
             : '',
           `Tracked competitors: ${signal.competitorNames.join(', ') || 'none'}`,
           '',

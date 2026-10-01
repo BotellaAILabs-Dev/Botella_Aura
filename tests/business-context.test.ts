@@ -426,6 +426,7 @@ describe('market mapping', () => {
         sourceType: 'user_provided',
         confidence: 'confirmed',
         capturedAt: null,
+        notes: null,
       },
       {
         name: 'Globex Beans',
@@ -435,6 +436,7 @@ describe('market mapping', () => {
         sourceType: 'user_provided',
         confidence: 'confirmed',
         capturedAt: null,
+        notes: null,
       },
     ]);
     const note = ctx.meta.issues.find((i) => i.field === 'market.competitors');

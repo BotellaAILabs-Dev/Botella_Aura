@@ -12,9 +12,9 @@ import { STYLE_DIRECTION } from '@/server/media/types';
 import { isImageStyle, type ImageStyleKey } from '@/lib/graphics-ui';
 import { readBrandAssets } from '@/server/company/profile.service';
 import {
-  getAudienceProfile,
-  getBusinessProfile,
-} from '@/server/content/audience';
+  getBusinessContext,
+  toAudienceProfile,
+} from '@/server/business-context/business-context.service';
 
 /**
  * Content to image prompt.
@@ -145,10 +145,13 @@ async function askModel(
    * shows the thing itself and the moment of using it; business imagery shows
    * the work and the outcome. Nothing else in this prompt carried that.
    */
-  const [business, audience] = await Promise.all([
-    getBusinessProfile(draft.companyId),
-    getAudienceProfile(draft.companyId),
-  ]);
+  // Read from the Business Context layer. The rendering below stays visual:
+  // the shared writing presets would brief an art director like a copywriter.
+  const context = await getBusinessContext(draft.companyId, {
+    sections: ['targeting'],
+  });
+  const business = context?.identity ?? null;
+  const audience = context ? toAudienceProfile(context) : null;
 
   const businessBlock = business?.description
     ? [

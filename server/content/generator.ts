@@ -6,18 +6,12 @@ import { retrieve, chunksToContext } from '@/server/knowledge/retrieve';
 import { politeFetchHtml } from '@/server/knowledge/robots';
 import { htmlToText } from '@/server/knowledge/extract';
 import { logger } from '@/lib/logger';
+import { generateBrandVoiceProfile } from '@/server/content/brand-voice.service';
 import {
-  generateBrandVoiceProfile,
-  brandVoiceToPrompt,
-} from '@/server/content/brand-voice.service';
-import {
-  getAudienceProfile,
-  audienceToPrompt,
-  businessToPrompt,
-  getBusinessProfile,
-  contentRulesFor,
-} from '@/server/content/audience';
-import { getActiveMemories, memoriesToPrompt } from '@/server/memory/memory.service';
+  businessContextToPrompt,
+  getBusinessContext,
+  WORKFLOW_PRESETS,
+} from '@/server/business-context/business-context.service';
 import {
   bodySchemaFor,
   type ContentTypeKey,
@@ -34,7 +28,9 @@ import type { DigestPayload } from '@/server/trends/types';
 // Bumped when the prompt changes materially, so a draft's aiMetadata records
 // which set of instructions produced it. s4 added the audience block and the
 // business-focus rules.
-const PROMPT_VERSION = 's5.market-mode';
+// s6 reads everything about the business from the Business Context layer, so
+// unconfirmed and stale facts arrive labelled.
+const PROMPT_VERSION = 's6.business-context';
 
 interface TypeSpec {
   label: string;
@@ -116,33 +112,21 @@ export async function generateDraft({
   const reference = await fetchReferenceContext(
     `${brief.text}\n${source.brief ?? ''}\n${company.website ?? ''}`,
   );
-  const voice = await generateBrandVoiceProfile({ company, userId });
-  // Who this is for. Reused from outreach targeting and discovery profiles —
-  // the workspace already stated its buyers there.
-  const audience = await getAudienceProfile(companyId);
-  // What the company sells, in their own words. Without it the prompt below
-  // names a company and describes nobody's product.
-  const business = await getBusinessProfile(companyId);
-  // Sprint 5 — inject learned performance patterns ("gets smarter every week").
-  // Empty string when the company has no real insights yet, so fresh accounts
-  // are unaffected (no fabricated guidance).
-  const memoryBlock = memoriesToPrompt(await getActiveMemories(companyId), {
-    types: ['CONTENT_FORMAT', 'CONTENT_LENGTH', 'TIMING', 'TOPIC', 'HASHTAG'],
+  // Make sure a voice profile exists before the context is read, so a first
+  // draft is never written without one (NON-NEGOTIABLE #5).
+  await generateBrandVoiceProfile({ company, userId });
+  // Everything about the business — what it does, who it sells to, how it
+  // sounds, what has worked — from the Business Context layer, in the order
+  // and with the trust labels every workflow shares. Knowledge stays in the
+  // user prompt below, retrieved against this brief.
+  const context = await getBusinessContext(companyId, {
+    sections: ['targeting', 'memory'],
   });
 
   const spec = TYPE_SPECS[type];
   const system = [
     `You are the content writer for ${company.name}.`,
-    businessToPrompt(business, company.industry),
-    '',
-    // The reader comes BEFORE the voice. Without it the model writes about the
-    // subject rather than to a person, which is what "generic" actually is.
-    audienceToPrompt(audience),
-    '',
-    brandVoiceToPrompt(voice),
-    memoryBlock,
-    '',
-    contentRulesFor(audience?.mode),
+    businessContextToPrompt(context, { ...WORKFLOW_PRESETS.content, knowledge: false }),
     '',
     'Ground your writing in the company knowledge below — reflect their real ',
     'products, positioning, and facts. Do not invent product names or claims.',
@@ -183,6 +167,8 @@ export async function generateDraft({
     // true when the model or its tier changes.
     model: getModel('premium'),
     promptVersion: PROMPT_VERSION,
+    // Which state of the business this draft was written from.
+    contextRevision: context?.meta.revision ?? null,
     knowledgeChunkIds: chunks.map((c) => c.id),
     brandVoiceApplied: true,
     referenceUsed: reference.length > 0,
@@ -226,23 +212,22 @@ export async function refineDraft({
   const company = await db.company.findUnique({ where: { id: draft.companyId } });
   if (!company) throw new Error('Company not found');
 
-  const voice = await generateBrandVoiceProfile({ company, userId });
+  await generateBrandVoiceProfile({ company, userId });
   // A revision is still content a customer publishes, so it gets the same
-  // reader and the same rules. Without them, refining drifted back towards the
-  // generic writing the first pass had been steered away from.
-  const audience = await getAudienceProfile(draft.companyId);
-  const business = await getBusinessProfile(draft.companyId);
+  // business context and rules as the first pass. Without them, refining
+  // drifted back towards generic writing.
+  const context = await getBusinessContext(draft.companyId, {
+    sections: ['targeting'],
+  });
   const spec = TYPE_SPECS[draft.type as ContentTypeKey];
 
   const system = [
     `You are the content writer for ${company.name}.`,
-    businessToPrompt(business, company.industry),
-    '',
-    audienceToPrompt(audience),
-    '',
-    brandVoiceToPrompt(voice),
-    '',
-    contentRulesFor(audience?.mode),
+    businessContextToPrompt(context, {
+      ...WORKFLOW_PRESETS.content,
+      knowledge: false,
+      memory: false,
+    }),
     '',
     'Revise the existing draft per the feedback. Keep what works.',
     'Respond with ONLY valid JSON matching the schema.',

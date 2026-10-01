@@ -8,6 +8,17 @@ import {
   getModel,
 } from '@/server/ai/claude';
 import { ALL_SOURCES, getEnabledSources } from '@/server/trends/sources';
+import {
+  businessContextToPrompt,
+  getBusinessContext,
+} from '@/server/business-context/business-context.service';
+
+/** What the digest's prompts say about the business, read once per run. */
+interface DigestBrand {
+  /** "What this company does" block; '' when the business is undescribed. */
+  about: string;
+  voice: string;
+}
 import { scoreAndRank } from '@/server/trends/scoring';
 import { upcomingSeasonalEvents } from '@/server/trends/seasonal';
 import {
@@ -125,11 +136,19 @@ export async function generateDigestForCompany({
     `Ranking ${all.length} item${all.length === 1 ? '' : 's'} — writing why each matters…`,
     55,
   );
-  const items = await enrichItems(company, ranked);
+  // What the business is and how it sounds, from the Business Context layer —
+  // the resolved voice (reviewed profile, then the owner's notes) rather than
+  // the raw onboarding notes this used to read.
+  const businessContext = await getBusinessContext(companyId, { sections: [] });
+  const brand: DigestBrand = {
+    about: businessContextToPrompt(businessContext, { identity: true }),
+    voice: businessContext?.voice.summary || 'professional, practical, no hype',
+  };
+  const items = await enrichItems(company, ranked, brand);
 
   // Top-level synthesis + trending hashtags (one Claude call, graceful fallback).
   await report('Summarising the week and pulling hashtags…', 80);
-  const synthesis = await synthesizeDigest(company, items);
+  const synthesis = await synthesizeDigest(company, items, brand);
   // Seasonal moments (curated, no API) + competitor mentions (from config).
   const seasonal = upcomingSeasonalEvents(new Date(), [
     ...config.keywords,
@@ -180,8 +199,9 @@ export async function generateDigestForCompany({
  * errors — the digest still ships, clearly labeled as a fallback via payload.model.
  */
 async function enrichItems(
-  company: Pick<Company, 'name' | 'industry' | 'brandVoiceNotes'>,
+  company: Pick<Company, 'name' | 'industry'>,
   ranked: ScoredTrendItem[],
+  brand: DigestBrand,
 ): Promise<DigestItem[]> {
   const base = (item: ScoredTrendItem): DigestItem => ({
     id: item.id,
@@ -203,8 +223,9 @@ async function enrichItems(
       Array<{ id: string; aiSummary: string; suggestedAngle: string }>
     >({
       system:
-        `You help ${company.name} decide what to post about. Their brand voice: ` +
-        `${company.brandVoiceNotes || 'professional, practical, no hype'}. ` +
+        `You help ${company.name} decide what to post about. ` +
+        (brand.about ? `${brand.about}\n` : '') +
+        `Their brand voice: ${brand.voice}. ` +
         'For each trend item, write (1) a one-sentence "why this matters to ' +
         `${company.name}" and (2) a concrete suggested post angle/hook in their ` +
         'voice. Respond with ONLY a JSON array, no prose.',
@@ -260,8 +281,9 @@ function buildEnrichmentPrompt(
  * call; falls back to deterministic output so the digest always has a summary.
  */
 async function synthesizeDigest(
-  company: Pick<Company, 'name' | 'industry' | 'brandVoiceNotes'>,
+  company: Pick<Company, 'name' | 'industry'>,
   items: DigestItem[],
+  brand: DigestBrand,
 ): Promise<{ summary: string; recommendations: string[]; hashtags: string[] }> {
   if (items.length === 0) {
     return {
@@ -289,7 +311,8 @@ async function synthesizeDigest(
     }>({
       system:
         `You are the trend analyst for ${company.name} (${company.industry ?? 'B2B'}). ` +
-        `Brand voice: ${company.brandVoiceNotes || 'professional, practical, no hype'}. ` +
+        (brand.about ? `${brand.about}\n` : '') +
+        `Brand voice: ${brand.voice}. ` +
         'From the trend items, produce: (1) "summary" — one tight paragraph on the ' +
         'themes worth paying attention to this week; (2) "recommendations" — 3 concrete, ' +
         'prioritized actions (each one sentence); (3) "hashtags" — 5-8 relevant hashtags ' +

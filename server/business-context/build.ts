@@ -55,6 +55,8 @@ export interface BusinessContextSources {
     preferences: unknown;
     /** Becomes `meta.revision`, for optimistic concurrency on updates. */
     updatedAt?: Date;
+    /** Legacy avatar URL, used as the logo when none was uploaded. */
+    logoUrl?: string | null;
   };
   // Timestamps below are optional so older callers and tests still build a
   // context; a fact without one reports freshness 'unknown' rather than guess.
@@ -68,6 +70,7 @@ export interface BusinessContextSources {
       url: string | null;
       trackingEnabled: boolean;
       updatedAt?: Date;
+      notes?: string | null;
     }[];
     trendConfig: {
       keywords: string[];
@@ -84,6 +87,32 @@ export interface BusinessContextSources {
     trendEditedByUser?: boolean;
   };
   plan?: { inputs: unknown; month?: Date; updatedAt?: Date } | null;
+  /** Running and paused campaigns. Loaded with the `plan` section. */
+  campaigns?: {
+    name: string;
+    status: string;
+    goal: string | null;
+    targetAudience: string | null;
+    themes: string[];
+    endDate: Date | null;
+    updatedAt?: Date;
+  }[];
+  history?: {
+    recentContent: {
+      title: string | null;
+      type: string;
+      status: string;
+      publishedAt: Date | null;
+      scheduledFor: Date | null;
+      updatedAt: Date;
+    }[];
+    analytics: {
+      periodStart: Date;
+      periodEnd: Date;
+      metrics: unknown;
+      generatedAt: Date;
+    } | null;
+  };
   connections?: {
     connectorIds: string[];
     linkedInConnected: boolean;
@@ -370,6 +399,7 @@ function mapCompetitors(
       sourceType: 'user_provided',
       confidence: 'confirmed',
       capturedAt: c.updatedAt ? c.updatedAt.toISOString() : null,
+      notes: c.notes?.trim() ? c.notes.trim().slice(0, 300) : null,
     });
   }
   const watchType = trendSourceType(market);
@@ -387,6 +417,7 @@ function mapCompetitors(
       capturedAt: market.trendConfig?.updatedAt
         ? market.trendConfig.updatedAt.toISOString()
         : null,
+      notes: null,
     });
     watchOnly.push(name.trim());
   }
@@ -444,6 +475,7 @@ export function buildBusinessContext(
   if (src.connections) sections.push('connections');
   if (src.knowledge) sections.push('knowledge');
   if (src.memory) sections.push('memory');
+  if (src.history) sections.push('history');
 
   const prefs = {
     preferences: (company.preferences ?? {}) as Prisma.JsonValue,
@@ -491,7 +523,17 @@ export function buildBusinessContext(
       brand.secondaryColor ||
       brand.accentColor),
   );
-  const visual = hasVisual ? brand : null;
+  // Legacy avatar URL as a fallback logo, so a workspace that set one before
+  // logo uploads existed still has a logo in its context.
+  const legacyLogo = company.logoUrl?.trim() || undefined;
+  const visual = hasVisual
+    ? {
+        ...brand,
+        ...(legacyLogo && !brand?.logoAssetId ? { logoUrl: legacyLogo } : {}),
+      }
+    : legacyLogo
+      ? { logoUrl: legacyLogo }
+      : null;
   if (visual)
     resolver.provenance['identity.visual'] = {
       sources: ['workspace_profile'],
@@ -669,6 +711,63 @@ export function buildBusinessContext(
       inferred: false,
     };
 
+  // --- Campaigns & history ----------------------------------------------------
+  const campaigns = (src.campaigns ?? [])
+    .filter((c) => c.status === 'ACTIVE' || c.status === 'PAUSED')
+    .slice(0, 5)
+    .map((c) => ({
+      name: c.name,
+      status: c.status as 'ACTIVE' | 'PAUSED',
+      goal: c.goal?.trim() || null,
+      audience: c.targetAudience?.trim() || null,
+      themes: c.themes.slice(0, 6),
+      endDate: c.endDate ? c.endDate.toISOString() : null,
+    }));
+  if (campaigns.length) {
+    resolver.provenance['objectives.campaigns'] = {
+      sources: ['campaigns'],
+      inferred: false,
+    };
+  }
+  const recentContent = (src.history?.recentContent ?? [])
+    .filter((d) => d.title?.trim())
+    .slice(0, 10)
+    .map((d) => ({
+      title: d.title!.trim(),
+      type: d.type,
+      status: d.status,
+      date: (d.publishedAt ?? d.scheduledFor ?? d.updatedAt).toISOString(),
+    }));
+  if (recentContent.length) {
+    resolver.provenance['history.recentContent'] = {
+      sources: ['content_history'],
+      inferred: false,
+    };
+  }
+  const report = src.history?.analytics;
+  const metrics: Record<string, number> = {};
+  if (report?.metrics && typeof report.metrics === 'object') {
+    for (const [k, v] of Object.entries(
+      report.metrics as Record<string, unknown>,
+    )) {
+      if (typeof v === 'number' && Number.isFinite(v)) metrics[k] = v;
+    }
+  }
+  const performance =
+    report && Object.keys(metrics).length
+      ? {
+          periodStart: report.periodStart.toISOString(),
+          periodEnd: report.periodEnd.toISOString(),
+          metrics,
+        }
+      : null;
+  if (performance) {
+    resolver.provenance['history.performance'] = {
+      sources: ['analytics'],
+      inferred: false,
+    };
+  }
+
   const ctx: BusinessContext = {
     version: BUSINESS_CONTEXT_VERSION,
     identity: {
@@ -687,7 +786,7 @@ export function buildBusinessContext(
       industries: composed?.industries ?? [],
       companyStages: composed?.companyStages ?? [],
     },
-    objectives: { goals, contentFormats },
+    objectives: { goals, contentFormats, campaigns },
     channels: { preferred, connected },
     voice: {
       profile,
@@ -716,6 +815,7 @@ export function buildBusinessContext(
       passages: src.passages ?? [],
     },
     memory: { insights },
+    history: { recentContent, performance },
     meta: {
       generatedAt: now.toISOString(),
       revision: company.updatedAt ? company.updatedAt.toISOString() : null,
@@ -775,6 +875,9 @@ export function fieldPresence(
     ),
     'knowledge.coverage': knowledge.totalChunks > 0,
     'memory.insights': memory.insights.length > 0,
+    'objectives.campaigns': objectives.campaigns.length > 0,
+    'history.recentContent': ctx.history.recentContent.length > 0,
+    'history.performance': Boolean(ctx.history.performance),
   };
 }
 

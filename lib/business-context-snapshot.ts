@@ -32,7 +32,7 @@ import { MARKET_MODES } from '@/lib/validations/profile';
  *     from, and rebuilt when any of them changes (see snapshot.service.ts).
  */
 
-export const SNAPSHOT_VERSION = 1;
+export const SNAPSHOT_VERSION = 2;
 
 /** A stored snapshot older than this is rebuilt: freshness depends on the date. */
 export const SNAPSHOT_TTL_MS = 6 * 60 * 60 * 1000;
@@ -46,6 +46,7 @@ export const SNAPSHOT_SECTIONS = [
   'channels',
   'learning',
   'market',
+  'history',
 ] as const;
 
 export type SnapshotSection = (typeof SNAPSHOT_SECTIONS)[number];
@@ -67,6 +68,8 @@ export const SNAPSHOT_VIEWS = {
     'voice',
     'channels',
     'learning',
+    // So a new post does not repeat a recent one.
+    'history',
   ],
   recommendation: [...SNAPSHOT_SECTIONS],
   opportunity: [
@@ -77,6 +80,7 @@ export const SNAPSHOT_VIEWS = {
     'channels',
     'learning',
     'market',
+    'history',
   ],
   planning: [...SNAPSHOT_SECTIONS],
   outreach: ['business', 'products', 'voice', 'learning'],
@@ -105,11 +109,12 @@ export const SECTION_FIELDS: Record<SnapshotSection, string[]> = {
     'audience.industries',
     'audience.companyStages',
   ],
-  goals: ['objectives.goals'],
+  goals: ['objectives.goals', 'objectives.campaigns'],
   voice: ['voice.summary'],
   channels: ['channels.preferred', 'channels.connected'],
   learning: ['memory.insights'],
   market: ['market.competitors', 'market.keywords'],
+  history: ['history.recentContent', 'history.performance'],
 };
 
 /** Caps that keep the snapshot a predictable size in a prompt. */
@@ -120,6 +125,7 @@ export const SNAPSHOT_LIMITS = {
   competitors: 8,
   keywords: 10,
   highlights: 3,
+  recentTopics: 8,
   excerptChars: 280,
   voiceList: 6,
 } as const;
@@ -173,7 +179,20 @@ export const snapshotSchema = z.object({
       stages: z.array(z.string()),
     })
     .nullable(),
-  goals: z.object({ current: z.string() }).nullable(),
+  goals: z
+    .object({
+      current: z.string().nullable(),
+      /** Running campaigns: what each is for and who it targets. */
+      campaigns: z.array(
+        z.object({
+          name: z.string(),
+          goal: z.string().nullable(),
+          audience: z.string().nullable(),
+          themes: z.array(z.string()),
+        }),
+      ),
+    })
+    .nullable(),
   voice: z
     .object({
       summary: z.string().nullable(),
@@ -210,6 +229,16 @@ export const snapshotSchema = z.object({
     .object({
       competitors: z.array(z.string()),
       keywords: z.array(z.string()),
+    })
+    .nullable(),
+  history: z
+    .object({
+      /** Recently published or scheduled titles — topics not to repeat. */
+      recentTopics: z.array(z.string()),
+      /** Latest recorded activity counts, with their period. */
+      performance: z
+        .object({ period: z.string(), metrics: z.record(z.number()) })
+        .nullable(),
     })
     .nullable(),
 

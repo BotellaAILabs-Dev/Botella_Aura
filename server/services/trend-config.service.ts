@@ -10,6 +10,10 @@ import {
 import type { EnabledSourcesFlags } from '@/server/trends/sources';
 import type { TrendFetchContext } from '@/server/trends/types';
 import type { UpdateTrendConfigInput } from '@/lib/validations/trends';
+import {
+  businessContextToPrompt,
+  getBusinessContext,
+} from '@/server/business-context/business-context.service';
 
 const DEFAULT_ENABLED: EnabledSourcesFlags = {
   reddit: true,
@@ -134,7 +138,7 @@ interface SmartDefaults {
  * when `defaultsSeeded` is false, and never overwrites user edits.
  */
 export async function seedSmartDefaults(
-  company: Pick<Company, 'id' | 'name' | 'industry' | 'brandVoiceNotes'>,
+  company: Pick<Company, 'id' | 'name' | 'industry'>,
 ): Promise<CompanyTrendConfig> {
   const config = await ensureTrendConfig(company.id);
   if (config.defaultsSeeded) return config;
@@ -175,8 +179,20 @@ export async function seedSmartDefaults(
 }
 
 async function generateDefaultsWithClaude(
-  company: Pick<Company, 'name' | 'industry' | 'brandVoiceNotes'>,
+  company: Pick<Company, 'id' | 'name' | 'industry'>,
 ): Promise<SmartDefaults> {
+  /**
+   * What the business does and who buys from it, from the Business Context
+   * layer.
+   *
+   * This used to send the name, the industry label and the brand-VOICE notes
+   * — tone, not substance — so the model guessed keywords and competitors for
+   * "a company in an industry". Those guesses are stored and labelled
+   * AI-derived until a person reviews them, so grounding them in the real
+   * description makes fewer of them wrong in the first place.
+   */
+  const context = await getBusinessContext(company.id, { sections: ['targeting'] });
+  const about = businessContextToPrompt(context, 'qualification');
   const system =
     'You are a B2B marketing strategist configuring a trend-monitoring tool. ' +
     'Given a company profile, suggest what to monitor. Respond with ONLY a JSON ' +
@@ -184,7 +200,7 @@ async function generateDefaultsWithClaude(
   const prompt = [
     `Company: ${company.name}`,
     `Industry: ${company.industry ?? 'unknown'}`,
-    `Brand voice: ${company.brandVoiceNotes ?? 'n/a'}`,
+    about,
     '',
     'Return JSON of this exact shape:',
     '{',
