@@ -7,6 +7,7 @@ import {
   recordOpportunity,
 } from '@/server/opportunities/opportunity.service';
 import { advisorToOpportunityInput } from '@/server/opportunities/from-advisor';
+import { collectSignals } from '@/server/signals/signal.service';
 import { recordAudit } from '@/server/services/audit.service';
 import {
   completeStructured,
@@ -509,6 +510,14 @@ export async function generateAdvisorReport(args: {
   // than living only inside today's report. Best-effort: a storage failure is
   // logged and never stops the advisor from returning its report.
   await expireOpportunities(companyId).catch(() => 0);
+  // Keep the signal store current for opportunity detection. Best-effort, like
+  // storing opportunities: it never stops the advisor's report.
+  await collectSignals(companyId, { context }).catch((err) =>
+    logger.warn('advisor: signal collection failed', {
+      companyId,
+      error: err instanceof Error ? err.message : String(err),
+    }),
+  );
   for (const opp of payload.opportunities) {
     try {
       const { opportunity } = await recordOpportunity(

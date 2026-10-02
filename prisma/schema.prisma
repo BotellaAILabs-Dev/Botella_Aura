@@ -577,6 +577,7 @@ model Company {
   contextSnapshot       BusinessContextSnapshot?
   contextQuestions      BusinessContextQuestion[]
   opportunities         Opportunity[]
+  signals               Signal[]
 
   @@index([slug])
 }
@@ -1904,12 +1905,17 @@ model OpportunitySignal {
   url           String?
   observedAt    DateTime?
   fingerprint   String
+  /// The normalised Signal this evidence came from, when it came through the
+  /// signal aggregation layer. Kept if the signal is later pruned.
+  signalId      String?
   createdAt     DateTime              @default(now())
 
   opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  signal      Signal?     @relation(fields: [signalId], references: [id], onDelete: SetNull)
 
   @@unique([opportunityId, fingerprint])
   @@index([kind, refId])
+  @@index([signalId])
 }
 
 /// The lifecycle history: every status change, who made it and why.
@@ -1926,3 +1932,72 @@ model OpportunityEvent {
 
   @@index([opportunityId, createdAt])
 }
+
+// ---------------------------------------------------------------------------
+// Signals
+// ---------------------------------------------------------------------------
+
+/// Which part of Aura a signal came from.
+enum SignalSource {
+  TRENDS
+  COMPETITORS
+  ANALYTICS
+  MEMORY
+  BUSINESS_CONTEXT
+}
+
+/// How far a signal can be relied on (see lib/signals.ts for the rules).
+enum SignalReliability {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+/// One normalised observation from any Aura source, gathered in one place for
+/// opportunity detection (server/signals/signal.service.ts).
+///
+/// `dedupeKey` makes the same observation one row however many times and from
+/// however many records it is seen; `sightings` keeps the distinct records it
+/// was seen in, which is what corroboration (and reliability) is counted from.
+model Signal {
+  id                String            @id @default(cuid())
+  companyId         String
+  source            SignalSource
+  /// The kind of underlying record — shared with opportunity evidence.
+  kind              OpportunitySignalKind
+  title             String
+  summary           String            @db.Text
+  url               String?
+  /// The record it was first seen in (a trend item is "<digestId>:<itemId>").
+  refId             String?
+  /// Every distinct record it has been seen in, capped.
+  sightings         String[]          @default([])
+  occurrences       Int               @default(1)
+  /// When the thing itself happened or was published.
+  observedAt        DateTime
+  firstSeenAt       DateTime          @default(now())
+  lastSeenAt        DateTime          @default(now())
+  /// After this it is no longer current; null = no natural expiry.
+  expiresAt         DateTime?
+  reliability       SignalReliability
+  reliabilityReason String
+  /// Source-specific magnitude (trend score, sample size, % change), if any.
+  strength          Float?
+  /// Business Context revision when it was last collected, and which parts
+  /// of the business it relates to ("keyword:pricing", "competitor:Acme").
+  contextRevision   String?
+  contextMatches    String[]          @default([])
+  /// Source-specific detail (trend source and suggested angle, metric values…).
+  metadata          Json              @default("{}")
+  dedupeKey         String
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  company           Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  opportunitySignals OpportunitySignal[]
+
+  @@unique([companyId, dedupeKey])
+  @@index([companyId, source, observedAt])
+  @@index([companyId, lastSeenAt])
+}
+

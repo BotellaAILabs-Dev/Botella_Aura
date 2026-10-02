@@ -121,6 +121,7 @@ export async function recordOpportunity(
       detail: s.detail,
       url: s.url ?? null,
       observedAt: s.observedAt ?? null,
+      signalId: s.signalId ?? null,
       fingerprint: fingerprint(s),
     }));
 

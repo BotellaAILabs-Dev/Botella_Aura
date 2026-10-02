@@ -150,6 +150,8 @@ export const signalInputSchema = z.object({
   detail: z.string().trim().min(1).max(2000),
   url: z.string().url().max(2000).optional(),
   observedAt: z.date().optional(),
+  /** The normalised Signal this came from (server/signals), when it did. */
+  signalId: z.string().max(40).optional(),
 });
 export type SignalInput = z.infer<typeof signalInputSchema>;
 
