@@ -2,6 +2,11 @@ import { z } from 'zod';
 
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import {
+  expireOpportunities,
+  recordOpportunity,
+} from '@/server/opportunities/opportunity.service';
+import { advisorToOpportunityInput } from '@/server/opportunities/from-advisor';
 import { recordAudit } from '@/server/services/audit.service';
 import {
   completeStructured,
@@ -100,7 +105,7 @@ async function collectSignal(companyId: string): Promise<Signal> {
           where: { capturedAt: { gte: since } },
           orderBy: { capturedAt: 'desc' },
           take: 4,
-          select: { changesSummary: true },
+          select: { id: true, capturedAt: true, changesSummary: true },
         },
       },
     }),
@@ -108,7 +113,7 @@ async function collectSignal(companyId: string): Promise<Signal> {
       where: { companyId, date: { gte: since } },
       orderBy: { date: 'desc' },
       take: 5,
-      select: { payload: true },
+      select: { id: true, date: true, payload: true },
     }),
     db.contentDraft.findMany({
       where: { companyId, createdAt: { gte: since } },
@@ -120,7 +125,13 @@ async function collectSignal(companyId: string): Promise<Signal> {
       where: { companyId, isActive: true },
       orderBy: { generatedAt: 'desc' },
       take: 8,
-      select: { insight: true, insightType: true, confidence: true },
+      select: {
+        id: true,
+        generatedAt: true,
+        insight: true,
+        insightType: true,
+        confidence: true,
+      },
     }),
   ]);
 
@@ -130,9 +141,16 @@ async function collectSignal(companyId: string): Promise<Signal> {
     for (const snap of c.snapshots) {
       const s = snap.changesSummary as ChangesSummary | null;
       if (!s) continue;
+      // Every observation below came from this snapshot.
+      const signal = {
+        kind: 'COMPETITOR_SNAPSHOT' as const,
+        refId: snap.id,
+        observedAt: snap.capturedAt.toISOString(),
+      };
       if (s.homepage) {
         evidence.push({
           kind: 'competitor',
+          signal,
           label: c.name,
           detail: `Homepage change: ${s.homepage}`,
         });
@@ -141,6 +159,7 @@ async function collectSignal(companyId: string): Promise<Signal> {
       if (s.pricing) {
         evidence.push({
           kind: 'competitor',
+          signal,
           label: c.name,
           detail: `Pricing change: ${s.pricing}`,
         });
@@ -149,6 +168,7 @@ async function collectSignal(companyId: string): Promise<Signal> {
       if (s.baseline?.homepage) {
         evidence.push({
           kind: 'competitor',
+          signal,
           label: c.name,
           detail: `Current positioning: ${s.baseline.homepage}`,
         });
@@ -157,6 +177,7 @@ async function collectSignal(companyId: string): Promise<Signal> {
       for (const n of (s.news ?? []).slice(0, 3)) {
         evidence.push({
           kind: 'competitor',
+          signal,
           label: c.name,
           detail: `In the news: ${n.title}`,
           ...(n.url ? { url: n.url } : {}),
@@ -166,6 +187,7 @@ async function collectSignal(companyId: string): Promise<Signal> {
       if (s.github?.latestRelease) {
         evidence.push({
           kind: 'competitor',
+          signal,
           label: c.name,
           detail: `Shipped ${s.github.latestRelease.name} in ${s.github.latestRelease.repo}`,
           url: s.github.latestRelease.url,
@@ -194,6 +216,11 @@ async function collectSignal(companyId: string): Promise<Signal> {
       seenTrends.add(item.title);
       evidence.push({
         kind: 'trend',
+        signal: {
+          kind: 'TREND_ITEM',
+          refId: `${d.id}:${item.id}`,
+          observedAt: d.date.toISOString(),
+        },
         label: item.sourceLabel,
         detail: `${item.title} — ${item.aiSummary}`,
         url: item.url,
@@ -213,6 +240,11 @@ async function collectSignal(companyId: string): Promise<Signal> {
   for (const m of memories) {
     evidence.push({
       kind: 'memory',
+      signal: {
+        kind: 'MEMORY_INSIGHT',
+        refId: m.id,
+        observedAt: m.generatedAt.toISOString(),
+      },
       label: m.insightType,
       detail: `${m.insight} (confidence: ${m.confidence.toLowerCase()})`,
     });
@@ -226,6 +258,8 @@ async function collectSignal(companyId: string): Promise<Signal> {
   if (ownTopics.length > 0) {
     evidence.push({
       kind: 'gap',
+      // A summary of several drafts, so no single record id.
+      signal: { kind: 'CONTENT_DRAFT', refId: null },
       label: 'Your recent content',
       detail: `Already covered: ${ownTopics.slice(0, 10).join('; ')}`,
     });
@@ -467,6 +501,28 @@ export async function generateAdvisorReport(args: {
         ...fallback,
         coverage: signal.coverage,
       };
+    }
+  }
+
+  // Store each opportunity on its own, with its evidence linked to the
+  // records it came from, so it can be tracked through its lifecycle rather
+  // than living only inside today's report. Best-effort: a storage failure is
+  // logged and never stops the advisor from returning its report.
+  await expireOpportunities(companyId).catch(() => 0);
+  for (const opp of payload.opportunities) {
+    try {
+      const { opportunity } = await recordOpportunity(
+        companyId,
+        advisorToOpportunityInput(opp, payload.model),
+        { context },
+      );
+      opp.opportunityId = opportunity.id;
+    } catch (err) {
+      logger.warn('advisor: could not store opportunity', {
+        companyId,
+        title: opp.title,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

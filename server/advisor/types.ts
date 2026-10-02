@@ -7,11 +7,7 @@
  * guess, and this module does not ship guesses.
  */
 export type EvidenceKind =
-  | 'competitor'
-  | 'trend'
-  | 'memory'
-  | 'performance'
-  | 'gap';
+  'competitor' | 'trend' | 'memory' | 'performance' | 'gap';
 
 export interface OpportunityEvidence {
   kind: EvidenceKind;
@@ -20,6 +16,16 @@ export interface OpportunityEvidence {
   /** The specific observation. */
   detail: string;
   url?: string;
+  /**
+   * The record this observation came from, so a stored opportunity can link
+   * to its underlying signal (lib/opportunities.ts SIGNAL_KINDS).
+   */
+  signal?: {
+    kind:
+      'COMPETITOR_SNAPSHOT' | 'TREND_ITEM' | 'MEMORY_INSIGHT' | 'CONTENT_DRAFT';
+    refId: string | null;
+    observedAt?: string;
+  };
 }
 
 export type Rating = 'low' | 'medium' | 'high';
@@ -41,6 +47,8 @@ export interface CampaignOpportunity {
   /** When to act, in plain words. */
   timing: string;
   evidence: OpportunityEvidence[];
+  /** The stored Opportunity row this became (server/opportunities). */
+  opportunityId?: string;
 }
 
 /** Something competitors are consistently doing that this company is not. */

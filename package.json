@@ -27,6 +27,7 @@
     "verify:sipn": "tsx scripts/verify-sipn.ts",
     "verify:publishing": "tsx scripts/verify-publishing.ts",
     "verify:context-sources": "tsx scripts/verify-context-sources.ts",
+    "verify:opportunities": "tsx scripts/verify-opportunities.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",

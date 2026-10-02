@@ -576,6 +576,7 @@ model Company {
   briefings             WorkspaceBriefing[]
   contextSnapshot       BusinessContextSnapshot?
   contextQuestions      BusinessContextQuestion[]
+  opportunities         Opportunity[]
 
   @@index([slug])
 }
@@ -1767,4 +1768,161 @@ model BusinessContextQuestion {
 
   @@unique([companyId, questionKey])
   @@index([companyId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Opportunities
+// ---------------------------------------------------------------------------
+
+/// What kind of opening an opportunity is.
+enum OpportunityType {
+  TRENDING_TOPIC
+  COMPETITOR_MOVE
+  COMPETITIVE_GAP
+  CONTENT_GAP
+  SEASONAL_MOMENT
+  AUDIENCE_SEGMENT
+  CHANNEL
+  PERFORMANCE_PATTERN
+  OTHER
+}
+
+/// Lifecycle: DETECTED → REVIEWED → RECOMMENDED → ACCEPTED / REJECTED,
+/// with EXPIRED when its relevance window passes first. See lib/opportunities.ts.
+enum OpportunityStatus {
+  DETECTED
+  REVIEWED
+  RECOMMENDED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum OpportunityPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum OpportunityConfidence {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+/// Which part of Aura detected it.
+enum OpportunitySource {
+  ADVISOR
+  TRENDS
+  COMPETITORS
+  MEMORY
+  ANALYTICS
+  MANUAL
+}
+
+/// What kind of record a piece of evidence points at.
+enum OpportunitySignalKind {
+  COMPETITOR_SNAPSHOT
+  TREND_ITEM
+  MEMORY_INSIGHT
+  CONTENT_DRAFT
+  ANALYTICS_REPORT
+  KNOWLEDGE_CHUNK
+  LEAD_SIGNAL
+  BUSINESS_CONTEXT
+  EXTERNAL
+}
+
+/// An opportunity Aura detected, stored on its own so it can be reviewed,
+/// tracked and later recommended. Recommendations (a later model) will point
+/// here with `opportunityId`; an opportunity never depends on one existing.
+model Opportunity {
+  id               String                @id @default(cuid())
+  companyId        String
+  type             OpportunityType
+  status           OpportunityStatus     @default(DETECTED)
+  title            String
+  summary          String                @db.Text
+  /// Why it is worth doing now.
+  rationale        String?               @db.Text
+  /// How to approach it differently from competitors.
+  angle            String?               @db.Text
+  /// Channels, content ideas, effort/impact — what acting on it looks like.
+  details          Json                  @default("{}")
+  source           OpportunitySource
+  /// The model or rule that produced it, e.g. "claude-…" or "deterministic".
+  detectedBy       String
+  priority         OpportunityPriority
+  /// 0–100, for ordering within a priority.
+  priorityScore    Int
+  confidence       OpportunityConfidence
+  /// Why the confidence is what it is.
+  confidenceReason String?
+  /// Same key = same opportunity: re-detection updates instead of duplicating.
+  dedupeKey        String
+  detectedAt       DateTime              @default(now())
+  /// Last time a detector saw it again.
+  lastSeenAt       DateTime              @default(now())
+  /// After this it is no longer worth acting on; null = no natural expiry.
+  relevantUntil    DateTime?
+  statusChangedAt  DateTime              @default(now())
+  reviewedAt       DateTime?
+  recommendedAt    DateTime?
+  decidedAt        DateTime?
+  decidedById      String?
+  decisionNote     String?               @db.Text
+  expiredAt        DateTime?
+  /// The Business Context it was detected against: Company revision, snapshot
+  /// fingerprint, and the context fields it relies on.
+  contextRevision  String?
+  contextFingerprint String?
+  contextFields    String[]              @default([])
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  company Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  signals OpportunitySignal[]
+  events  OpportunityEvent[]
+
+  @@unique([companyId, dedupeKey])
+  @@index([companyId, status])
+  @@index([companyId, relevantUntil])
+}
+
+/// One piece of evidence for an opportunity, linked to the record it came
+/// from. `refId` is the id in that record's table (a trend item is
+/// "<digestId>:<itemId>"); `fingerprint` stops the same evidence being added
+/// twice when an opportunity is detected again.
+model OpportunitySignal {
+  id            String                @id @default(cuid())
+  opportunityId String
+  kind          OpportunitySignalKind
+  refId         String?
+  label         String
+  detail        String                @db.Text
+  url           String?
+  observedAt    DateTime?
+  fingerprint   String
+  createdAt     DateTime              @default(now())
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@unique([opportunityId, fingerprint])
+  @@index([kind, refId])
+}
+
+/// The lifecycle history: every status change, who made it and why.
+model OpportunityEvent {
+  id            String             @id @default(cuid())
+  opportunityId String
+  fromStatus    OpportunityStatus?
+  toStatus      OpportunityStatus
+  actorId       String?
+  note          String?            @db.Text
+  createdAt     DateTime           @default(now())
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId, createdAt])
 }
