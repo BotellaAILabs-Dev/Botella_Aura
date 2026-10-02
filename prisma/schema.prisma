@@ -575,6 +575,7 @@ model Company {
   contentMedia          ContentMedia[]
   briefings             WorkspaceBriefing[]
   contextSnapshot       BusinessContextSnapshot?
+  contextQuestions      BusinessContextQuestion[]
 
   @@index([slug])
 }
@@ -1730,4 +1731,40 @@ model BusinessContextSnapshot {
   invalidatedAt DateTime?
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+/// Lifecycle of a question Aura asks about missing business information.
+enum ContextQuestionStatus {
+  OPEN
+  ANSWERED
+  SNOOZED
+  DISMISSED
+  RESOLVED
+}
+
+/// One question Aura has asked (or will ask) about the business — see
+/// server/business-context/questions.service.ts. The questions themselves are
+/// derived from the Business Context each time; this row only remembers what
+/// happened to each one, so Aura does not ask the same thing over and over.
+///
+/// `questionKey` is `<kind>:<field>` (e.g. `missing:audience.stated`), so a
+/// different problem with the same field is a different question.
+model BusinessContextQuestion {
+  id           String                @id @default(cuid())
+  companyId    String
+  questionKey  String
+  status       ContextQuestionStatus @default(OPEN)
+  /// Times it was shown, counting at most once per cooldown window.
+  timesAsked   Int                   @default(0)
+  lastAskedAt  DateTime?
+  snoozedUntil DateTime?
+  answeredAt   DateTime?
+  answeredById String?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, questionKey])
+  @@index([companyId, status])
 }

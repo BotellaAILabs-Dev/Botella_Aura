@@ -611,3 +611,74 @@ active LinkedInConnection, KnowledgeChunks and active MarketingMemory.
   `{ snapshot, prompt, status: 'current' | 'rebuilt', reason? }`.
 - `POST` rebuilds immediately (owners and admins only).
 
+
+---
+
+## 11. Missing information: questions instead of assumptions
+
+When Aura is missing something it needs, or holds a value it can't vouch for,
+it asks. For example: *"I don't have enough information about your primary
+audience yet. Who are you mainly trying to reach?"* It doesn't write as if it
+knew.
+
+| Piece | Where |
+| --- | --- |
+| Detection rules, question wording, answer → update | [`lib/business-context-questions.ts`](../lib/business-context-questions.ts) (pure, client-safe) |
+| Which questions to ask, and their history | [`server/business-context/questions.service.ts`](../server/business-context/questions.service.ts), table `BusinessContextQuestion` |
+| HTTP | `GET` and `POST /api/business-context/questions` |
+| UI | the "Aura has a few questions" card on About my business |
+| Tests | [`tests/context-questions.test.tsx`](../tests/context-questions.test.tsx) |
+
+### Detection rules
+
+| Gap | When | Priority |
+| --- | --- | --- |
+| `missing` | A required field has no value | **critical**: asked first; can be put off but never dismissed |
+| `missing` | A recommended field has no value, or a value is borrowed from a fallback (last month's plan) | important |
+| `missing` | An optional field has no value (competitors, logo and colours) | optional: asked only when a workflow that uses it asks |
+| `stale` | A value is past its freshness rule (§9) | as the field |
+| `unverified` | An AI suggestion nobody has confirmed | as the field |
+| `conflict` | Two sources disagree | as the field |
+
+A field in a section that wasn't loaded is never reported as missing.
+
+### Questions
+
+- **Answered here:** what the business does, what it sells, industry,
+  website, B2B or B2C, typical customer, goals, channels, and voice.
+  - Text and long-text answers, a choice (B2B/B2C, or which of two conflicting
+    values is right), or a multi-choice (channels).
+  - Out-of-date and AI-drafted values also offer **"Yes, that's right"**, which
+    confirms without changing (§9).
+- **Answered on another page** (`link` questions): business materials,
+  competitors, and logo and colours. The question closes by itself once that
+  page fills the gap.
+
+Answers go through `updateBusinessContext` with the same validation as every
+other edit (`origin: 'settings'`, audited with the question key). An answer to a
+question whose gap is already filled is refused (409), not applied.
+
+### Not asking the same thing twice
+
+| Rule | Behaviour |
+| --- | --- |
+| Showing a question | Counts as asking it at most once per **12 hours** |
+| "Not now" | Hidden for **7 days** |
+| "Doesn't apply" | Never asked again (not allowed for critical questions) |
+| Asked 3 times, no answer | Rests for 3 days (critical) or 14 days (others) |
+| Gap filled anywhere | Question closes (`RESOLVED`) |
+| Gap returns later (e.g. the goal goes stale again) | Question reopens |
+
+### Workflows
+
+- `getQuestions(companyId, { workflow })` returns the questions about fields
+  that workflow's prompt uses or requires, so a workflow can ask exactly what it
+  needs before it runs.
+- Every prompt rendered by `businessContextToPrompt` now includes a
+  **NOT YET KNOWN** block for required or recommended fields it uses that have
+  no value. The model is told not to guess or assume them, and to say plainly
+  that they're not known if the work depends on them. The snapshot's
+  `NOT PROVIDED` line (§10) does the same.
+
+**Database:** one additive migration,
+`20261002090000_business_context_questions`.

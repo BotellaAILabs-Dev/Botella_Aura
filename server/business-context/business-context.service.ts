@@ -535,6 +535,34 @@ const BLOCK_FIELDS: Partial<
   history: ['history.recentContent', 'history.performance'],
 };
 
+/** Every context field a set of prompt options puts in front of the model. */
+export function fieldsUsedBy(options: ContextPromptOptions): Set<ContextFieldPath> {
+  const paths = new Set<ContextFieldPath>();
+  for (const [flag, fields] of Object.entries(BLOCK_FIELDS)) {
+    if (options[flag as keyof ContextPromptOptions]) fields?.forEach((f) => paths.add(f));
+  }
+  if (options.voice) paths.add('voice.summary');
+  return paths;
+}
+
+/**
+ * What the model must be told it does NOT know.
+ *
+ * A required or recommended field this workflow uses, with no value at all.
+ * Without saying so, a model fills the hole with the most plausible-sounding
+ * guess — "your audience prefers Instagram" for a business that never said who
+ * its audience is. Stating the gap is what turns a confident invention into
+ * "I don't know that yet".
+ */
+export function unknownFields(
+  ctx: BusinessContext,
+  options: ContextPromptOptions,
+): ContextFieldPath[] {
+  return [...fieldsUsedBy(options)].filter(
+    (path) => !ctx.meta.facts[path] && contextField(path).requirement !== 'optional',
+  );
+}
+
 /**
  * Labelled inline where they are rendered, so not repeated as a caveat: the AI
  * voice draft, AI-suggested competitors and keywords, and memory (whose stale
@@ -738,6 +766,18 @@ export function businessContextToPrompt(
   }
 
   blocks.push(memoryBlock(ctx, o.memory));
+
+  const unknown = unknownFields(ctx, o);
+  if (unknown.length) {
+    blocks.push(
+      [
+        `NOT YET KNOWN — the company has not told Aura its: ${unknown
+          .map((p) => contextField(p).label.toLowerCase())
+          .join('; ')}.`,
+        'Do not guess, assume or state anything about these as fact. If the work depends on one, say plainly that it is not known yet rather than filling the gap.',
+      ].join('\n'),
+    );
+  }
 
   const caveats = contextCaveats(ctx, o);
   if (caveats.length) {
