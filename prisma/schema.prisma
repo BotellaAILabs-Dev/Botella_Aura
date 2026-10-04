@@ -1819,6 +1819,8 @@ enum OpportunitySource {
   COMPETITORS
   MEMORY
   ANALYTICS
+  /// Detected from the business's own context (e.g. an unconnected channel).
+  BUSINESS_CONTEXT
   MANUAL
 }
 

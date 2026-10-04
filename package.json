@@ -29,6 +29,7 @@
     "verify:context-sources": "tsx scripts/verify-context-sources.ts",
     "verify:opportunities": "tsx scripts/verify-opportunities.ts",
     "verify:signals": "tsx scripts/verify-signals.ts",
+    "verify:detection": "tsx scripts/verify-detection.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",

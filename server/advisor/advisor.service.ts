@@ -8,6 +8,7 @@ import {
 } from '@/server/opportunities/opportunity.service';
 import { advisorToOpportunityInput } from '@/server/opportunities/from-advisor';
 import { collectSignals } from '@/server/signals/signal.service';
+import { runDetection } from '@/server/opportunities/detection.service';
 import { recordAudit } from '@/server/services/audit.service';
 import {
   completeStructured,
@@ -514,6 +515,15 @@ export async function generateAdvisorReport(args: {
   // storing opportunities: it never stops the advisor's report.
   await collectSignals(companyId, { context }).catch((err) =>
     logger.warn('advisor: signal collection failed', {
+      companyId,
+      error: err instanceof Error ? err.message : String(err),
+    }),
+  );
+  // Rule-based detection over the fresh signals — deterministic opportunities
+  // alongside the advisor's AI-interpreted ones, under the same evidence,
+  // confidence, priority and duplicate rules. Best-effort as well.
+  await runDetection(companyId, { context }).catch((err) =>
+    logger.warn('advisor: rule-based detection failed', {
       companyId,
       error: err instanceof Error ? err.message : String(err),
     }),

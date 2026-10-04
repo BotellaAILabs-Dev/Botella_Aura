@@ -54,6 +54,7 @@ export const OPPORTUNITY_SOURCES = [
   'COMPETITORS',
   'MEMORY',
   'ANALYTICS',
+  'BUSINESS_CONTEXT',
   'MANUAL',
 ] as const;
 export type OpportunitySource = (typeof OPPORTUNITY_SOURCES)[number];
@@ -290,6 +291,17 @@ export function derivePriority(args: {
     args.relevantUntil === null
       ? null
       : (args.relevantUntil.getTime() - args.now.getTime()) / 86_400_000;
+
+  // A LOW-confidence opportunity is never HIGH or URGENT, however big the
+  // claimed impact. Impact and effort are the detector's judgement; when the
+  // evidence is thin, that judgement is exactly what cannot be trusted, and
+  // putting it at the top of someone's list would be the system confidently
+  // recommending a guess.
+  if (args.confidence === 'LOW') {
+    const capped = Math.min(score, 65);
+    return { priority: capped >= 33 ? 'MEDIUM' : 'LOW', score: capped };
+  }
+
   if (daysLeft !== null && daysLeft <= 7 && score >= 50) {
     return { priority: 'URGENT', score: Math.min(100, score + 10) };
   }
