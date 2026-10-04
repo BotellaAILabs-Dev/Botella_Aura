@@ -387,6 +387,41 @@ export async function listOpportunities(
   return rows.sort((a, b) => active(a.status) - active(b.status));
 }
 
+/**
+ * Every opportunity for the Opportunities view: evidence with the normalised
+ * signal it came through (so it can be traced to its source), and its full
+ * lifecycle history. Expired ones are expired first, so the view never shows
+ * an open opportunity whose moment has passed.
+ */
+export async function listOpportunitiesForView(
+  companyId: string,
+  options: { now?: Date; limit?: number } = {},
+) {
+  await expireOpportunities(companyId, options.now);
+  return db.opportunity.findMany({
+    where: { companyId },
+    include: {
+      signals: {
+        orderBy: { createdAt: 'asc' },
+        include: {
+          signal: {
+            select: {
+              source: true,
+              reliability: true,
+              reliabilityReason: true,
+              occurrences: true,
+              expiresAt: true,
+            },
+          },
+        },
+      },
+      events: { orderBy: { createdAt: 'asc' } },
+    },
+    orderBy: [{ detectedAt: 'desc' }],
+    take: options.limit ?? 200,
+  });
+}
+
 /** One opportunity with its evidence and full lifecycle history. */
 export async function getOpportunity(companyId: string, opportunityId: string) {
   return db.opportunity.findFirst({

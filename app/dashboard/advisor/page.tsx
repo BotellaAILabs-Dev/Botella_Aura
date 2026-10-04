@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { Swords, Radar } from 'lucide-react';
+import { Swords, Radar, Telescope } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
@@ -11,7 +11,7 @@ import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
 import { AdvisorView } from '@/components/dashboard/advisor/advisor-view';
 
-export const metadata: Metadata = { title: 'Opportunities' };
+export const metadata: Metadata = { title: 'Campaign ideas' };
 export const dynamic = 'force-dynamic';
 
 export default async function AdvisorPage() {
@@ -28,10 +28,15 @@ export default async function AdvisorPage() {
   return (
     <div>
       <PageHeader
-        title="Opportunities"
+        title="Campaign ideas"
         description="Campaign opportunities drawn from what your competitors actually did and what your market is discussing — each one traceable to the observation behind it."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/dashboard/opportunities">
+                <Telescope className="h-4 w-4" /> All opportunities
+              </Link>
+            </Button>
             <Button asChild variant="ghost" size="sm">
               <Link href="/dashboard/competitors">
                 <Swords className="h-4 w-4" /> Competitors

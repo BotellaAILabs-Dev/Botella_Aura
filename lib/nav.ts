@@ -16,6 +16,7 @@ import {
   Lightbulb,
   CalendarRange,
   Building2,
+  Telescope,
 } from 'lucide-react';
 
 /**
@@ -98,6 +99,15 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     label: 'Opportunities',
+    href: '/dashboard/opportunities',
+    section: 'intelligence',
+    icon: Telescope,
+    ready: true,
+    description:
+      'What Aura noticed you could act on, why, and the evidence behind each one.',
+  },
+  {
+    label: 'Campaign ideas',
     href: '/dashboard/advisor',
     section: 'intelligence',
     icon: Lightbulb,

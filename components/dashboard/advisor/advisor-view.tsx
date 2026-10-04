@@ -269,6 +269,15 @@ function OpportunityCard({ opportunity }: { opportunity: CampaignOpportunity }) 
           ))}
         </div>
 
+        {opportunity.opportunityId && (
+          <Link
+            href={`/dashboard/opportunities?focus=${opportunity.opportunityId}`}
+            className="inline-block text-xs font-medium text-primary hover:underline"
+          >
+            Track it in Opportunities →
+          </Link>
+        )}
+
         {/* Provenance — the reason to trust this suggestion. */}
         <div>
           <button
