@@ -9,6 +9,7 @@ import {
 import { advisorToOpportunityInput } from '@/server/opportunities/from-advisor';
 import { collectSignals } from '@/server/signals/signal.service';
 import { runDetection } from '@/server/opportunities/detection.service';
+import { runAiDetection } from '@/server/opportunities/ai-detection.service';
 import { recordAudit } from '@/server/services/audit.service';
 import {
   completeStructured,
@@ -524,6 +525,15 @@ export async function generateAdvisorReport(args: {
   // confidence, priority and duplicate rules. Best-effort as well.
   await runDetection(companyId, { context }).catch((err) =>
     logger.warn('advisor: rule-based detection failed', {
+      companyId,
+      error: err instanceof Error ? err.message : String(err),
+    }),
+  );
+  // AI-assisted detection for what the rules cannot judge (content gaps,
+  // competitive gaps, audience segments): validated against the snapshot and
+  // the signals it cites before anything is stored. Best-effort as well.
+  await runAiDetection(companyId, { userId: userId ?? null }).catch((err) =>
+    logger.warn('advisor: AI opportunity detection failed', {
       companyId,
       error: err instanceof Error ? err.message : String(err),
     }),

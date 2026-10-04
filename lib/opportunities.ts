@@ -55,6 +55,7 @@ export const OPPORTUNITY_SOURCES = [
   'MEMORY',
   'ANALYTICS',
   'BUSINESS_CONTEXT',
+  'AI_DETECTION',
   'MANUAL',
 ] as const;
 export type OpportunitySource = (typeof OPPORTUNITY_SOURCES)[number];

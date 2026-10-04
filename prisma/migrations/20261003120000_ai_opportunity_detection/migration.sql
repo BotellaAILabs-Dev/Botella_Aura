@@ -1,0 +1,6 @@
+-- AlterEnum
+ALTER TYPE "AuditAction" ADD VALUE 'OPPORTUNITY_AI_DETECTION_RUN';
+
+-- AlterEnum
+ALTER TYPE "OpportunitySource" ADD VALUE 'AI_DETECTION';
+

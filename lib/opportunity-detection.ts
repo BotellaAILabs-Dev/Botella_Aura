@@ -19,9 +19,10 @@ import type { SignalKind } from '@/lib/opportunities';
  *
  * AI WHERE INTERPRETATION IS REQUIRED. Judging whether competitors are active
  * on a theme the business has never written about means comparing meaning,
- * not matching keys — that stays with the AI advisor
- * (server/advisor/advisor.service.ts), whose opportunities go through the
- * same evidence, confidence, priority and duplicate rules when stored.
+ * not matching keys — that is AI-assisted detection
+ * (lib/ai-opportunity-detection.ts), whose output is validated against the
+ * signals it cites and goes through the same evidence, confidence, priority
+ * and duplicate rules when stored.
  *
  * Every candidate a rule produces then passes the engine's shared gates
  * (detectOpportunities below), which no rule can bypass.
@@ -354,8 +355,9 @@ export const DETECTION_RULES: Rule[] = [
 ];
 
 /**
- * Categories that need interpretation, and so stay with the AI advisor:
- * the engine does not attempt them with rules.
+ * Categories that need interpretation, and so are left to AI-assisted
+ * detection (lib/ai-opportunity-detection.ts): the engine does not attempt
+ * them with rules.
  */
 export const AI_INTERPRETED_CATEGORIES: {
   type: OpportunityType;

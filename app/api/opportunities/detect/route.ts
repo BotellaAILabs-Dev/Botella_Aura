@@ -1,18 +1,24 @@
 import { requireActiveCompany } from '@/lib/auth-helpers';
 import { can } from '@/lib/rbac';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
+import { runAiDetection } from '@/server/opportunities/ai-detection.service';
 import { runDetection } from '@/server/opportunities/detection.service';
 
 /**
- * POST /api/opportunities/detect — refresh signals and run the rule-based
- * detection now. Returns what each rule found, what it recorded, and what was
- * suppressed and why (lib/opportunity-detection.ts).
+ * POST /api/opportunities/detect — refresh signals and run opportunity
+ * detection now: the deterministic rules (lib/opportunity-detection.ts), then
+ * AI-assisted detection for what the rules cannot judge
+ * (lib/ai-opportunity-detection.ts). Returns what each found and recorded,
+ * what was suppressed or rejected, and why.
+ *
+ * `?ai=0` runs the rules only. AI detection failing never fails the request:
+ * its status and reason are reported under `ai`.
  */
 export const dynamic = 'force-dynamic';
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
-    const { company, membership } = await requireActiveCompany();
+    const { user, company, membership } = await requireActiveCompany();
     if (!can(membership.role, 'company:update')) {
       return jsonError(
         'Only owners and admins can run opportunity detection.',
@@ -21,7 +27,11 @@ export async function POST() {
     }
     const run = await runDetection(company.id, { collect: true });
     if (!run) return jsonError('Company not found', 404);
-    return jsonOk(run);
+    const withAi = new URL(req.url).searchParams.get('ai') !== '0';
+    const ai = withAi
+      ? await runAiDetection(company.id, { userId: user.id })
+      : null;
+    return jsonOk({ ...run, ai });
   } catch (error) {
     return handleRouteError(error);
   }

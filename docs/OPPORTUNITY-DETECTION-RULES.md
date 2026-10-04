@@ -38,9 +38,11 @@ These need comparing *meaning*, not matching keys, so no rule attempts them:
   signals.
 - **Audience segment:** who is engaging, and why.
 
-The AI advisor handles them. Its opportunities are stored through the same
-model and get the same evidence, confidence, priority, duplicate and expiry
-treatment as rule-detected ones. Detection itself never calls a model; titles
+AI-assisted detection handles them
+([AI-OPPORTUNITY-DETECTION.md](AI-OPPORTUNITY-DETECTION.md)). Its output is
+validated against the signals it cites before anything is stored, and then
+gets the same evidence, confidence, priority, duplicate and expiry treatment as
+rule-detected opportunities. The rules themselves never call a model; titles
 and angles come from templates.
 
 ## 2. Minimum evidence (all rules)
