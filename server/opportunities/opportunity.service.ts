@@ -16,6 +16,7 @@ import {
   type OpportunityStatus,
   type SignalInput,
 } from '@/lib/opportunities';
+import { OPPORTUNITY_TO_RECOMMENDATION } from '@/lib/recommendation-handoff';
 import { getBusinessContext } from '@/server/business-context/business-context.service';
 
 /**
@@ -152,6 +153,8 @@ export async function recordOpportunity(
           contextRevision: ctx?.meta.revision ?? null,
           contextFingerprint: options.contextFingerprint ?? null,
           contextFields: input.contextFields,
+          impact: input.impact,
+          effort: input.effort,
           ...assess(input.signals, relevantUntil),
         },
       });
@@ -205,6 +208,9 @@ export async function recordOpportunity(
       data: {
         lastSeenAt: now,
         relevantUntil: until,
+        // The latest detector's judgement, matching the priority it produces.
+        impact: input.impact,
+        effort: input.effort,
         contextRevision: ctx?.meta.revision ?? existing.contextRevision,
         ...(options.contextFingerprint
           ? { contextFingerprint: options.contextFingerprint }
@@ -255,17 +261,24 @@ export async function recordOpportunity(
  * Compare-and-swap on the current status, so two people acting on the same
  * opportunity at once cannot both "win" — the second gets a 409 and sees the
  * first person's decision.
+ *
+ * Pass `tx` to make the move part of a larger transaction (creating a
+ * recommendation moves its opportunity in the same commit).
  */
-export async function transitionOpportunity(args: {
-  companyId: string;
-  opportunityId: string;
-  to: OpportunityStatus;
-  actorId: string | null;
-  note?: string;
-  now?: Date;
-}): Promise<Opportunity> {
+export async function transitionOpportunity(
+  args: {
+    companyId: string;
+    opportunityId: string;
+    to: OpportunityStatus;
+    actorId: string | null;
+    note?: string;
+    now?: Date;
+  },
+  tx?: Prisma.TransactionClient,
+): Promise<Opportunity> {
   const now = args.now ?? new Date();
-  const current = await db.opportunity.findFirst({
+  const client = tx ?? db;
+  const current = await client.opportunity.findFirst({
     where: { id: args.opportunityId, companyId: args.companyId },
   });
   if (!current) throw new OpportunityError('Opportunity not found.', 404);
@@ -301,7 +314,7 @@ export async function transitionOpportunity(args: {
   }
   if (args.to === 'EXPIRED') stamp.expiredAt = now;
 
-  return db.$transaction(async (tx) => {
+  const apply = async (tx: Prisma.TransactionClient) => {
     const swapped = await tx.opportunity.updateMany({
       where: { id: current.id, status: current.status },
       data: stamp,
@@ -322,8 +335,23 @@ export async function transitionOpportunity(args: {
         createdAt: now,
       },
     });
+    // A decision on the opportunity is the decision on its open
+    // recommendation too (lib/recommendation-handoff.ts STATUS SYNC).
+    const mirrored = OPPORTUNITY_TO_RECOMMENDATION[args.to];
+    if (mirrored) {
+      await tx.recommendation.updateMany({
+        where: { opportunityId: current.id, status: 'PROPOSED' },
+        data: {
+          status: mirrored,
+          decidedAt: now,
+          decidedById: args.actorId,
+          decisionNote: args.note ?? 'Decided on the opportunity.',
+        },
+      });
+    }
     return tx.opportunity.findUniqueOrThrow({ where: { id: current.id } });
-  });
+  };
+  return tx ? apply(tx) : db.$transaction(apply);
 }
 
 /** Expire every open opportunity whose relevance window has passed. */
@@ -357,6 +385,14 @@ export async function expireOpportunities(
           toStatus: 'EXPIRED',
           note: 'Its relevance window passed before anyone acted on it.',
           createdAt: now,
+        },
+      });
+      await tx.recommendation.updateMany({
+        where: { opportunityId: o.id, status: 'PROPOSED' },
+        data: {
+          status: 'WITHDRAWN',
+          decidedAt: now,
+          decisionNote: 'Its opportunity expired before a decision.',
         },
       });
     }
@@ -422,13 +458,17 @@ export async function listOpportunitiesForView(
   });
 }
 
-/** One opportunity with its evidence and full lifecycle history. */
+/** One opportunity with its evidence, full lifecycle history and recommendations. */
 export async function getOpportunity(companyId: string, opportunityId: string) {
   return db.opportunity.findFirst({
     where: { id: opportunityId, companyId },
     include: {
       signals: { orderBy: { createdAt: 'asc' } },
       events: { orderBy: { createdAt: 'asc' } },
+      recommendations: {
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, status: true, title: true, createdAt: true },
+      },
     },
   });
 }

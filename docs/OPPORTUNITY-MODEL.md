@@ -126,20 +126,9 @@ Storing is best-effort: a failure is logged and never stops the advisor.
 Competitive *gaps* in the advisor report are not stored yet, because they have
 no evidence references to link.
 
-## Relationship with Recommendations (prepared)
+## Relationship with Recommendations
 
-Opportunities are stored and tracked without any recommendation existing. The
-Recommendation model, when built, links back:
-
-```prisma
-model Recommendation {
-  // …
-  opportunityId String?
-  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
-}
-```
-
-Creating a recommendation from an opportunity should move it to `RECOMMENDED`
-(which stamps `recommendedAt`). Accepting or rejecting the recommendation moves
-the opportunity to `ACCEPTED` or `REJECTED`, all through
-`transitionOpportunity`, so the history stays complete.
+Opportunities are stored and tracked without any recommendation existing. A
+`Recommendation` references the opportunity it answers (`opportunityId`),
+carries its evidence forward, and keeps the two statuses in step. See
+[OPPORTUNITY-RECOMMENDATION.md](OPPORTUNITY-RECOMMENDATION.md).

@@ -279,14 +279,23 @@ function OpportunityCard({
   async function move(to: OpportunityStatus, withNote?: string) {
     setBusy(to);
     try {
-      const res = await fetch(`/api/opportunities/${o.id}/status`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: to,
-          ...(withNote?.trim() ? { note: withNote.trim() } : {}),
-        }),
-      });
+      // Recommending creates a recommendation linked to this opportunity
+      // (which moves it to RECOMMENDED); every other move is a status change.
+      const res =
+        to === 'RECOMMENDED'
+          ? await fetch(`/api/opportunities/${o.id}/recommendations`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: '{}',
+            })
+          : await fetch(`/api/opportunities/${o.id}/status`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                status: to,
+                ...(withNote?.trim() ? { note: withNote.trim() } : {}),
+              }),
+            });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
         toast.error(body.error ?? 'Could not update this opportunity.');

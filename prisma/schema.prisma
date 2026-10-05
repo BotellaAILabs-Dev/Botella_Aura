@@ -579,6 +579,7 @@ model Company {
   contextSnapshot       BusinessContextSnapshot?
   contextQuestions      BusinessContextQuestion[]
   opportunities         Opportunity[]
+  recommendations       Recommendation[]
   signals               Signal[]
 
   @@index([slug])
@@ -1842,8 +1843,8 @@ enum OpportunitySignalKind {
 }
 
 /// An opportunity Aura detected, stored on its own so it can be reviewed,
-/// tracked and later recommended. Recommendations (a later model) will point
-/// here with `opportunityId`; an opportunity never depends on one existing.
+/// tracked and later recommended. Recommendations point here with
+/// `opportunityId`; an opportunity never depends on one existing.
 model Opportunity {
   id               String                @id @default(cuid())
   companyId        String
@@ -1866,6 +1867,11 @@ model Opportunity {
   confidence       OpportunityConfidence
   /// Why the confidence is what it is.
   confidenceReason String?
+  /// How much it would matter and cost ("low" | "medium" | "high"), as the
+  /// detector judged it. Kept so a recommendation can start from them; null
+  /// on opportunities stored before they were recorded.
+  impact           String?
+  effort           String?
   /// Same key = same opportunity: re-detection updates instead of duplicating.
   dedupeKey        String
   detectedAt       DateTime              @default(now())
@@ -1889,8 +1895,9 @@ model Opportunity {
   updatedAt        DateTime              @updatedAt
 
   company Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  signals OpportunitySignal[]
-  events  OpportunityEvent[]
+  signals         OpportunitySignal[]
+  events          OpportunityEvent[]
+  recommendations Recommendation[]
 
   @@unique([companyId, dedupeKey])
   @@index([companyId, status])
@@ -1918,6 +1925,7 @@ model OpportunitySignal {
 
   opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   signal      Signal?     @relation(fields: [signalId], references: [id], onDelete: SetNull)
+  recommendationEvidence RecommendationEvidence[]
 
   @@unique([opportunityId, fingerprint])
   @@index([kind, refId])
@@ -2001,9 +2009,93 @@ model Signal {
 
   company           Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
   opportunitySignals OpportunitySignal[]
+  recommendationEvidence RecommendationEvidence[]
 
   @@unique([companyId, dedupeKey])
   @@index([companyId, source, observedAt])
   @@index([companyId, lastSeenAt])
 }
 
+// ---------------------------------------------------------------------------
+// Recommendations (foundation — the engine that writes them is Sprint 8)
+// ---------------------------------------------------------------------------
+
+/// Where a recommendation stands. Kept in step with its opportunity:
+/// PROPOSED ↔ RECOMMENDED, ACCEPTED ↔ ACCEPTED, REJECTED ↔ REJECTED.
+enum RecommendationStatus {
+  PROPOSED
+  ACCEPTED
+  REJECTED
+  /// Replaced by a newer recommendation, or taken back before a decision.
+  WITHDRAWN
+}
+
+/// Something Aura recommends the business do. Created FROM an opportunity
+/// (docs/OPPORTUNITY-RECOMMENDATION.md): it keeps a reference to it, a copy of
+/// the hand-off it was built from, and its own copy of the evidence, so it
+/// stays explainable even if the opportunity later changes or is deleted.
+model Recommendation {
+  id               String                @id @default(cuid())
+  companyId        String
+  /// The opportunity it came from. Kept null if that opportunity is deleted.
+  opportunityId    String?
+  status           RecommendationStatus  @default(PROPOSED)
+  title            String
+  summary          String                @db.Text
+  /// What to do — written by the Sprint 8 engine. Empty until then.
+  content          Json                  @default("{}")
+  /// Confidence and priority as handed over by the opportunity.
+  confidence       OpportunityConfidence
+  confidenceReason String?
+  priority         OpportunityPriority
+  priorityScore    Int
+  /// The opportunity hand-off it was built from (lib/recommendation-handoff.ts),
+  /// and the version of that contract.
+  handoff          Json
+  handoffVersion   Int
+  /// The Business Context it was built against.
+  contextRevision    String?
+  contextFingerprint String?
+  contextFields      String[]            @default([])
+  /// Who or what created it: "user:<id>", "rule:…", or a model name.
+  createdBy        String
+  decidedAt        DateTime?
+  decidedById      String?
+  decisionNote     String?               @db.Text
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  company     Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  opportunity Opportunity?             @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  evidence    RecommendationEvidence[]
+
+  @@index([companyId, status])
+  @@index([opportunityId])
+}
+
+/// Evidence carried forward from the opportunity, copied rather than shared:
+/// the recommendation keeps what it was based on even if the opportunity
+/// gains or loses evidence later. Links back to both the opportunity's
+/// evidence row and the normalised signal, where they still exist.
+model RecommendationEvidence {
+  id                  String                @id @default(cuid())
+  recommendationId    String
+  opportunitySignalId String?
+  signalId            String?
+  kind                OpportunitySignalKind
+  refId               String?
+  label               String
+  detail              String                @db.Text
+  url                 String?
+  observedAt          DateTime?
+  /// Reliability of the normalised signal when it was carried forward.
+  reliability         SignalReliability?
+  createdAt           DateTime              @default(now())
+
+  recommendation     Recommendation     @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+  opportunitySignal  OpportunitySignal? @relation(fields: [opportunitySignalId], references: [id], onDelete: SetNull)
+  signal             Signal?            @relation(fields: [signalId], references: [id], onDelete: SetNull)
+
+  @@index([recommendationId])
+  @@index([signalId])
+}
