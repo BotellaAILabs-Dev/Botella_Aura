@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { DigestItem, TrendSourceId } from '@/server/trends/types';
+import { safeExternalUrl } from '@/lib/safe-url';
 
 type SourceStyle = { label: string; variant: BadgeProps['variant'] };
 
@@ -51,7 +52,7 @@ export function TrendCard({ item }: { item: DigestItem }) {
         </div>
 
         <a
-          href={item.url}
+          href={safeExternalUrl(item.url) ?? undefined}
           target="_blank"
           rel="noopener noreferrer"
           className="group inline-flex items-start gap-1 text-base font-semibold text-foreground hover:text-primary"

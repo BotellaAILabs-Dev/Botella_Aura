@@ -40,6 +40,7 @@ import { Users } from 'lucide-react';
 import type { ChangesSummary } from '@/server/competitors/types';
 import { classifyLinkedInUrl } from '@/lib/linkedin-url';
 import { LocalTime } from '@/components/ui/local-time';
+import { safeExternalUrl } from '@/lib/safe-url';
 
 export interface CompetitorRow {
   id: string;
@@ -415,7 +416,7 @@ function LatestSnapshot({ row }: { row: CompetitorRow }) {
             {s.news.slice(0, 3).map((n) => (
               <li key={n.url}>
                 <a
-                  href={n.url}
+                  href={safeExternalUrl(n.url) ?? undefined}
                   target="_blank"
                   rel="noreferrer"
                   className="hover:text-primary hover:underline"

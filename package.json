@@ -32,6 +32,7 @@
     "verify:detection": "tsx scripts/verify-detection.ts",
     "verify:ai-detection": "tsx scripts/verify-ai-detection.ts",
     "verify:recommendation-handoff": "tsx scripts/verify-recommendation-handoff.ts",
+    "verify:access": "tsx scripts/verify-access.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",

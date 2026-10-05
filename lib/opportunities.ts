@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { isWebUrl } from '@/lib/safe-url';
+
 /**
  * Opportunities: the rules.
  *
@@ -150,7 +152,14 @@ export const signalInputSchema = z.object({
   refId: z.string().max(200).nullable().optional(),
   label: z.string().trim().min(1).max(200),
   detail: z.string().trim().min(1).max(2000),
-  url: z.string().url().max(2000).optional(),
+  // Web links only: evidence URLs come from third-party feeds and pages, and
+  // end up in hrefs (lib/safe-url.ts).
+  url: z
+    .string()
+    .url()
+    .max(2000)
+    .refine(isWebUrl, 'Evidence links must be http(s).')
+    .optional(),
   observedAt: z.date().optional(),
   /** The normalised Signal this came from (server/signals), when it did. */
   signalId: z.string().max(40).optional(),

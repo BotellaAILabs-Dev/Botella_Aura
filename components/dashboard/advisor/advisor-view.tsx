@@ -31,6 +31,7 @@ import type {
   CampaignOpportunity,
   EvidenceKind,
 } from '@/server/advisor/types';
+import { safeExternalUrl } from '@/lib/safe-url';
 
 const EVIDENCE_ICON: Record<EvidenceKind, typeof Swords> = {
   competitor: Swords,
@@ -298,9 +299,9 @@ function OpportunityCard({ opportunity }: { opportunity: CampaignOpportunity }) 
                     <span className="text-muted-foreground">
                       <span className="font-medium text-foreground">{e.label}:</span>{' '}
                       {e.detail}
-                      {e.url && (
+                      {safeExternalUrl(e.url) && (
                         <a
-                          href={e.url}
+                          href={safeExternalUrl(e.url)!}
                           target="_blank"
                           rel="noreferrer"
                           className="ml-1 inline-flex text-primary hover:underline"

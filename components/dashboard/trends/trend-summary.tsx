@@ -6,6 +6,7 @@ import type {
   SeasonalEvent,
   CompetitorMention,
 } from '@/server/trends/types';
+import { safeExternalUrl } from '@/lib/safe-url';
 
 /**
  * The AI-generated digest synthesis shown above the trend cards: a summary with
@@ -122,7 +123,7 @@ export function TrendSummary({
                     {m.competitor}
                   </Badge>
                   <a
-                    href={m.url}
+                    href={safeExternalUrl(m.url) ?? undefined}
                     target="_blank"
                     rel="noreferrer"
                     className="flex items-start gap-1 text-foreground hover:text-primary hover:underline"

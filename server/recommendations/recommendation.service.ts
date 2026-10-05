@@ -120,7 +120,11 @@ export async function createRecommendationFromOpportunity(args: {
       );
     }
     const open = await tx.recommendation.findFirst({
-      where: { opportunityId: args.opportunityId, status: 'PROPOSED' },
+      where: {
+        companyId: args.companyId,
+        opportunityId: args.opportunityId,
+        status: 'PROPOSED',
+      },
       select: { id: true },
     });
     if (open) {
