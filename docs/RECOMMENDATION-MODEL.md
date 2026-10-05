@@ -114,8 +114,13 @@ PROPOSED ─► ACCEPTED ─► IN_PROGRESS ─► COMPLETED
 4. **Validation:** the result is validated as a whole. Confidence and
    relevance are bounded by the opportunity.
 
-So a recommendation is always structured and actionable, even before the
-engine exists, and the engine only needs to supply better content.
+So a recommendation is always structured and actionable.
+
+The **recommendation engine**
+([RECOMMENDATION-ENGINE.md](RECOMMENDATION-ENGINE.md)) is now how
+recommendations are normally created. It chooses the action that fits the
+current business, writes it, assesses it and checks it is supported, then
+stores it through this same function.
 
 ## 5. Handing over to Content / Execution workflows
 

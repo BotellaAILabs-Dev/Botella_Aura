@@ -193,6 +193,8 @@ enum AuditAction {
   ADVISOR_REPORT_GENERATED
   /// An AI opportunity-detection run, with what it accepted and rejected.
   OPPORTUNITY_AI_DETECTION_RUN
+  /// A recommendation generation run: what was chosen, flagged or rejected.
+  RECOMMENDATION_GENERATED
   MARKETING_PLAN_GENERATED
   // --- Client review (Phase 3) — AI Marketing Intelligence dashboard ---
   INTELLIGENCE_SNAPSHOT_GENERATED

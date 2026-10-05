@@ -1,7 +1,10 @@
 import type { Prisma } from '@prisma/client';
 
 import { db } from '@/lib/db';
-import { ACTIVE_STATUSES } from '@/lib/opportunities';
+import {
+  ACTIVE_STATUSES,
+  type OpportunityPriority,
+} from '@/lib/opportunities';
 import {
   buildHandoff,
   handoffEligibility,
@@ -116,6 +119,11 @@ export async function createRecommendationFromOpportunity(args: {
   createdBy: string;
   actorId: string | null;
   content?: Partial<RecommendationContentInput>;
+  /**
+   * Priority assigned for this recommendation (the engine weighs the chosen
+   * action's effort). Defaults to the opportunity's.
+   */
+  priority?: { priority: OpportunityPriority; priorityScore: number };
   now?: Date;
 }) {
   const now = args.now ?? new Date();
@@ -174,6 +182,7 @@ export async function createRecommendationFromOpportunity(args: {
         ...own,
         details: own.details as Prisma.InputJsonObject,
         ...bounds,
+        ...(args.priority ?? {}),
         companyId: args.companyId,
         handoff: handoff as unknown as Prisma.InputJsonObject,
         createdBy: args.createdBy.slice(0, 100),

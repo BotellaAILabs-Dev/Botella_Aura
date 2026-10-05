@@ -380,6 +380,21 @@ async function main() {
         (await db.recommendation.count({ where: { opportunityId: aOpp } })) ===
           0,
     );
+    // The owner may run the engine. Business A names no channel to publish
+    // on, so it refuses with its reasons (422) and stores nothing.
+    const gen = await ownerA.req(
+      'POST',
+      `/api/opportunities/${aOpp}/recommendations`,
+      {},
+    );
+    check(
+      'the owner can run the engine; unsupported → 422 with reasons, nothing stored',
+      gen.status === 422 &&
+        /where it publishes/.test(gen.text) &&
+        (await db.recommendation.count({ where: { opportunityId: aOpp } })) ===
+          0,
+      `${gen.status} ${gen.text.slice(0, 160)}`,
+    );
 
     console.log('\nNot signed in');
     for (const path of [

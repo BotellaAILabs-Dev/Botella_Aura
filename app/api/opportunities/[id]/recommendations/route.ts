@@ -2,8 +2,9 @@ import { requireActiveCompany } from '@/lib/auth-helpers';
 import { can } from '@/lib/rbac';
 import { recommendationContentSchema } from '@/lib/recommendations';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
+import { generateRecommendation } from '@/server/recommendations/engine.service';
 import {
-  createRecommendationFromOpportunity,
+  getRecommendation,
   listRecommendations,
 } from '@/server/recommendations/recommendation.service';
 
@@ -11,19 +12,19 @@ import {
  * GET  /api/opportunities/:id/recommendations — recommendations made from it.
  * POST /api/opportunities/:id/recommendations { title?, action?, rationale?, … }
  *
- * Create a recommendation from this opportunity. Its content starts as a
- * default draft built from the opportunity; any field sent replaces the
- * draft's. It references the opportunity, carries its evidence forward, and
- * moves the opportunity to RECOMMENDED. 409 if the opportunity cannot be
- * recommended (closed, past its window, no current evidence) or already has a
- * recommendation in play.
+ * Generate a recommendation from this opportunity with the recommendation
+ * engine (server/recommendations/engine.service.ts): it picks the action that
+ * fits the business now, writes it, assesses it and checks it is supported.
+ * Any field sent replaces the engine's. Returns the recommendation and the
+ * generation report (chosen action, alternatives, flags). 422 with the
+ * reasons if the data does not support any recommendation; 409 if one is
+ * already in play.
  */
 export const dynamic = 'force-dynamic';
 
 /**
- * Any part of the recommendation's own content; the rest comes from the
- * default draft built from the opportunity. Confidence, priority, evidence
- * and the link are inherited and cannot be set here.
+ * Any part of the recommendation's own content; the rest is the engine's.
+ * Confidence, priority, evidence and the link cannot be set here.
  */
 const bodySchema = recommendationContentSchema
   .pick({
@@ -70,14 +71,27 @@ export async function POST(
       );
     }
     const body = bodySchema.parse(await req.json().catch(() => ({})));
-    const recommendation = await createRecommendationFromOpportunity({
+    const generation = await generateRecommendation({
       companyId: company.id,
       opportunityId: params.id,
-      createdBy: `user:${user.id}`,
       actorId: user.id,
-      content: body,
+      overrides: body,
     });
-    return jsonOk({ recommendation }, 201);
+    if (!generation.recommendationId) {
+      // Not supported by the data: nothing stored, and the reasons say why.
+      return jsonOk(
+        {
+          error: `No recommendation was made: ${generation.reasons[0] ?? 'not supported by the available data.'}`,
+          generation,
+        },
+        422,
+      );
+    }
+    const recommendation = await getRecommendation(
+      company.id,
+      generation.recommendationId,
+    );
+    return jsonOk({ recommendation, generation }, 201);
   } catch (error) {
     return handleRouteError(error);
   }
