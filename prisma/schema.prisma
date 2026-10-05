@@ -2020,57 +2020,133 @@ model Signal {
 // Recommendations (foundation — the engine that writes them is Sprint 8)
 // ---------------------------------------------------------------------------
 
-/// Where a recommendation stands. Kept in step with its opportunity:
-/// PROPOSED ↔ RECOMMENDED, ACCEPTED ↔ ACCEPTED, REJECTED ↔ REJECTED.
+/// Where a recommendation stands (lib/recommendations.ts LIFECYCLE).
+///   PROPOSED ─► ACCEPTED ─► IN_PROGRESS ─► COMPLETED
+///      │           └──────────────────────► COMPLETED
+///      ├─► REJECTED      ├─► WITHDRAWN (taken back, or replaced)
+///      └─► EXPIRED  (its relevance window passed before a decision)
+/// Decisions are kept in step with the opportunity: accepting or rejecting a
+/// recommendation accepts or rejects its opportunity, and vice versa.
 enum RecommendationStatus {
   PROPOSED
   ACCEPTED
+  IN_PROGRESS
+  COMPLETED
   REJECTED
-  /// Replaced by a newer recommendation, or taken back before a decision.
+  /// Replaced by a newer recommendation, or taken back before it was done.
   WITHDRAWN
+  EXPIRED
 }
 
-/// Something Aura recommends the business do. Created FROM an opportunity
-/// (docs/OPPORTUNITY-RECOMMENDATION.md): it keeps a reference to it, a copy of
-/// the hand-off it was built from, and its own copy of the evidence, so it
-/// stays explainable even if the opportunity later changes or is deleted.
+/// What kind of action it recommends — decides which workflow carries it out.
+enum RecommendationType {
+  /// Create a piece of content (post, article, carousel…).
+  CONTENT
+  /// Several coordinated pieces over a period.
+  CAMPAIGN
+  /// Answer a competitor's move or theme.
+  COMPETITIVE_RESPONSE
+  /// Reach a group of people the business is not addressing.
+  AUDIENCE
+  /// Start, connect or change a channel.
+  CHANNEL
+  /// Do more of what works, or fix what stopped working.
+  OPTIMIZATION
+  OTHER
+}
+
+/// Something Aura recommends the business do, built from an opportunity
+/// (docs/RECOMMENDATION-MODEL.md):
+///
+///   Opportunity · What · Why · Action · Expected outcome · Evidence ·
+///   Confidence · Priority · Channel · Audience · Status
+///
+/// Stored on its own, with its own copy of the evidence and of the hand-off it
+/// was built from, so it stays explainable whatever later happens to the
+/// opportunity — which cannot be deleted while it has recommendations.
 model Recommendation {
   id               String                @id @default(cuid())
   companyId        String
-  /// The opportunity it came from. Kept null if that opportunity is deleted.
-  opportunityId    String?
+  /// The opportunity it answers. Required: there is no recommendation
+  /// without an opportunity behind it.
+  opportunityId    String
+  type             RecommendationType
   status           RecommendationStatus  @default(PROPOSED)
+
+  /// WHAT — a short headline and a sentence or two.
   title            String
   summary          String                @db.Text
-  /// What to do — written by the Sprint 8 engine. Empty until then.
-  content          Json                  @default("{}")
-  /// Confidence and priority as handed over by the opportunity.
+  /// ACTION — the one thing to do, in the imperative, and optional steps.
+  action           String                @db.Text
+  steps            String[]              @default([])
+  /// WHY — why this is worth doing now, from the evidence.
+  rationale        String                @db.Text
+  /// EXPECTED OUTCOME — what should change if it works, and how to tell.
+  expectedOutcome  String                @db.Text
+  outcomeMetric    String?
+  /// CHANNEL — where to do it (lib/validations/planner.ts CONTENT_CHANNELS),
+  /// and the content format when it is a content recommendation.
+  channel          String?
+  contentType      String?
+  /// AUDIENCE — who it is for, where that applies.
+  audience         String?               @db.Text
+  /// Type-specific detail for the workflow that carries it out.
+  details          Json                  @default("{}")
+
+  /// CONFIDENCE and PRIORITY — as handed over by the opportunity, or lower.
   confidence       OpportunityConfidence
   confidenceReason String?
   priority         OpportunityPriority
   priorityScore    Int
-  /// The opportunity hand-off it was built from (lib/recommendation-handoff.ts),
-  /// and the version of that contract.
+
+  /// RELEVANCE — not worth starting after this; null = no natural expiry.
+  relevantUntil    DateTime?
+
+  /// The opportunity hand-off it was built from (lib/recommendation-handoff.ts).
   handoff          Json
   handoffVersion   Int
   /// The Business Context it was built against.
   contextRevision    String?
   contextFingerprint String?
   contextFields      String[]            @default([])
+
   /// Who or what created it: "user:<id>", "rule:…", or a model name.
   createdBy        String
+  statusChangedAt  DateTime              @default(now())
   decidedAt        DateTime?
   decidedById      String?
   decisionNote     String?               @db.Text
+  startedAt        DateTime?
+  completedAt      DateTime?
+  expiredAt        DateTime?
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
 
   company     Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  opportunity Opportunity?             @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  /// NoAction: an opportunity with recommendations cannot be deleted on its
+  /// own; deleting the whole workspace still removes both together.
+  opportunity Opportunity              @relation(fields: [opportunityId], references: [id], onDelete: NoAction)
   evidence    RecommendationEvidence[]
+  events      RecommendationEvent[]
 
   @@index([companyId, status])
+  @@index([companyId, relevantUntil])
   @@index([opportunityId])
+}
+
+/// One status change of a recommendation: who, when, from what, and why.
+model RecommendationEvent {
+  id               String                @id @default(cuid())
+  recommendationId String
+  fromStatus       RecommendationStatus?
+  toStatus         RecommendationStatus
+  actorId          String?
+  note             String?               @db.Text
+  createdAt        DateTime              @default(now())
+
+  recommendation Recommendation @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+
+  @@index([recommendationId, createdAt])
 }
 
 /// Evidence carried forward from the opportunity, copied rather than shared:

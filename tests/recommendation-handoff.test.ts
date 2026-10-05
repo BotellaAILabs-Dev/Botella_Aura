@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 
 import {
   HANDOFF_VERSION,
-  OPPORTUNITY_TO_RECOMMENDATION,
-  RECOMMENDATION_TO_OPPORTUNITY,
   buildHandoff,
   handoffEligibility,
   opportunityHandoffSchema,
@@ -11,6 +9,10 @@ import {
   type HandoffSource,
 } from '@/lib/recommendation-handoff';
 import { canTransition } from '@/lib/opportunities';
+import {
+  OPPORTUNITY_TO_RECOMMENDATION,
+  RECOMMENDATION_TO_OPPORTUNITY,
+} from '@/lib/recommendations';
 
 /**
  * Opportunity → Recommendation hand-off: what is passed, when it may be
@@ -198,9 +200,8 @@ describe('evidence that carries forward', () => {
   });
 
   it('seeds a recommendation that references the opportunity and copies its evidence', () => {
-    const seed = recommendationSeed(build(), { title: '  ' });
+    const seed = recommendationSeed(build());
     expect(seed.opportunityId).toBe('opp1');
-    expect(seed.title).toBe('Own the brewing-guide conversation');
     expect(seed).toMatchObject({
       confidence: 'MEDIUM',
       priority: 'MEDIUM',
@@ -216,9 +217,6 @@ describe('evidence that carries forward', () => {
       reliability: 'HIGH',
     });
     expect(seed.evidence[0]!.observedAt).toEqual(days(-3));
-    expect(
-      recommendationSeed(build(), { title: 'Run a guide series' }).title,
-    ).toBe('Run a guide series');
   });
 });
 
@@ -273,13 +271,14 @@ describe('status sync', () => {
       }
     }
     expect(RECOMMENDATION_TO_OPPORTUNITY.WITHDRAWN).toBeNull();
+    expect(RECOMMENDATION_TO_OPPORTUNITY.EXPIRED).toBeNull();
   });
 
   it('mirrors opportunity decisions and expiry onto an open recommendation', () => {
     expect(OPPORTUNITY_TO_RECOMMENDATION).toEqual({
       ACCEPTED: 'ACCEPTED',
       REJECTED: 'REJECTED',
-      EXPIRED: 'WITHDRAWN',
+      EXPIRED: 'EXPIRED',
     });
   });
 });

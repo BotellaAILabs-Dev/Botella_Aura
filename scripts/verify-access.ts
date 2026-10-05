@@ -262,6 +262,7 @@ async function main() {
       ownerA.req('GET', '/api/opportunities?limit=200'),
       ownerA.req('GET', '/api/signals'),
       ownerA.req('GET', '/api/advisor'),
+      ownerA.req('GET', '/api/recommendations'),
     ]);
     check(
       'lists contain nothing of business B',
@@ -281,6 +282,12 @@ async function main() {
         'POST',
         `/api/recommendations/${recB.id}/decision`,
         { decision: 'REJECTED' },
+      ],
+      ['GET', `/api/recommendations/${recB.id}`, undefined],
+      [
+        'POST',
+        `/api/recommendations/${recB.id}/status`,
+        { status: 'ACCEPTED' },
       ],
     ] as const) {
       const r = await ownerA.req(method, path, body);

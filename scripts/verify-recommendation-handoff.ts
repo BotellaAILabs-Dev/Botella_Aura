@@ -5,8 +5,8 @@
  * signals, then checks: the hand-off and its eligibility, that a
  * recommendation references its opportunity and carries its evidence forward,
  * that the opportunity moves to RECOMMENDED in the same transaction, that
- * decisions stay in step in both directions, and that deleting an
- * opportunity keeps its recommendations (and their evidence) intact.
+ * decisions stay in step in both directions, and that an opportunity with
+ * recommendations cannot be deleted out from under them.
  *
  * Run: pnpm verify:recommendation-handoff
  *
@@ -174,7 +174,7 @@ async function main() {
     );
     check(
       'a second open recommendation is refused',
-      /already has an open/.test(dup),
+      /already has a recommendation/.test(dup),
       dup,
     );
 
@@ -201,7 +201,7 @@ async function main() {
     );
     check(
       'a recommendation is decided only once',
-      /already accepted/.test(again),
+      /cannot be marked rejected/.test(again),
       again,
     );
     const closed = await expectError(() =>
@@ -244,7 +244,7 @@ async function main() {
       opportunityId: c.id,
       createdBy: 'verify',
       actorId: null,
-      title: 'Launch a guide series',
+      content: { title: 'Launch a guide series' },
     });
     check(
       'a recommendation can have its own title',
@@ -269,20 +269,20 @@ async function main() {
     }).catch(() => null);
     check('…and it can be recommended again', Boolean(recC2));
 
-    console.log('\nRecommendations outlive their opportunity');
-    await db.opportunity.delete({ where: { id: c.id } });
-    const orphan = await db.recommendation.findUnique({
+    console.log('\nEvery recommendation keeps its opportunity');
+    const blocked = await expectError(() =>
+      db.opportunity.delete({ where: { id: c.id } }),
+    );
+    const kept = await db.recommendation.findUnique({
       where: { id: recC.id },
       include: { evidence: true },
     });
     check(
-      'kept, with the reference cleared and its evidence intact',
-      orphan !== null &&
-        orphan.opportunityId === null &&
-        orphan.evidence.length === signals.length &&
-        orphan.evidence.every(
-          (e) => e.opportunitySignalId === null && e.signalId,
-        ),
+      'an opportunity with recommendations cannot be deleted on its own',
+      blocked !== '' &&
+        kept?.opportunityId === c.id &&
+        kept.evidence.length === signals.length,
+      blocked.slice(0, 80),
     );
   } finally {
     await db.company.delete({ where: { id: company.id } });

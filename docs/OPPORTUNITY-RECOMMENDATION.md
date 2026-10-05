@@ -9,6 +9,12 @@ consume opportunities without the data model changing underneath it.
   ([OPPORTUNITY-MODEL.md](OPPORTUNITY-MODEL.md)).
 - A **recommendation** is what Aura proposes the business *do* about it.
 
+> **Updated in Sprint 8:** the Recommendation model now holds the
+> recommendation's own content (what, why, action, expected outcome, channel,
+> audience), a full status lifecycle and history. Every recommendation must
+> have an opportunity. See [RECOMMENDATION-MODEL.md](RECOMMENDATION-MODEL.md);
+> this document covers the hand-off between the two.
+
 | Piece | Where |
 | --- | --- |
 | Hand-off contract, eligibility, status sync (pure) | [`lib/recommendation-handoff.ts`](../lib/recommendation-handoff.ts) |
@@ -31,29 +37,20 @@ Opportunity 1 ──── * Recommendation 1 ──── * RecommendationEvide
 - **A recommendation references its originating opportunity** with
   `Recommendation.opportunityId`.
 - **An opportunity can have several recommendations over time**, but only
-  **one open** (`PROPOSED`) at a time.
+  **one in play** (proposed, accepted or in progress) at a time.
 - **An opportunity never depends on a recommendation existing.** It is stored,
   reviewed and decided on its own.
-- **Recommendations outlive their opportunity.** If an opportunity is deleted,
-  its recommendations keep everything they were built from: the reference
-  becomes `null` (`onDelete: SetNull`).
+- **Every recommendation has its opportunity.** The link is required, and an
+  opportunity can't be deleted while it has recommendations. Deleting the
+  whole workspace removes both. (Sprint 7 instead cleared the link; Sprint 8
+  made it required.)
 
 ### Recommendation schema
 
-| Field | Purpose |
-| --- | --- |
-| `opportunityId` | The opportunity it answers (nullable, see above) |
-| `status` | `PROPOSED` → `ACCEPTED` / `REJECTED` / `WITHDRAWN` |
-| `title`, `summary` | Start as the opportunity's own; can be overridden |
-| `content` | **What to do. Written by the Sprint 8 engine;** `{}` until then |
-| `confidence`, `confidenceReason`, `priority`, `priorityScore` | Handed over from the opportunity |
-| `handoff`, `handoffVersion` | The exact hand-off it was built from (section 2), and its version |
-| `contextRevision`, `contextFingerprint`, `contextFields` | The Business Context it was built against |
-| `createdBy` | `user:<id>`, `rule:…`, or a model name |
-| `decidedAt`, `decidedById`, `decisionNote` | Who decided, when and why |
-
-Sprint 8 adds what the engine needs (actions, channels, schedule…) **by
-adding columns or filling `content`**. Nothing above needs to change.
+See [RECOMMENDATION-MODEL.md](RECOMMENDATION-MODEL.md). What the hand-off
+supplies to it: `opportunityId`, `confidence`, `confidenceReason`, `priority`,
+`priorityScore`, `relevantUntil`, `handoff` and `handoffVersion`, the
+`context…` fields, and a copy of every piece of evidence.
 
 ## 2. Data passed: the hand-off
 
@@ -129,7 +126,7 @@ One decision, recorded on both sides, in the same transaction:
 | Recommendation withdrawn | unchanged; can be recommended again | `WITHDRAWN` |
 | Opportunity accepted directly | `ACCEPTED` | open one → `ACCEPTED` |
 | Opportunity rejected directly | `REJECTED` | open one → `REJECTED` |
-| Opportunity expired | `EXPIRED` | open one → `WITHDRAWN` |
+| Opportunity expired | `EXPIRED` | open one → `EXPIRED` |
 
 All opportunity moves still go through `transitionOpportunity`, so the
 opportunity's history is complete. Decisions are compare-and-swap: a
@@ -145,21 +142,24 @@ opportunity has one.
 | --- | --- | --- |
 | `GET /api/opportunities/:id/handoff` | The hand-off and its eligibility: **the engine's input** | Any member |
 | `GET /api/opportunities/:id/recommendations` | Recommendations made from an opportunity | Any member |
-| `POST /api/opportunities/:id/recommendations` `{ title?, summary? }` | Create one (201; 409 if ineligible or one is open) | Owners and admins |
+| `POST /api/opportunities/:id/recommendations` `{ type?, title?, action?, … }` | Create one (201; 409 if ineligible or one is in play) | Owners and admins |
 | `POST /api/recommendations/:id/decision` `{ decision, note? }` | `ACCEPTED`, `REJECTED` or `WITHDRAWN` (409 if already decided) | Owners and admins |
 | `GET /api/opportunities/:id` | Now also lists its recommendations | Any member |
 
 Service functions for the engine to call directly:
 - `getOpportunityHandoff(companyId, opportunityId)`
 - `createRecommendationFromOpportunity({ …, createdBy, content })`: the engine
-  passes its own `createdBy` (model name) and `content`
+  passes its own `createdBy` (model name) and `content` (what, why, action,
+  expected outcome…), which replaces the default draft
 - `decideRecommendation({ … })`
 - `listRecommendations(companyId, { opportunityId })`
 
-## Left for Sprint 8
+## Left for later
 
-- Deciding what to recommend: the engine reads the hand-off and the
-  `recommendation` snapshot, and writes `content`.
+The recommendation's structure, lifecycle and execution brief are in
+[RECOMMENDATION-MODEL.md](RECOMMENDATION-MODEL.md). Still to come:
+- The engine: deciding what to recommend from the hand-off and the
+  `recommendation` snapshot, and writing the content.
 - A Recommendations page in the app.
 - Choosing which opportunities to turn into recommendations automatically, and
   when.

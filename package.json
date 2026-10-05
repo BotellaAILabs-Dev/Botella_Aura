@@ -34,6 +34,7 @@
     "verify:recommendation-handoff": "tsx scripts/verify-recommendation-handoff.ts",
     "verify:access": "tsx scripts/verify-access.ts",
     "verify:flow": "tsx scripts/verify-flow.ts",
+    "verify:recommendations": "tsx scripts/verify-recommendations.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",

@@ -39,8 +39,7 @@ import {
  *   · WHAT CARRIES FORWARD — every piece of evidence, copied into the
  *     recommendation with its links to the opportunity's evidence row and the
  *     normalised signal, and marked if it is no longer current.
- *   · HOW THE TWO STAY IN STEP — STATUS_SYNC: a recommendation's decision is
- *     the opportunity's decision, and vice versa.
+ *   · HOW THE TWO STAY IN STEP — lib/recommendations.ts STATUS SYNC.
  *
  * Pure and client-safe. The service is server/recommendations.
  */
@@ -326,19 +325,14 @@ export function buildHandoff(
 // ---------------------------------------------------------------------------
 
 /**
- * The fields a recommendation takes from the hand-off. Sprint 8 writes the
- * recommendation's own content (what to do); everything here is inherited,
- * so a recommendation can always say which opportunity it answers and what
- * evidence that rested on.
+ * What a recommendation inherits from the hand-off: the link to its
+ * opportunity, its assessment, the context it was detected against, and a
+ * copy of every piece of evidence. The recommendation's own content (what,
+ * why, action…) comes from lib/recommendations.ts.
  */
-export function recommendationSeed(
-  h: OpportunityHandoff,
-  overrides: { title?: string; summary?: string } = {},
-) {
+export function recommendationSeed(h: OpportunityHandoff) {
   return {
     opportunityId: h.opportunity.id,
-    title: (overrides.title?.trim() || h.opportunity.title).slice(0, 200),
-    summary: overrides.summary?.trim() || h.opportunity.summary,
     confidence: h.assessment.confidence,
     confidenceReason: h.assessment.confidenceReason,
     priority: h.assessment.priority,
@@ -360,45 +354,3 @@ export function recommendationSeed(
     })),
   };
 }
-
-// ---------------------------------------------------------------------------
-// Keeping the two in step
-// ---------------------------------------------------------------------------
-
-export const RECOMMENDATION_STATUSES = [
-  'PROPOSED',
-  'ACCEPTED',
-  'REJECTED',
-  'WITHDRAWN',
-] as const;
-export type RecommendationStatus = (typeof RECOMMENDATION_STATUSES)[number];
-
-/**
- * STATUS SYNC. One decision, recorded on both sides:
- *
- *   recommendation created           → opportunity RECOMMENDED
- *   recommendation ACCEPTED          → opportunity ACCEPTED
- *   recommendation REJECTED          → opportunity REJECTED
- *   recommendation WITHDRAWN         → opportunity unchanged
- *
- *   opportunity ACCEPTED directly    → open recommendation ACCEPTED
- *   opportunity REJECTED directly    → open recommendation REJECTED
- *   opportunity EXPIRED              → open recommendation WITHDRAWN
- */
-export const RECOMMENDATION_TO_OPPORTUNITY: Record<
-  RecommendationStatus,
-  OpportunityStatus | null
-> = {
-  PROPOSED: 'RECOMMENDED',
-  ACCEPTED: 'ACCEPTED',
-  REJECTED: 'REJECTED',
-  WITHDRAWN: null,
-};
-
-export const OPPORTUNITY_TO_RECOMMENDATION: Partial<
-  Record<OpportunityStatus, RecommendationStatus>
-> = {
-  ACCEPTED: 'ACCEPTED',
-  REJECTED: 'REJECTED',
-  EXPIRED: 'WITHDRAWN',
-};

@@ -16,7 +16,10 @@ import {
   type OpportunityStatus,
   type SignalInput,
 } from '@/lib/opportunities';
-import { OPPORTUNITY_TO_RECOMMENDATION } from '@/lib/recommendation-handoff';
+import {
+  OPPORTUNITY_TO_RECOMMENDATION,
+  type RecommendationStatus,
+} from '@/lib/recommendations';
 import { getBusinessContext } from '@/server/business-context/business-context.service';
 
 /**
@@ -336,22 +339,67 @@ export async function transitionOpportunity(
       },
     });
     // A decision on the opportunity is the decision on its open
-    // recommendation too (lib/recommendation-handoff.ts STATUS SYNC).
+    // recommendation too (lib/recommendations.ts STATUS SYNC).
     const mirrored = OPPORTUNITY_TO_RECOMMENDATION[args.to];
     if (mirrored) {
-      await tx.recommendation.updateMany({
-        where: { opportunityId: current.id, status: 'PROPOSED' },
-        data: {
-          status: mirrored,
-          decidedAt: now,
-          decidedById: args.actorId,
-          decisionNote: args.note ?? 'Decided on the opportunity.',
-        },
+      await mirrorOntoRecommendations(tx, {
+        opportunityId: current.id,
+        to: mirrored,
+        actorId: args.actorId,
+        note: args.note ?? 'Decided on the opportunity.',
+        now,
       });
     }
     return tx.opportunity.findUniqueOrThrow({ where: { id: current.id } });
   };
   return tx ? apply(tx) : db.$transaction(apply);
+}
+
+/**
+ * Carry an opportunity's decision onto its recommendation still waiting for
+ * one, with the same history a direct decision would leave.
+ */
+async function mirrorOntoRecommendations(
+  tx: Prisma.TransactionClient,
+  args: {
+    opportunityId: string;
+    to: RecommendationStatus;
+    actorId: string | null;
+    note: string;
+    now: Date;
+  },
+) {
+  const open = await tx.recommendation.findMany({
+    where: { opportunityId: args.opportunityId, status: 'PROPOSED' },
+    select: { id: true },
+  });
+  for (const r of open) {
+    const swapped = await tx.recommendation.updateMany({
+      where: { id: r.id, status: 'PROPOSED' },
+      data: {
+        status: args.to,
+        statusChangedAt: args.now,
+        ...(args.to === 'EXPIRED'
+          ? { expiredAt: args.now }
+          : {
+              decidedAt: args.now,
+              decidedById: args.actorId,
+              decisionNote: args.note,
+            }),
+      },
+    });
+    if (swapped.count === 0) continue;
+    await tx.recommendationEvent.create({
+      data: {
+        recommendationId: r.id,
+        fromStatus: 'PROPOSED',
+        toStatus: args.to,
+        actorId: args.actorId,
+        note: args.note,
+        createdAt: args.now,
+      },
+    });
+  }
 }
 
 /** Expire every open opportunity whose relevance window has passed. */
@@ -387,13 +435,12 @@ export async function expireOpportunities(
           createdAt: now,
         },
       });
-      await tx.recommendation.updateMany({
-        where: { opportunityId: o.id, status: 'PROPOSED' },
-        data: {
-          status: 'WITHDRAWN',
-          decidedAt: now,
-          decisionNote: 'Its opportunity expired before a decision.',
-        },
+      await mirrorOntoRecommendations(tx, {
+        opportunityId: o.id,
+        to: 'EXPIRED',
+        actorId: null,
+        note: 'Its opportunity expired before a decision.',
+        now,
       });
     }
     return expired;

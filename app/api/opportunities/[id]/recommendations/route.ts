@@ -1,7 +1,6 @@
-import { z } from 'zod';
-
 import { requireActiveCompany } from '@/lib/auth-helpers';
 import { can } from '@/lib/rbac';
+import { recommendationContentSchema } from '@/lib/recommendations';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 import {
   createRecommendationFromOpportunity,
@@ -10,19 +9,38 @@ import {
 
 /**
  * GET  /api/opportunities/:id/recommendations — recommendations made from it.
- * POST /api/opportunities/:id/recommendations { title?, summary? }
+ * POST /api/opportunities/:id/recommendations { title?, action?, rationale?, … }
  *
- * Create a recommendation from this opportunity: it references the
- * opportunity, carries its evidence forward, and moves the opportunity to
- * RECOMMENDED. 409 if the opportunity cannot be recommended (closed, past its
- * window, no current evidence) or already has an open recommendation.
+ * Create a recommendation from this opportunity. Its content starts as a
+ * default draft built from the opportunity; any field sent replaces the
+ * draft's. It references the opportunity, carries its evidence forward, and
+ * moves the opportunity to RECOMMENDED. 409 if the opportunity cannot be
+ * recommended (closed, past its window, no current evidence) or already has a
+ * recommendation in play.
  */
 export const dynamic = 'force-dynamic';
 
-const bodySchema = z.object({
-  title: z.string().trim().min(3).max(200).optional(),
-  summary: z.string().trim().min(1).max(4000).optional(),
-});
+/**
+ * Any part of the recommendation's own content; the rest comes from the
+ * default draft built from the opportunity. Confidence, priority, evidence
+ * and the link are inherited and cannot be set here.
+ */
+const bodySchema = recommendationContentSchema
+  .pick({
+    type: true,
+    title: true,
+    summary: true,
+    action: true,
+    steps: true,
+    rationale: true,
+    expectedOutcome: true,
+    outcomeMetric: true,
+    channel: true,
+    contentType: true,
+    audience: true,
+  })
+  .partial()
+  .strict();
 
 export async function GET(
   _req: Request,
@@ -57,7 +75,7 @@ export async function POST(
       opportunityId: params.id,
       createdBy: `user:${user.id}`,
       actorId: user.id,
-      ...body,
+      content: body,
     });
     return jsonOk({ recommendation }, 201);
   } catch (error) {

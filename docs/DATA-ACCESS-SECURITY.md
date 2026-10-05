@@ -72,7 +72,8 @@ stay valid as the application-level layer.
 | `GET /api/opportunities/:id`, `…/handoff` | own | — | id **and** workspace |
 | `POST /api/opportunities/:id/status` | own | `company:update` | id **and** workspace |
 | `GET/POST /api/opportunities/:id/recommendations` | own | `company:update` | id **and** workspace |
-| `POST /api/recommendations/:id/decision` | own | `company:update` | id **and** workspace |
+| `POST /api/recommendations/:id/decision`, `POST …/:id/status` | own | `company:update` | id **and** workspace |
+| `GET /api/recommendations`, `GET /api/recommendations/:id` | own | — | id **and** workspace |
 | `POST /api/opportunities/detect`, `POST /api/signals/refresh` | own | `company:update` | n/a |
 | `POST /api/advisor` | own | `content:create` | n/a |
 | Pages: Opportunities, About my business, Campaign ideas | own (active) | actions as above | n/a |
