@@ -150,6 +150,12 @@ export interface CompleteOptions {
   tier?: ModelTier;
   /** Hard per-attempt ceiling in ms. Default 120s. */
   timeoutMs?: number;
+  /**
+   * The answer must be JSON. Set by completeJson / completeStructured. Gemini
+   * then returns bare JSON (no fences, no prose) — Anthropic follows the
+   * prompt, and parseJson() tolerates either.
+   */
+  json?: boolean;
 }
 
 /**
@@ -221,13 +227,14 @@ export async function complete(options: CompleteOptions): Promise<string> {
     effort = 'high',
     tier = 'premium',
     timeoutMs = DEFAULT_TIMEOUT_MS,
+    json = false,
   } = options;
 
   const run = async (): Promise<string> => {
     if (hasAnthropic())
       return callAnthropic(system, prompt, maxTokens, effort, tier, timeoutMs);
     if (isGeminiConfigured())
-      return callGemini(system, prompt, maxTokens, timeoutMs);
+      return callGemini(system, prompt, maxTokens, timeoutMs, { json, effort });
     throw new ClaudeNotConfiguredError();
   };
 
@@ -284,16 +291,40 @@ async function callAnthropic(
 }
 
 /**
+ * How much a Gemini model may "think" before answering, from the caller's
+ * effort.
+ *
+ * Current Gemini models think by default, and those thinking tokens come out
+ * of the same maxOutputTokens budget as the answer. Measured on a two-caption
+ * JSON request: 946 thinking tokens for a 213-token answer, nearly 12s — and
+ * on a longer piece the answer was cut off mid-JSON, failed to parse and
+ * forced a full retry. Routine work (effort low/medium) thinks lightly; work
+ * that asked for depth (high and above) keeps it. Gemini 2.5 takes a token
+ * budget; later models take a level.
+ */
+export function geminiThinking(
+  model: string,
+  effort: NonNullable<CompleteOptions['effort']>,
+): Record<string, unknown> {
+  const deep = effort === 'high' || effort === 'xhigh' || effort === 'max';
+  if (/gemini-2\.5/.test(model)) {
+    return { thinkingBudget: deep ? -1 : /flash-lite/.test(model) ? 0 : 512 };
+  }
+  return { thinkingLevel: deep ? 'high' : 'low' };
+}
+
+/**
  * Google Gemini via the Generative Language REST API. No SDK — a single fetch
- * keeps the app lean. `effort`/streaming are Anthropic-only concepts and are
- * ignored here. For JSON-shaped calls the caller's prompt already asks for JSON;
- * parseJson() tolerates fences.
+ * keeps the app lean. Streaming is Anthropic-only; effort maps to Gemini's
+ * thinking (geminiThinking). JSON calls ask for JSON output directly, so no
+ * fences or prose come back to strip.
  */
 async function callGemini(
   system: string | undefined,
   prompt: string,
   maxTokens: number,
   timeoutMs: number,
+  options: { json: boolean; effort: NonNullable<CompleteOptions['effort']> },
 ): Promise<string> {
   const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
   let res: Response;
@@ -309,7 +340,12 @@ async function callGemini(
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
           ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
-          generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
+          generationConfig: {
+            maxOutputTokens: maxTokens,
+            temperature: 0.7,
+            ...(options.json ? { responseMimeType: 'application/json' } : {}),
+            thinkingConfig: geminiThinking(model, options.effort),
+          },
         }),
         signal: AbortSignal.timeout(timeoutMs),
       },
@@ -348,7 +384,7 @@ async function callGemini(
  * a parse failure throws so the caller can fall back.
  */
 export async function completeJson<T>(options: CompleteOptions): Promise<T> {
-  const text = await complete(options);
+  const text = await complete({ ...options, json: true });
   return parseJson<T>(text);
 }
 
@@ -365,7 +401,7 @@ export async function completeStructured<S extends ZodTypeAny>(
 
   const attempt = async (extra?: string): Promise<z.infer<S>> => {
     const prompt = extra ? `${rest.prompt}\n\n${extra}` : rest.prompt;
-    const text = await complete({ ...rest, prompt });
+    const text = await complete({ ...rest, prompt, json: true });
     const parsed = schema.safeParse(parseJson<unknown>(text));
     if (!parsed.success) {
       throw new SchemaValidationError(parsed.error.message, text);
