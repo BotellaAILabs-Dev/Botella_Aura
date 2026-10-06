@@ -41,17 +41,16 @@ async function main() {
   // --- 1. settings --------------------------------------------------------
   console.log('1. Autopilot settings');
   const settings = readAutopilotSettings(company);
-  settings.enabled
-    ? ok('defaults to enabled', `${settings.postsPerWeek} posts/week, graphics ${settings.generateGraphics}`)
-    : fail('settings', 'disabled by default');
+  if (settings.enabled) ok('defaults to enabled', `${settings.postsPerWeek} posts/week, graphics ${settings.generateGraphics}`);
+  else fail('settings', 'disabled by default');
 
   const off = readAutopilotSettings({ preferences: { autopilot: { enabled: false } } });
-  !off.enabled ? ok('respects an explicit off switch') : fail('settings', 'ignored the off switch');
+  if (!off.enabled) ok('respects an explicit off switch');
+  else fail('settings', 'ignored the off switch');
 
   const capped = readAutopilotSettings({ preferences: { autopilot: { postsPerWeek: 999 } } });
-  capped.postsPerWeek <= 5
-    ? ok('caps runaway config', `999 -> ${capped.postsPerWeek}`)
-    : fail('settings', `uncapped: ${capped.postsPerWeek}`);
+  if (capped.postsPerWeek <= 5) ok('caps runaway config', `999 -> ${capped.postsPerWeek}`);
+  else fail('settings', `uncapped: ${capped.postsPerWeek}`);
 
   // --- 2. assembly is pure ------------------------------------------------
   console.log('\n2. Assembly (no model calls, no writes)');
@@ -62,22 +61,20 @@ async function main() {
     weekEnd: new Date(weekStart.getTime() + 7 * 86_400_000 - 1),
   });
   const after = await db.contentDraft.count({ where: { companyId: company.id } });
-  before === after ? ok('assembling created no content') : fail('assembly', 'it wrote something');
+  if (before === after) ok('assembling created no content');
+  else fail('assembly', 'it wrote something');
   ok('headline', payload.headline);
   ok('sections', `calendar ${payload.calendar.length}, ready ${payload.readyContent.length}, competitors ${payload.competitorMoves.length}, recs ${payload.recommendations.length}, insights ${payload.insights.length}`);
-  payload.coverage.skipped.length > 0
-    ? ok('reports gaps honestly', payload.coverage.skipped.map((s) => s.source).join(', '))
-    : ok('no gaps to report');
+  if (payload.coverage.skipped.length > 0) ok('reports gaps honestly', payload.coverage.skipped.map((s) => s.source).join(', '));
+  else ok('no gaps to report');
 
   // --- 3. schema tolerance ------------------------------------------------
   console.log('\n3. Payload tolerance');
   const older = readBriefingPayload({ headline: 'from an older build' });
-  older.calendar.length === 0 && older.headline === 'from an older build'
-    ? ok('a payload missing new fields still parses')
-    : fail('tolerance', 'older payload did not survive');
-  readBriefingPayload('nonsense').calendar.length === 0
-    ? ok('garbage never throws')
-    : fail('tolerance', 'threw on garbage');
+  if (older.calendar.length === 0 && older.headline === 'from an older build') ok('a payload missing new fields still parses');
+  else fail('tolerance', 'older payload did not survive');
+  if (readBriefingPayload('nonsense').calendar.length === 0) ok('garbage never throws');
+  else fail('tolerance', 'threw on garbage');
 
   // --- 4. a real autopilot run --------------------------------------------
   console.log('\n4. Autopilot run (no API keys configured here)');
@@ -88,46 +85,48 @@ async function main() {
   ok('completed without throwing', `ran=${result.ran}`);
   console.log(`        drafts ${draftsBefore} -> ${draftsAfter}, graphics ${result.activity.graphicsGenerated}`);
   for (const s of result.activity.skipped) console.log(`        skipped: ${s}`);
-  result.activity.skipped.length > 0 || result.activity.draftsWritten > 0
-    ? ok('either did work or explained why it could not')
-    : fail('autopilot', 'silently did nothing');
+  if (result.activity.skipped.length > 0 || result.activity.draftsWritten > 0) ok('either did work or explained why it could not');
+  else fail('autopilot', 'silently did nothing');
 
   // --- 5. the approval gate -----------------------------------------------
   console.log('\n5. The approval gate');
   const approvedByAgent = await db.contentDraft.count({
     where: { companyId: company.id, status: { in: ['APPROVED', 'PUBLISHED'] }, createdById: null },
   });
-  approvedByAgent === 0
-    ? ok('nothing the agent produced is approved or published')
-    : fail('APPROVAL GATE', `${approvedByAgent} agent items are already approved`);
+  if (approvedByAgent === 0) ok('nothing the agent produced is approved or published');
+  else fail('APPROVAL GATE', `${approvedByAgent} agent items are already approved`);
 
   // --- 6. idempotency -----------------------------------------------------
   console.log('\n6. Idempotency (a retried cron must not double-spend)');
   const beforeRetry = await db.contentDraft.count({ where: { companyId: company.id } });
   const retry = await runAutopilot({ companyId: company.id, userId: null });
   const afterRetry = await db.contentDraft.count({ where: { companyId: company.id } });
-  !retry.ran && beforeRetry === afterRetry
-    ? ok('a second run in the same week wrote nothing', retry.reason ?? '')
-    : fail('idempotency', `ran=${retry.ran}, drafts ${beforeRetry} -> ${afterRetry}`);
+  if (!retry.ran && beforeRetry === afterRetry) ok('a second run in the same week wrote nothing', retry.reason ?? '');
+  else fail('idempotency', `ran=${retry.ran}, drafts ${beforeRetry} -> ${afterRetry}`);
 
   // --- 7. persistence -----------------------------------------------------
   console.log('\n7. Briefing row');
   const row = await getLatestBriefing(company.id);
   if (!row) { fail('persistence', 'no briefing stored'); return; }
   const view = toBriefingView(row);
-  view.isCurrentWeek ? ok('stored for the current week') : fail('persistence', 'wrong week');
-  view.status === 'READY' ? ok('status READY') : fail('persistence', `status ${view.status}`);
-  !view.read ? ok('starts unread') : fail('persistence', 'already marked read');
+  if (view.isCurrentWeek) ok('stored for the current week');
+  else fail('persistence', 'wrong week');
+  if (view.status === 'READY') ok('status READY');
+  else fail('persistence', `status ${view.status}`);
+  if (!view.read) ok('starts unread');
+  else fail('persistence', 'already marked read');
 
   const count = await db.workspaceBriefing.count({
     where: { companyId: company.id, weekStart },
   });
-  count === 1 ? ok('exactly one briefing per week') : fail('persistence', `${count} rows for this week`);
+  if (count === 1) ok('exactly one briefing per week');
+  else fail('persistence', `${count} rows for this week`);
 
   // Re-generating replaces rather than duplicating.
   await generateBriefing({ companyId: company.id, userId: null });
   const after2 = await db.workspaceBriefing.count({ where: { companyId: company.id, weekStart } });
-  after2 === 1 ? ok('re-generating replaces, never duplicates') : fail('persistence', `${after2} rows`);
+  if (after2 === 1) ok('re-generating replaces, never duplicates');
+  else fail('persistence', `${after2} rows`);
 }
 
 main()

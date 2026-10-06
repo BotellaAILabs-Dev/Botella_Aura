@@ -119,12 +119,10 @@ async function main() {
   console.log('1. Byte validation');
   const png = makePng(1024, 1024);
   const validated = validateImageBytes(png, { width: 9999, height: 9999 });
-  validated.mimeType === 'image/png'
-    ? ok('sniffs PNG from magic number')
-    : fail('sniff', validated.mimeType);
-  validated.width === 1024 && validated.height === 1024
-    ? ok('reads REAL dimensions, ignoring the claimed 9999x9999')
-    : fail('dimensions', `${validated.width}x${validated.height}`);
+  if (validated.mimeType === 'image/png') ok('sniffs PNG from magic number');
+  else fail('sniff', validated.mimeType);
+  if (validated.width === 1024 && validated.height === 1024) ok('reads REAL dimensions, ignoring the claimed 9999x9999');
+  else fail('dimensions', `${validated.width}x${validated.height}`);
 
   try {
     validateImageBytes(Buffer.from('<!DOCTYPE html><html>error</html>'), {
@@ -170,14 +168,12 @@ async function main() {
     metadata: { verifiedBy: 'scripts/verify-graphics.ts' },
   });
   ok('persisted GeneratedAsset row', asset.id);
-  'data' in asset
-    ? fail('summary select', 'createAsset echoed the bytes back')
-    : ok('createAsset does NOT round-trip the bytes back');
+  if ('data' in asset) fail('summary select', 'createAsset echoed the bytes back');
+  else ok('createAsset does NOT round-trip the bytes back');
 
   const readBack = await readAssetBytes(await getAsset(company.id, assetId));
-  readBack && readBack.equals(png)
-    ? ok('bytes read back byte-for-byte identical')
-    : fail('read back', 'bytes differ or missing');
+  if (readBack && readBack.equals(png)) ok('bytes read back byte-for-byte identical');
+  else fail('read back', 'bytes differ or missing');
 
   // --- 3. tenant scoping --------------------------------------------------
   console.log('\n3. Ownership');
@@ -191,18 +187,15 @@ async function main() {
   // --- 4. history ---------------------------------------------------------
   console.log('\n4. History');
   const history = await listAssets(company.id, { draftId: draft.id });
-  history.some((a) => a.id === assetId)
-    ? ok('appears in this draft history', `${history.length} asset(s)`)
-    : fail('history', 'asset missing');
-  history.every((a) => !('data' in a))
-    ? ok('listing never selects the bytes column')
-    : fail('history', 'listing pulled image bytes');
+  if (history.some((a) => a.id === assetId)) ok('appears in this draft history', `${history.length} asset(s)`);
+  else fail('history', 'asset missing');
+  if (history.every((a) => !('data' in a))) ok('listing never selects the bytes column');
+  else fail('history', 'listing pulled image bytes');
   ok('month usage counter', `${await assetsThisMonth(company.id)} this month`);
 
   const view = toAssetView(history[0]!);
-  view.url === `/api/content/graphics/${assetId}/file`
-    ? ok('client view exposes a URL, never bytes')
-    : fail('view', view.url);
+  if (view.url === `/api/content/graphics/${assetId}/file`) ok('client view exposes a URL, never bytes');
+  else fail('view', view.url);
 
   // --- 4b. resumability ---------------------------------------------------
   console.log('\n4b. Resumability (the double-charge guard)');
@@ -227,24 +220,20 @@ async function main() {
     metadata: { jobId },
   });
   const forJob = await assetsForJob(company.id, jobId);
-  forJob.length === 1 && forJob[0]!.id === tagged
-    ? ok('finds images a killed run already produced', `jobId=${jobId}`)
-    : fail('assetsForJob', `${forJob.length} found — a retry would re-generate and double-charge`);
-  (await assetsForJob(company.id, 'job_that_never_ran')).length === 0
-    ? ok('does not match an unrelated job')
-    : fail('assetsForJob', 'matched the wrong job');
+  if (forJob.length === 1 && forJob[0]!.id === tagged) ok('finds images a killed run already produced', `jobId=${jobId}`);
+  else fail('assetsForJob', `${forJob.length} found — a retry would re-generate and double-charge`);
+  if ((await assetsForJob(company.id, 'job_that_never_ran')).length === 0) ok('does not match an unrelated job');
+  else fail('assetsForJob', 'matched the wrong job');
   await deleteAsset({ companyId: company.id, userId: user.id, assetId: tagged });
 
   // --- 5. signed URL ------------------------------------------------------
   console.log('\n5. Signed URLs (the Instagram fetch path)');
   const signed = signedAssetUrl(assetId);
   const u = new URL(signed.url);
-  verifyAssetSignature(assetId, u.searchParams.get('exp'), u.searchParams.get('sig'))
-    ? ok('signature verifies for its own asset')
-    : fail('signature', 'did not verify');
-  verifyAssetSignature('another_asset', u.searchParams.get('exp'), u.searchParams.get('sig'))
-    ? fail('signature', 'verified for a DIFFERENT asset')
-    : ok('signature rejected for a different asset');
+  if (verifyAssetSignature(assetId, u.searchParams.get('exp'), u.searchParams.get('sig'))) ok('signature verifies for its own asset');
+  else fail('signature', 'did not verify');
+  if (verifyAssetSignature('another_asset', u.searchParams.get('exp'), u.searchParams.get('sig'))) fail('signature', 'verified for a DIFFERENT asset');
+  else ok('signature rejected for a different asset');
 
   // --- 6. attach ----------------------------------------------------------
   console.log('\n6. Attachment');
@@ -261,15 +250,12 @@ async function main() {
     type: draft.type as ContentTypeKey,
     platform: draft.platform,
   });
-  media.length === 1 && media[0]!.assetId === assetId
-    ? ok('attached to the post', `${media.length} media`)
-    : fail('attach', `${media.length} media`);
-  media[0]!.problems.length === 0
-    ? ok('valid for LinkedIn (1024x1024 PNG, no problems)')
-    : fail('platform validation', media[0]!.problems.join(' '));
-  (await attachedAssetIds(company.id, draft.id)).has(assetId)
-    ? ok('attachment reflected in the draft')
-    : fail('attachedAssetIds', 'missing');
+  if (media.length === 1 && media[0]!.assetId === assetId) ok('attached to the post', `${media.length} media`);
+  else fail('attach', `${media.length} media`);
+  if (media[0]!.problems.length === 0) ok('valid for LinkedIn (1024x1024 PNG, no problems)');
+  else fail('platform validation', media[0]!.problems.join(' '));
+  if ((await attachedAssetIds(company.id, draft.id)).has(assetId)) ok('attachment reflected in the draft');
+  else fail('attachedAssetIds', 'missing');
 
   // --- 7. platform-aware validation --------------------------------------
   console.log('\n7. Platform rules');
@@ -277,15 +263,14 @@ async function main() {
     { mimeType: 'image/png', width: 2048, height: 2048, fileSize: 1_000_000 },
     'INSTAGRAM',
   );
-  !igCheck.ok
-    ? ok('Instagram rejects a 2048px image', igCheck.problems[0]!)
-    : fail('instagram', 'accepted an oversized image');
-  validateForPlatform(
+  if (!igCheck.ok) ok('Instagram rejects a 2048px image', igCheck.problems[0]!);
+  else fail('instagram', 'accepted an oversized image');
+  const webpCheck = validateForPlatform(
     { mimeType: 'image/webp', width: 1024, height: 1024, fileSize: 500_000 },
     'LINKEDIN',
-  ).ok
-    ? fail('linkedin', 'accepted WEBP')
-    : ok('LinkedIn rejects WEBP');
+  );
+  if (webpCheck.ok) fail('linkedin', 'accepted WEBP');
+  else ok('LinkedIn rejects WEBP');
 
   // --- 8. the queue -------------------------------------------------------
   console.log('\n8. Queue (the existing one)');
@@ -303,9 +288,8 @@ async function main() {
     platform: 'LINKEDIN',
     scheduledFor: new Date(Date.now() + 3_600_000),
   });
-  queued.status === 'PENDING_APPROVAL'
-    ? ok('queueing a DRAFT sends it for review, not to APPROVED', `DRAFT -> ${queued.status}`)
-    : fail('APPROVAL GATE', `DRAFT -> ${queued.status}`);
+  if (queued.status === 'PENDING_APPROVAL') ok('queueing a DRAFT sends it for review, not to APPROVED', `DRAFT -> ${queued.status}`);
+  else fail('APPROVAL GATE', `DRAFT -> ${queued.status}`);
 
   // The other half: re-queueing an approved post to change its time must not
   // force a second approval round.
@@ -316,30 +300,24 @@ async function main() {
     draftId: draft.id,
     scheduledFor: new Date(Date.now() + 7_200_000),
   });
-  requeued.status === 'APPROVED'
-    ? ok('re-queueing an APPROVED post does not demand re-approval')
-    : fail('requeue', `APPROVED -> ${requeued.status}`);
-  queued.scheduledFor
-    ? ok('scheduled time recorded', queued.scheduledFor.toISOString())
-    : fail('schedule', 'not recorded');
-  queued.platform === 'LINKEDIN'
-    ? ok('platform recorded on the draft')
-    : fail('platform', String(queued.platform));
+  if (requeued.status === 'APPROVED') ok('re-queueing an APPROVED post does not demand re-approval');
+  else fail('requeue', `APPROVED -> ${requeued.status}`);
+  if (queued.scheduledFor) ok('scheduled time recorded', queued.scheduledFor.toISOString());
+  else fail('schedule', 'not recorded');
+  if (queued.platform === 'LINKEDIN') ok('platform recorded on the draft');
+  else fail('platform', String(queued.platform));
 
   // --- 9. extension queue -------------------------------------------------
   console.log('\n9. Extension queue');
   await db.contentDraft.update({ where: { id: draft.id }, data: { status: 'APPROVED' } });
   const queue = await getQueue(company.id);
   const item = queue.find((q) => q.itemId === draft.id);
-  item
-    ? ok('approved post appears in the extension queue', item.platformLabel ?? '')
-    : fail('extension queue', 'post missing');
-  item && item.media.length === 1
-    ? ok('queue item carries media METADATA', `${item.media[0]!.width}x${item.media[0]!.height} ${item.media[0]!.mimeType}`)
-    : fail('extension media', `${item?.media.length ?? 0} media`);
-  item && !JSON.stringify(item).includes('data:image')
-    ? ok('queue payload contains no image bytes')
-    : fail('extension queue', 'inlined bytes');
+  if (item) ok('approved post appears in the extension queue', item.platformLabel ?? '');
+  else fail('extension queue', 'post missing');
+  if (item && item.media.length === 1) ok('queue item carries media METADATA', `${item.media[0]!.width}x${item.media[0]!.height} ${item.media[0]!.mimeType}`);
+  else fail('extension media', `${item?.media.length ?? 0} media`);
+  if (item && !JSON.stringify(item).includes('data:image')) ok('queue payload contains no image bytes');
+  else fail('extension queue', 'inlined bytes');
 
   // --- 10. cleanup --------------------------------------------------------
   console.log('\n10. Cleanup');
@@ -348,14 +326,12 @@ async function main() {
     data: { status: before, scheduledFor: null, platform: null },
   });
   await deleteAsset({ companyId: company.id, userId: user.id, assetId });
-  (await db.generatedAsset.findUnique({ where: { id: assetId } }))
-    ? fail('delete', 'asset still present')
-    : ok('asset deleted and draft restored');
+  if ((await db.generatedAsset.findUnique({ where: { id: assetId } }))) fail('delete', 'asset still present');
+  else ok('asset deleted and draft restored');
 
   const platform = resolvePlatform(draft.type as ContentTypeKey, null);
-  platform === 'LINKEDIN'
-    ? ok('a draft with no platform still resolves to LinkedIn (back-compat)')
-    : fail('back-compat', platform);
+  if (platform === 'LINKEDIN') ok('a draft with no platform still resolves to LinkedIn (back-compat)');
+  else fail('back-compat', platform);
 }
 
 main()
