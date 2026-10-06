@@ -66,7 +66,16 @@ export async function surfaceRecommendations(
         decidedAt: {
           gte: new Date(now.getTime() - RANKING_WEIGHTS.historyDays * DAY),
         },
-        status: { in: ['ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'REJECTED'] },
+        status: {
+          in: [
+            'ACCEPTED',
+            'EDITED',
+            'IN_PROGRESS',
+            'COMPLETED',
+            'SKIPPED',
+            'REJECTED',
+          ],
+        },
       },
       select: {
         id: true,
@@ -209,6 +218,9 @@ export async function snoozeRecommendation(args: {
         recommendationId: r.id,
         fromStatus: r.status,
         toStatus: r.status,
+        action: 'defer',
+        source: 'user',
+        metadata: { until: until.toISOString(), times: r.snoozeCount + 1 },
         actorId: args.actorId,
         note: `Deferred until ${until.toISOString().slice(0, 10)}.`,
         createdAt: now,

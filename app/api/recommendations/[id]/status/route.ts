@@ -3,26 +3,33 @@ import { z } from 'zod';
 import { requireActiveCompany } from '@/lib/auth-helpers';
 import { can } from '@/lib/rbac';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
-import { RECOMMENDATION_STATUSES } from '@/lib/recommendations';
+import {
+  RECOMMENDATION_STATUSES,
+  USER_SETTABLE_STATUSES,
+} from '@/lib/recommendations';
 import { transitionRecommendation } from '@/server/recommendations/recommendation.service';
 
 /**
- * POST /api/recommendations/:id/status { status, note? }
+ * POST /api/recommendations/:id/status { status, note?, expectedStatus? }
  *
- * Move a recommendation through its lifecycle: accept, reject, withdraw,
- * start, complete. Only allowed moves succeed (409 otherwise, or if someone
- * else changed it first). Accepting or rejecting is the same decision on its
- * opportunity. Expiry is automatic and cannot be set by hand.
+ * Move a recommendation through its lifecycle: accept, skip, reject,
+ * withdraw, start, complete. Only allowed moves succeed (409 otherwise, or if
+ * someone else changed it first). Repeating the move it is already in is a
+ * no-op (`changed: false`) — never a second history entry. `expectedStatus`
+ * (the status the person was looking at) refuses an action taken on a stale
+ * screen. Presented, edited and expired are set by Aura or by an edit
+ * (POST …/presented, PATCH …/:id), not here.
  */
 export const dynamic = 'force-dynamic';
 
 const bodySchema = z.object({
   status: z
     .enum(RECOMMENDATION_STATUSES)
-    .refine((s) => s !== 'EXPIRED' && s !== 'PROPOSED', {
-      message: 'That status is set by Aura, not by hand.',
+    .refine((s) => (USER_SETTABLE_STATUSES as readonly string[]).includes(s), {
+      message: 'That status is set by Aura or by an edit, not by hand.',
     }),
   note: z.string().trim().max(2000).optional(),
+  expectedStatus: z.enum(RECOMMENDATION_STATUSES).optional(),
 });
 
 export async function POST(
@@ -37,15 +44,17 @@ export async function POST(
         403,
       );
     }
-    const { status, note } = bodySchema.parse(await req.json());
-    const recommendation = await transitionRecommendation({
+    const { status, note, expectedStatus } = bodySchema.parse(await req.json());
+    const { changed, ...recommendation } = await transitionRecommendation({
       companyId: company.id,
       recommendationId: params.id,
       to: status,
       actorId: user.id,
       note,
+      expectedStatus,
+      metadata: { via: 'status' },
     });
-    return jsonOk({ recommendation });
+    return jsonOk({ recommendation, changed });
   } catch (error) {
     return handleRouteError(error);
   }

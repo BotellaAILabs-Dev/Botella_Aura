@@ -67,20 +67,25 @@ Recommendation
 
 ## 3. Status
 
+The full lifecycle — actions, timestamps, history, duplicate protection — is
+in [RECOMMENDATION-LIFECYCLE.md](RECOMMENDATION-LIFECYCLE.md).
+
 ```
-PROPOSED ─► ACCEPTED ─► IN_PROGRESS ─► COMPLETED
-   │           └─────────────────────► COMPLETED
-   ├─► REJECTED
-   ├─► WITHDRAWN    (also from ACCEPTED / IN_PROGRESS: taken back)
-   └─► EXPIRED      (relevance window passed before a decision)
+GENERATED ─► PRESENTED ─► ACCEPTED ─┬─► IN_PROGRESS ─► COMPLETED
+                 ├──────► EDITED ───┴─────────────────► COMPLETED
+                 ├──────► SKIPPED
+                 └──────► REJECTED
+   … WITHDRAWN (taken back) · EXPIRED (window passed before a decision)
 ```
 
-- **Final states:** completed, rejected, withdrawn and expired are final. A new
-  recommendation is made instead, so each one's history stays what it was.
+- **Final states:** skipped, rejected, completed, withdrawn and expired are
+  final. A new recommendation is made instead, so each one's history stays
+  what it was.
 - **One at a time:** an opportunity can have only one recommendation in play
-  (proposed, accepted or in progress).
+  (generated, presented, accepted, edited or in progress).
 - **Compare-and-swap:** each status change is decided once, and recorded in
-  `RecommendationEvent` with who, when and why.
+  `RecommendationEvent` with the action, who, from where, when, why and its
+  detail.
 - **Expiry:** only a recommendation still waiting for a decision expires.
   Accepted and in-progress ones are commitments, so they don't.
 
@@ -89,8 +94,9 @@ PROPOSED ─► ACCEPTED ─► IN_PROGRESS ─► COMPLETED
 | Recommendation | Opportunity |
 | --- | --- |
 | created | → Recommended |
-| accepted | → Accepted |
+| accepted, edited | → Accepted |
 | rejected | → Rejected |
+| presented, skipped | unchanged (can be recommended again) |
 | in progress, completed | unchanged (already Accepted) |
 | withdrawn, expired | unchanged (can be recommended again) |
 

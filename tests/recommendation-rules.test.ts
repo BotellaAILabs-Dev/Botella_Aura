@@ -105,7 +105,7 @@ const recent = (
   type: 'CONTENT',
   actionId: 'post',
   channel: 'LinkedIn',
-  status: 'PROPOSED',
+  status: 'GENERATED',
   priorityScore: 50,
   createdAt: days(-2),
   decidedAt: null,

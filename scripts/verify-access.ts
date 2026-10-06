@@ -319,7 +319,7 @@ async function main() {
       'business B’s opportunity and recommendation are unchanged',
       bOppAfter.status === bOppBefore.status &&
         bOppAfter.updatedAt.getTime() === bOppBefore.updatedAt.getTime() &&
-        recBAfter.status === 'PROPOSED' &&
+        recBAfter.status === 'GENERATED' &&
         (await db.recommendation.count({ where: { opportunityId: bOpp } })) ===
           1,
     );

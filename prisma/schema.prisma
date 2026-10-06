@@ -2028,19 +2028,30 @@ model Signal {
 // Recommendations (foundation — the engine that writes them is Sprint 8)
 // ---------------------------------------------------------------------------
 
-/// Where a recommendation stands (lib/recommendations.ts LIFECYCLE).
-///   PROPOSED ─► ACCEPTED ─► IN_PROGRESS ─► COMPLETED
-///      │           └──────────────────────► COMPLETED
-///      ├─► REJECTED      ├─► WITHDRAWN (taken back, or replaced)
-///      └─► EXPIRED  (its relevance window passed before a decision)
-/// Decisions are kept in step with the opportunity: accepting or rejecting a
-/// recommendation accepts or rejects its opportunity, and vice versa.
+/// Where a recommendation stands (lib/recommendations.ts LIFECYCLE):
+///
+///   GENERATED ─► PRESENTED ─► ACCEPTED ─┬─► IN_PROGRESS ─► COMPLETED
+///                    ├──────► EDITED ───┘
+///                    ├──────► SKIPPED    (not for me — no negative signal)
+///                    └──────► REJECTED   (a "no")
+///   … and WITHDRAWN (taken back) / EXPIRED (window passed undecided).
+///
+/// Every move is a RecommendationEvent. Decisions are kept in step with the
+/// opportunity: accepting (or editing) or rejecting a recommendation does the
+/// same to its opportunity, and vice versa.
 enum RecommendationStatus {
-  PROPOSED
+  /// Made by the engine (or a person); nobody has seen it yet.
+  GENERATED
+  /// Shown to a person in a list or view.
+  PRESENTED
   ACCEPTED
+  /// Accepted with changes — the changes are in its history.
+  EDITED
+  /// Passed over: not for now, not a "no".
+  SKIPPED
+  REJECTED
   IN_PROGRESS
   COMPLETED
-  REJECTED
   /// Replaced by a newer recommendation, or taken back before it was done.
   WITHDRAWN
   EXPIRED
@@ -2079,7 +2090,7 @@ model Recommendation {
   /// without an opportunity behind it.
   opportunityId    String
   type             RecommendationType
-  status           RecommendationStatus  @default(PROPOSED)
+  status           RecommendationStatus  @default(GENERATED)
 
   /// WHAT — a short headline and a sentence or two.
   title            String
@@ -2133,9 +2144,14 @@ model Recommendation {
   /// Who or what created it: "user:<id>", "rule:…", or a model name.
   createdBy        String
   statusChangedAt  DateTime              @default(now())
+  /// First shown to a person.
+  presentedAt      DateTime?
+  /// Accepted, edited, skipped or rejected — and by whom, and why.
   decidedAt        DateTime?
   decidedById      String?
   decisionNote     String?               @db.Text
+  /// Last changed by a person (EDITED).
+  editedAt         DateTime?
   startedAt        DateTime?
   completedAt      DateTime?
   expiredAt        DateTime?
@@ -2154,14 +2170,24 @@ model Recommendation {
   @@index([opportunityId])
 }
 
-/// One status change of a recommendation: who, when, from what, and why.
+/// One thing that happened to a recommendation: what was done, by whom, from
+/// where, when, with what detail. Never edited or deleted — the history.
 model RecommendationEvent {
   id               String                @id @default(cuid())
   recommendationId String
   fromStatus       RecommendationStatus?
   toStatus         RecommendationStatus
+  /// generate · present · accept · edit · skip · reject · start · complete ·
+  /// withdraw · expire · defer · sync (lib/recommendations.ts).
+  action           String                @default("status")
+  /// Who or what did it: a person, the engine, the system (expiry), or a
+  /// decision carried over from the opportunity.
+  source           String                @default("user")
   actorId          String?
   note             String?               @db.Text
+  /// Detail: for an edit, each changed field from → to; for a presentation,
+  /// where it was shown and at what rank.
+  metadata         Json                  @default("{}")
   createdAt        DateTime              @default(now())
 
   recommendation Recommendation @relation(fields: [recommendationId], references: [id], onDelete: Cascade)

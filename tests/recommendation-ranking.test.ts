@@ -27,7 +27,7 @@ function rec(o: Partial<RankableRecommendation> = {}): RankableRecommendation {
     id: `rec${String(n).padStart(3, '0')}`,
     title: `Recommendation ${n}`,
     type: 'CONTENT',
-    status: 'PROPOSED',
+    status: 'GENERATED',
     actionId: 'post',
     channel: 'LinkedIn',
     priority: 'MEDIUM',
@@ -174,6 +174,28 @@ describe('previous decisions', () => {
     ).toBe(W.similarRejected);
     expect(factor(rec({ channel: 'Instagram' }), 'history', [past({})])).toBe(
       0,
+    );
+  });
+
+  it('a skip is "not now", not "no": it sinks similar ones far less than a rejection', () => {
+    const skip = past({ status: 'SKIPPED' });
+    expect(factor(rec(), 'history', [skip])).toBe(W.similarSkipped);
+    expect(W.similarSkipped).toBeLessThan(0);
+    expect(W.similarSkipped).toBeGreaterThan(W.similarRejected);
+    expect(factor(rec(), 'history', [skip, skip, skip, skip])).toBe(
+      W.similarSkipped * 3,
+    );
+  });
+
+  it('an edited one counts as acted on, and an edited one waiting to start ranks like an accepted one', () => {
+    expect(factor(rec(), 'history', [past({ status: 'EDITED' })])).toBe(
+      W.similarAccepted,
+    );
+    expect(factor(rec({ status: 'EDITED' }), 'status')).toBe(W.accepted);
+    expect(
+      factor(rec({ status: 'PRESENTED', createdAt: days(-30) }), 'timing'),
+    ).toBe(
+      factor(rec({ status: 'GENERATED', createdAt: days(-30) }), 'timing'),
     );
   });
 

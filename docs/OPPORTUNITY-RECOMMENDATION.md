@@ -37,7 +37,7 @@ Opportunity 1 ──── * Recommendation 1 ──── * RecommendationEvide
 - **A recommendation references its originating opportunity** with
   `Recommendation.opportunityId`.
 - **An opportunity can have several recommendations over time**, but only
-  **one in play** (proposed, accepted or in progress) at a time.
+  **one in play** (generated, presented, accepted, edited or in progress) at a time.
 - **An opportunity never depends on a recommendation existing.** It is stored,
   reviewed and decided on its own.
 - **Every recommendation has its opportunity.** The link is required, and an
@@ -120,8 +120,10 @@ One decision, recorded on both sides, in the same transaction:
 
 | Event | Opportunity | Recommendation |
 | --- | --- | --- |
-| Recommendation created | → `RECOMMENDED` | `PROPOSED` |
+| Recommendation created | → `RECOMMENDED` | `GENERATED` |
 | Recommendation accepted | → `ACCEPTED` | `ACCEPTED` |
+| Recommendation edited | → `ACCEPTED` | `EDITED` |
+| Recommendation presented or skipped | unchanged | `PRESENTED` / `SKIPPED` |
 | Recommendation rejected | → `REJECTED` | `REJECTED` |
 | Recommendation withdrawn | unchanged; can be recommended again | `WITHDRAWN` |
 | Opportunity accepted directly | `ACCEPTED` | open one → `ACCEPTED` |
@@ -130,7 +132,8 @@ One decision, recorded on both sides, in the same transaction:
 
 All opportunity moves still go through `transitionOpportunity`, so the
 opportunity's history is complete. Decisions are compare-and-swap: a
-recommendation is decided once, and a second attempt gets a 409.
+recommendation is decided once; repeating the same decision is a no-op and a
+different one gets a 409 (see [RECOMMENDATION-LIFECYCLE.md](RECOMMENDATION-LIFECYCLE.md)).
 
 The **Recommend** button on the Opportunities page now creates a
 recommendation (instead of only changing the status), so every recommended

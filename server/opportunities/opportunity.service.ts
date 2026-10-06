@@ -17,6 +17,8 @@ import {
   type SignalInput,
 } from '@/lib/opportunities';
 import {
+  ACTION_FOR_STATUS,
+  OPEN_RECOMMENDATION_STATUSES,
   OPPORTUNITY_TO_RECOMMENDATION,
   type RecommendationStatus,
 } from '@/lib/recommendations';
@@ -370,12 +372,15 @@ async function mirrorOntoRecommendations(
   },
 ) {
   const open = await tx.recommendation.findMany({
-    where: { opportunityId: args.opportunityId, status: 'PROPOSED' },
-    select: { id: true },
+    where: {
+      opportunityId: args.opportunityId,
+      status: { in: OPEN_RECOMMENDATION_STATUSES },
+    },
+    select: { id: true, status: true },
   });
   for (const r of open) {
     const swapped = await tx.recommendation.updateMany({
-      where: { id: r.id, status: 'PROPOSED' },
+      where: { id: r.id, status: r.status },
       data: {
         status: args.to,
         statusChangedAt: args.now,
@@ -392,8 +397,10 @@ async function mirrorOntoRecommendations(
     await tx.recommendationEvent.create({
       data: {
         recommendationId: r.id,
-        fromStatus: 'PROPOSED',
+        fromStatus: r.status,
         toStatus: args.to,
+        action: ACTION_FOR_STATUS[args.to],
+        source: 'opportunity',
         actorId: args.actorId,
         note: args.note,
         createdAt: args.now,

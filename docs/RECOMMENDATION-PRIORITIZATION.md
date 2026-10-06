@@ -17,8 +17,8 @@ priority, which is just one of its inputs.
 | API | `GET /api/recommendations/surface` · `POST /api/recommendations/:id/snooze` |
 | Tests | [`tests/recommendation-ranking.test.ts`](../tests/recommendation-ranking.test.ts); `pnpm verify:prioritization` against a real database |
 
-**What is ranked:** recommendations waiting for a decision (proposed), and
-ones accepted but not yet started. Recommendations already in progress, or
+**What is ranked:** recommendations waiting for a decision (generated or
+presented), and ones accepted (as is or edited) but not yet started. Recommendations already in progress, or
 finished, aren't competing for attention.
 
 ---
@@ -37,7 +37,7 @@ the sum of the factors, kept within 0–100.
 | **Available channels** | Connected, so Aura can publish and measure it **+8** · can be connected **+2** · blocked (can't be acted on yet) **−25** |
 | **Evidence** | None still current **−20** · two or more current pieces **+4** |
 | **Status** | Accepted and waiting to start **+5** |
-| **Previous decisions** (last 90 days) | Each similar one the business acted on **+6** (up to 2) · each similar one it turned down **−8** (up to 3) · deferred more than once **−5** per extra time |
+| **Previous decisions** (last 90 days) | Each similar one the business acted on **+6** (up to 2) · each similar one it turned down **−8** (up to 3) · each similar one it skipped **−3** (up to 3; "not now" is weaker than "no") · deferred more than once **−5** per extra time |
 
 **"Similar"** means the same action on the same channel, or a near-identical
 title (the same matching as the duplicate rules). A recommendation's own

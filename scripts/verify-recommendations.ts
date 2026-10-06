@@ -223,14 +223,14 @@ async function main() {
       actorId: null,
     });
     check(
-      'proposed → accepted → in progress → completed, with timestamps',
+      'generated → accepted → in progress → completed, with timestamps',
       done.status === 'COMPLETED' &&
         Boolean(done.decidedAt && done.startedAt && done.completedAt),
     );
     check(
       'every change is in its history',
       done.events.map((e) => e.toStatus).join(',') ===
-        'PROPOSED,ACCEPTED,IN_PROGRESS,COMPLETED',
+        'GENERATED,ACCEPTED,IN_PROGRESS,COMPLETED',
       done.events.map((e) => e.toStatus).join(','),
     );
     const illegal = await expectError(() =>
@@ -351,7 +351,7 @@ async function main() {
       ),
     );
     const listed = await listRecommendations(company.id, {
-      status: ['PROPOSED'],
+      status: ['GENERATED'],
     });
     check(
       'listed by status',

@@ -48,11 +48,14 @@ export const RECOMMENDATION_TYPES = [
 export type RecommendationType = (typeof RECOMMENDATION_TYPES)[number];
 
 export const RECOMMENDATION_STATUSES = [
-  'PROPOSED',
+  'GENERATED',
+  'PRESENTED',
   'ACCEPTED',
+  'EDITED',
+  'SKIPPED',
+  'REJECTED',
   'IN_PROGRESS',
   'COMPLETED',
-  'REJECTED',
   'WITHDRAWN',
   'EXPIRED',
 ] as const;
@@ -105,37 +108,67 @@ export const TYPE_FOR_OPPORTUNITY: Record<OpportunityType, RecommendationType> =
 // ---------------------------------------------------------------------------
 
 /**
- *   PROPOSED ─► ACCEPTED ─► IN_PROGRESS ─► COMPLETED
- *      │           └────────────────────► COMPLETED
- *      ├─► REJECTED
- *      ├─► WITHDRAWN    (also from ACCEPTED / IN_PROGRESS: taken back)
- *      └─► EXPIRED      (relevance window passed before a decision)
+ *   GENERATED ─► PRESENTED ─► ACCEPTED ─┬─► IN_PROGRESS ─► COMPLETED
+ *       │            │                  └──────────────────► COMPLETED
+ *       │            ├──────► EDITED ───┘   (accepted with changes; can be
+ *       │            │                       edited again)
+ *       │            ├──────► SKIPPED    not for me — no negative signal
+ *       │            └──────► REJECTED   a "no" — lowers similar ones
+ *       └─ any decision can also be made before it was presented
+ *   GENERATED / PRESENTED / ACCEPTED / EDITED / IN_PROGRESS ─► WITHDRAWN
+ *   GENERATED / PRESENTED ─► EXPIRED   (relevance window passed undecided)
  *
- * COMPLETED, REJECTED, WITHDRAWN and EXPIRED are final: a new recommendation
- * is made instead, so each one's history stays what it was.
+ * SKIPPED, REJECTED, COMPLETED, WITHDRAWN and EXPIRED are final: a new
+ * recommendation is made instead, so each one's history stays what it was.
+ * Execution states beyond IN_PROGRESS arrive in Sprint 10.
  */
 export const RECOMMENDATION_TRANSITIONS: Record<
   RecommendationStatus,
   RecommendationStatus[]
 > = {
-  PROPOSED: ['ACCEPTED', 'REJECTED', 'WITHDRAWN', 'EXPIRED'],
-  ACCEPTED: ['IN_PROGRESS', 'COMPLETED', 'WITHDRAWN'],
+  GENERATED: [
+    'PRESENTED',
+    'ACCEPTED',
+    'EDITED',
+    'SKIPPED',
+    'REJECTED',
+    'WITHDRAWN',
+    'EXPIRED',
+  ],
+  PRESENTED: [
+    'ACCEPTED',
+    'EDITED',
+    'SKIPPED',
+    'REJECTED',
+    'WITHDRAWN',
+    'EXPIRED',
+  ],
+  ACCEPTED: ['EDITED', 'IN_PROGRESS', 'COMPLETED', 'WITHDRAWN'],
+  EDITED: ['EDITED', 'IN_PROGRESS', 'COMPLETED', 'WITHDRAWN'],
   IN_PROGRESS: ['COMPLETED', 'WITHDRAWN'],
-  COMPLETED: [],
+  SKIPPED: [],
   REJECTED: [],
+  COMPLETED: [],
   WITHDRAWN: [],
   EXPIRED: [],
 };
 
 /** Waiting for a decision. Only these expire. */
 export const OPEN_RECOMMENDATION_STATUSES: RecommendationStatus[] = [
-  'PROPOSED',
+  'GENERATED',
+  'PRESENTED',
+];
+
+/** The business said yes (as is, or with changes). */
+export const ACCEPTED_RECOMMENDATION_STATUSES: RecommendationStatus[] = [
+  'ACCEPTED',
+  'EDITED',
 ];
 
 /** Not finished: an opportunity with one of these cannot get another. */
 export const LIVE_RECOMMENDATION_STATUSES: RecommendationStatus[] = [
-  'PROPOSED',
-  'ACCEPTED',
+  ...OPEN_RECOMMENDATION_STATUSES,
+  ...ACCEPTED_RECOMMENDATION_STATUSES,
   'IN_PROGRESS',
 ];
 
@@ -158,28 +191,88 @@ export function isRecommendationPastRelevance(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Actions — what is recorded in the history
+// ---------------------------------------------------------------------------
+
+export const RECOMMENDATION_ACTIONS = [
+  'generate',
+  'present',
+  'accept',
+  'edit',
+  'skip',
+  'reject',
+  'start',
+  'complete',
+  'withdraw',
+  'expire',
+  'defer',
+] as const;
+export type RecommendationAction = (typeof RECOMMENDATION_ACTIONS)[number];
+
+/** Who or what took the action. */
+export const EVENT_SOURCES = [
+  'user',
+  'engine',
+  'system',
+  'opportunity',
+] as const;
+export type EventSource = (typeof EVENT_SOURCES)[number];
+
+/** The action that moves a recommendation into each status. */
+export const ACTION_FOR_STATUS: Record<
+  RecommendationStatus,
+  RecommendationAction
+> = {
+  GENERATED: 'generate',
+  PRESENTED: 'present',
+  ACCEPTED: 'accept',
+  EDITED: 'edit',
+  SKIPPED: 'skip',
+  REJECTED: 'reject',
+  IN_PROGRESS: 'start',
+  COMPLETED: 'complete',
+  WITHDRAWN: 'withdraw',
+  EXPIRED: 'expire',
+};
+
+/** Statuses a person sets directly (the rest are set by Aura or by an edit). */
+export const USER_SETTABLE_STATUSES = [
+  'ACCEPTED',
+  'SKIPPED',
+  'REJECTED',
+  'IN_PROGRESS',
+  'COMPLETED',
+  'WITHDRAWN',
+] as const satisfies readonly RecommendationStatus[];
+
 /**
  * STATUS SYNC with the opportunity. One decision, recorded on both sides:
  *
- *   recommendation created      → opportunity RECOMMENDED
- *   recommendation ACCEPTED     → opportunity ACCEPTED
- *   recommendation REJECTED     → opportunity REJECTED
- *   in progress / completed     → opportunity already ACCEPTED; unchanged
- *   withdrawn / expired         → opportunity unchanged
+ *   recommendation generated     → opportunity RECOMMENDED
+ *   recommendation ACCEPTED      → opportunity ACCEPTED
+ *   recommendation EDITED        → opportunity ACCEPTED (accepted, with changes)
+ *   recommendation REJECTED      → opportunity REJECTED
+ *   presented / skipped          → opportunity unchanged (can be recommended again)
+ *   in progress / completed      → opportunity already ACCEPTED; unchanged
+ *   withdrawn / expired          → opportunity unchanged
  *
- *   opportunity ACCEPTED        → open recommendation ACCEPTED
- *   opportunity REJECTED        → open recommendation REJECTED
- *   opportunity EXPIRED         → open recommendation EXPIRED
+ *   opportunity ACCEPTED         → open recommendation ACCEPTED
+ *   opportunity REJECTED         → open recommendation REJECTED
+ *   opportunity EXPIRED          → open recommendation EXPIRED
  */
 export const RECOMMENDATION_TO_OPPORTUNITY: Record<
   RecommendationStatus,
   OpportunityStatus | null
 > = {
-  PROPOSED: 'RECOMMENDED',
+  GENERATED: 'RECOMMENDED',
+  PRESENTED: null,
   ACCEPTED: 'ACCEPTED',
+  EDITED: 'ACCEPTED',
+  SKIPPED: null,
+  REJECTED: 'REJECTED',
   IN_PROGRESS: null,
   COMPLETED: null,
-  REJECTED: 'REJECTED',
   WITHDRAWN: null,
   EXPIRED: null,
 };
@@ -191,6 +284,75 @@ export const OPPORTUNITY_TO_RECOMMENDATION: Partial<
   REJECTED: 'REJECTED',
   EXPIRED: 'EXPIRED',
 };
+
+export type RecommendationOutcome =
+  | 'accepted'
+  | 'edited'
+  | 'skipped'
+  | 'rejected'
+  | 'withdrawn'
+  | 'expired'
+  | 'undecided';
+
+/**
+ * How the business answered a recommendation, from the statuses it passed
+ * through (its history). The first decision is the answer: a recommendation
+ * accepted and then completed was accepted; one accepted and then edited was
+ * edited (accepted with changes). This is what Aura learns from — a rejection
+ * lowers similar recommendations, a skip only slightly, an edit is a yes.
+ */
+export function recommendationOutcome(
+  history: RecommendationStatus[],
+): RecommendationOutcome {
+  if (history.includes('EDITED')) return 'edited';
+  for (const s of history) {
+    if (s === 'ACCEPTED') return 'accepted';
+    if (s === 'SKIPPED') return 'skipped';
+    if (s === 'REJECTED') return 'rejected';
+    if (s === 'WITHDRAWN') return 'withdrawn';
+    if (s === 'EXPIRED') return 'expired';
+  }
+  return 'undecided';
+}
+
+// ---------------------------------------------------------------------------
+// Edits
+// ---------------------------------------------------------------------------
+
+/** Fields a person may edit (Edit). Link, evidence and assessment are not editable. */
+export const EDITABLE_FIELDS = [
+  'title',
+  'summary',
+  'action',
+  'steps',
+  'rationale',
+  'expectedOutcome',
+  'outcomeMetric',
+  'channel',
+  'contentType',
+  'audience',
+] as const;
+export type EditableField = (typeof EDITABLE_FIELDS)[number];
+
+/**
+ * What an edit actually changed, field by field. Unchanged fields are left
+ * out, so an edit that changes nothing is visibly a no-op (and is not
+ * recorded as a transition).
+ */
+export function diffEdit(
+  before: Partial<Record<EditableField, unknown>>,
+  after: Partial<Record<EditableField, unknown>>,
+): Partial<Record<EditableField, { from: unknown; to: unknown }>> {
+  const out: Partial<Record<EditableField, { from: unknown; to: unknown }>> =
+    {};
+  for (const f of EDITABLE_FIELDS) {
+    if (!(f in after)) continue;
+    const a = JSON.stringify(before[f] ?? null);
+    const b = JSON.stringify(after[f] ?? null);
+    if (a !== b) out[f] = { from: before[f] ?? null, to: after[f] ?? null };
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // What a recommendation must contain

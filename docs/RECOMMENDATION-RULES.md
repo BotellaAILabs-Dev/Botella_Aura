@@ -56,7 +56,7 @@ supported action is used instead, if there is one.
 | Confidence | Result |
 | --- | --- |
 | **High, Medium** | Executable recommendation |
-| **Low** | **Advisory.** Stored and shown, flagged "low confidence — review the evidence before acting on it", priority capped (never high or urgent), and **not executable** until a person accepts it. Accepting it is the review; it then becomes executable, unless another blocker remains. |
+| **Low** | **Advisory.** Stored and shown, flagged "low confidence — review the evidence before acting on it", priority capped (never high or urgent), and **not executable** until a person accepts it. Accepting it (as is, or by editing it) is the review; it then becomes executable, unless another blocker remains. An edit re-applies the channel rules, so moving it to a channel the business doesn't use blocks it again. |
 
 Confidence is never above the opportunity's. It is capped at medium when the
 recommendation rests on anything unconfirmed: an assumed audience,
@@ -102,7 +102,7 @@ Over a limit, generation is refused with the reason, and nothing is stored.
   words in common, ignoring filler words and word endings, so "prices are
   climbing" matches "prices climb".
 - **Repetition:** the same action on the same channel rejected **3 times in
-  30 days**, with none accepted, is **muted**. It isn't proposed again; the
+  30 days**, with none accepted (or edited), is **muted**. Skips don't count: a skip is "not now", not "no". It isn't proposed again; the
   next supported action is used instead. One acceptance lifts the mute.
 
 ## 7. Unsupported channels

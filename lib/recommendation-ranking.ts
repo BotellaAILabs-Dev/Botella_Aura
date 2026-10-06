@@ -4,9 +4,11 @@ import {
   titleSimilarity,
   type ChannelSupport,
 } from '@/lib/recommendation-rules';
-import type {
-  RecommendationStatus,
-  RecommendationType,
+import {
+  ACCEPTED_RECOMMENDATION_STATUSES,
+  OPEN_RECOMMENDATION_STATUSES,
+  type RecommendationStatus,
+  type RecommendationType,
 } from '@/lib/recommendations';
 
 /**
@@ -25,8 +27,14 @@ import type {
  * Pure and client-safe. The service is server/recommendations/ranking.service.ts.
  */
 
-/** What is ranked: recommendations waiting for a decision, or accepted and not yet started. */
-export const RANKED_STATUSES: RecommendationStatus[] = ['PROPOSED', 'ACCEPTED'];
+/**
+ * What is ranked: recommendations waiting for a decision (generated or
+ * already presented), or accepted (as is or edited) and not yet started.
+ */
+export const RANKED_STATUSES: RecommendationStatus[] = [
+  ...OPEN_RECOMMENDATION_STATUSES,
+  ...ACCEPTED_RECOMMENDATION_STATUSES,
+];
 
 export interface RankableRecommendation {
   id: string;
@@ -95,6 +103,11 @@ export const RANKING_WEIGHTS = {
   similarAccepted: 6,
   /** Per similar recommendation the business rejected (up to 3). */
   similarRejected: -8,
+  /**
+   * Per similar recommendation the business skipped (up to 3). A skip is
+   * "not now", not "no" — a far weaker signal than a rejection.
+   */
+  similarSkipped: -3,
   /** Per deferral beyond the first. */
   deferredAgain: -5,
   /** How far back previous decisions count. */
@@ -212,7 +225,10 @@ export function scoreRecommendation(
     }
   }
   const waiting = (now.getTime() - r.createdAt.getTime()) / DAY;
-  if (r.status === 'PROPOSED' && waiting >= W.waitingDays) {
+  if (
+    OPEN_RECOMMENDATION_STATUSES.includes(r.status) &&
+    waiting >= W.waitingDays
+  ) {
     f.push({
       factor: 'timing',
       points: W.waitingPenalty,
@@ -258,11 +274,14 @@ export function scoreRecommendation(
   }
 
   // STATUS
-  if (r.status === 'ACCEPTED') {
+  if (ACCEPTED_RECOMMENDATION_STATUSES.includes(r.status)) {
     f.push({
       factor: 'status',
       points: W.accepted,
-      why: 'you accepted it — the next step is to start it',
+      why:
+        r.status === 'EDITED'
+          ? 'you accepted it with your changes — the next step is to start it'
+          : 'you accepted it — the next step is to start it',
     });
   }
 
@@ -274,11 +293,14 @@ export function scoreRecommendation(
   );
   const acted = recent.filter(
     (p) =>
-      ['ACCEPTED', 'IN_PROGRESS', 'COMPLETED'].includes(p.status) &&
+      ['ACCEPTED', 'EDITED', 'IN_PROGRESS', 'COMPLETED'].includes(p.status) &&
       similar(r, p),
   ).length;
   const rejected = recent.filter(
     (p) => p.status === 'REJECTED' && similar(r, p),
+  ).length;
+  const skipped = recent.filter(
+    (p) => p.status === 'SKIPPED' && similar(r, p),
   ).length;
   if (acted) {
     f.push({
@@ -292,6 +314,13 @@ export function scoreRecommendation(
       factor: 'history',
       points: W.similarRejected * Math.min(rejected, 3),
       why: `you turned down ${rejected} similar recommendation${rejected === 1 ? '' : 's'}`,
+    });
+  }
+  if (skipped) {
+    f.push({
+      factor: 'history',
+      points: W.similarSkipped * Math.min(skipped, 3),
+      why: `you skipped ${skipped} similar recommendation${skipped === 1 ? '' : 's'}`,
     });
   }
   if (r.snoozeCount > 1) {

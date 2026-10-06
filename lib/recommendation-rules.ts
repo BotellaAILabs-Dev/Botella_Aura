@@ -190,7 +190,8 @@ export interface RecentRecommendation {
   competitor: string | null;
 }
 
-const LIVE = ['PROPOSED', 'ACCEPTED', 'IN_PROGRESS'];
+// Literal (not LIVE_RECOMMENDATION_STATUSES): lib/recommendations.ts imports this file.
+const LIVE = ['GENERATED', 'PRESENTED', 'ACCEPTED', 'EDITED', 'IN_PROGRESS'];
 
 const FILLER = new Set([
   'the',
@@ -299,7 +300,7 @@ export function mutedActions(
     const key = `${r.actionId}:${r.channel ?? ''}`;
     const e = byKey.get(key) ?? { rejected: 0, accepted: false };
     if (r.status === 'REJECTED') e.rejected += 1;
-    if (['ACCEPTED', 'IN_PROGRESS', 'COMPLETED'].includes(r.status))
+    if (['ACCEPTED', 'EDITED', 'IN_PROGRESS', 'COMPLETED'].includes(r.status))
       e.accepted = true;
     byKey.set(key, e);
   }

@@ -224,17 +224,18 @@ describe('the default draft from an opportunity', () => {
 });
 
 describe('status lifecycle', () => {
-  it('follows proposed → accepted → in progress → completed', () => {
-    expect(canTransitionRecommendation('PROPOSED', 'ACCEPTED')).toBe(true);
+  it('follows generated → accepted → in progress → completed', () => {
+    expect(canTransitionRecommendation('GENERATED', 'ACCEPTED')).toBe(true);
     expect(canTransitionRecommendation('ACCEPTED', 'IN_PROGRESS')).toBe(true);
     expect(canTransitionRecommendation('IN_PROGRESS', 'COMPLETED')).toBe(true);
     expect(canTransitionRecommendation('ACCEPTED', 'COMPLETED')).toBe(true);
-    expect(canTransitionRecommendation('PROPOSED', 'COMPLETED')).toBe(false);
-    expect(canTransitionRecommendation('PROPOSED', 'IN_PROGRESS')).toBe(false);
+    expect(canTransitionRecommendation('GENERATED', 'COMPLETED')).toBe(false);
+    expect(canTransitionRecommendation('GENERATED', 'IN_PROGRESS')).toBe(false);
   });
 
-  it('completed, rejected, withdrawn and expired are final', () => {
+  it('skipped, completed, rejected, withdrawn and expired are final', () => {
     for (const s of [
+      'SKIPPED',
       'COMPLETED',
       'REJECTED',
       'WITHDRAWN',
@@ -243,8 +244,10 @@ describe('status lifecycle', () => {
       expect(RECOMMENDATION_TRANSITIONS[s]).toEqual([]);
     }
     expect(LIVE_RECOMMENDATION_STATUSES).toEqual([
-      'PROPOSED',
+      'GENERATED',
+      'PRESENTED',
       'ACCEPTED',
+      'EDITED',
       'IN_PROGRESS',
     ]);
   });
@@ -252,7 +255,7 @@ describe('status lifecycle', () => {
   it('only one waiting for a decision expires', () => {
     expect(
       isRecommendationPastRelevance(
-        { status: 'PROPOSED', relevantUntil: days(-1) },
+        { status: 'GENERATED', relevantUntil: days(-1) },
         NOW,
       ),
     ).toBe(true);
@@ -263,7 +266,7 @@ describe('status lifecycle', () => {
     }
     expect(
       isRecommendationPastRelevance(
-        { status: 'PROPOSED', relevantUntil: null },
+        { status: 'GENERATED', relevantUntil: null },
         NOW,
       ),
     ).toBe(false);
@@ -280,7 +283,7 @@ describe('status lifecycle', () => {
     }
     for (const [from, to] of Object.entries(OPPORTUNITY_TO_RECOMMENDATION)) {
       expect(OPPORTUNITY_STATUSES).toContain(from);
-      expect(canTransitionRecommendation('PROPOSED', to!)).toBe(true);
+      expect(canTransitionRecommendation('GENERATED', to!)).toBe(true);
     }
   });
 });

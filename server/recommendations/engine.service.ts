@@ -28,6 +28,7 @@ import {
 } from '@/lib/recommendation-rules';
 import {
   LIVE_RECOMMENDATION_STATUSES,
+  OPEN_RECOMMENDATION_STATUSES,
   recommendationContentSchema,
   type RecommendationContentInput,
 } from '@/lib/recommendations';
@@ -218,7 +219,9 @@ export async function generateRecommendation(args: {
     createdLastDay: recent.filter(
       (r) => now.getTime() - r.createdAt.getTime() < DAY,
     ).length,
-    open: recent.filter((r) => r.status === 'PROPOSED').length,
+    open: recent.filter((r) =>
+      (OPEN_RECOMMENDATION_STATUSES as string[]).includes(r.status),
+    ).length,
   });
   if (breach)
     return finish({ ...base, reasons: [`Frequency limit: ${breach}`] });

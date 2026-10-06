@@ -12,8 +12,17 @@ import {
   type HandoffEligibility,
   type OpportunityHandoff,
 } from '@/lib/recommendation-handoff';
-import { LOW_CONFIDENCE_BLOCKER } from '@/lib/recommendation-rules';
+import { LOW_CONFIDENCE_BLOCKER, executability } from '@/lib/recommendation-rules';
+import { engineContext } from '@/lib/recommendation-engine';
 import {
+  ACCEPTED_RECOMMENDATION_STATUSES,
+  ACTION_FOR_STATUS,
+  EDITABLE_FIELDS,
+  OPEN_RECOMMENDATION_STATUSES,
+  diffEdit,
+  recommendationOutcome,
+  type EditableField,
+  type EventSource,
   LIVE_RECOMMENDATION_STATUSES,
   RECOMMENDATION_TO_OPPORTUNITY,
   boundByOpportunity,
@@ -25,6 +34,7 @@ import {
   type RecommendationStatus,
 } from '@/lib/recommendations';
 import { getBusinessContext } from '@/server/business-context/business-context.service';
+import { getContextSnapshot } from '@/server/business-context/snapshot.service';
 import {
   OpportunityError,
   shakyContextFields,
@@ -196,7 +206,9 @@ export async function createRecommendationFromOpportunity(args: {
         events: {
           create: {
             fromStatus: null,
-            toStatus: 'PROPOSED',
+            toStatus: 'GENERATED',
+            action: 'generate',
+            source: args.createdBy.startsWith('user:') ? 'user' : 'engine',
             actorId: args.actorId,
             note: `Recommended by ${args.createdBy}.`,
             createdAt: now,
@@ -225,11 +237,23 @@ export async function createRecommendationFromOpportunity(args: {
   });
 }
 
+const label = (status: string) => status.toLowerCase().replace('_', ' ');
+
 /**
- * Move a recommendation through its lifecycle, recording who, when and why.
- * Compare-and-swap on the current status, so it is decided once. Accepting
- * or rejecting it is the same decision on its opportunity, in the same
- * transaction.
+ * Move a recommendation through its lifecycle (lib/recommendations.ts),
+ * recording what was done, by whom, from where, when, and with what detail.
+ *
+ * DUPLICATE TRANSITIONS are prevented three ways:
+ *   · repeating the move it is already in (a double click, a retried
+ *     request) changes nothing and records nothing — `changed: false`;
+ *   · `expectedStatus` — the status the person was looking at — must still
+ *     be current, so an action taken on a stale screen is refused, not
+ *     applied to something that has since moved on;
+ *   · compare-and-swap on the status, so two simultaneous decisions cannot
+ *     both win.
+ *
+ * Accepting, editing or rejecting is the same decision on its opportunity,
+ * in the same transaction.
  */
 export async function transitionRecommendation(args: {
   companyId: string;
@@ -238,26 +262,51 @@ export async function transitionRecommendation(args: {
   actorId: string | null;
   note?: string;
   now?: Date;
+  /** Who did it; a person when there is an actor, the system otherwise. */
+  source?: EventSource;
+  /** The status the caller last saw. */
+  expectedStatus?: RecommendationStatus;
+  /** Detail stored on the history entry. */
+  metadata?: Record<string, unknown>;
 }) {
   const now = args.now ?? new Date();
+  const source: EventSource = args.source ?? (args.actorId ? 'user' : 'system');
   return db.$transaction(async (tx) => {
     const current = await tx.recommendation.findFirst({
       where: { id: args.recommendationId, companyId: args.companyId },
       include: { opportunity: { select: { id: true, status: true } } },
     });
     if (!current) throw new OpportunityError('Recommendation not found.', 404);
-    if (!canTransitionRecommendation(current.status, args.to)) {
+    const unchanged = async () =>
+      Object.assign(
+        await tx.recommendation.findUniqueOrThrow({
+          where: { id: current.id },
+          include: withDetail,
+        }),
+        { changed: false },
+      );
+
+    // Already there: a repeat, not a new action.
+    if (current.status === args.to && args.to !== 'EDITED') return unchanged();
+    if (args.expectedStatus && current.status !== args.expectedStatus) {
       throw new OpportunityError(
-        `A recommendation that is ${current.status.toLowerCase().replace('_', ' ')} cannot be marked ${args.to.toLowerCase().replace('_', ' ')}.`,
+        `This recommendation changed since you opened it — it is now ${label(current.status)}. Reload to see it.`,
         409,
       );
     }
-    // Accepting is the review a low-confidence recommendation needs; any
-    // other blocker (an unused channel, an unavailable integration) stays.
-    const blockers =
-      args.to === 'ACCEPTED'
-        ? current.blockers.filter((b) => b !== LOW_CONFIDENCE_BLOCKER)
-        : current.blockers;
+    if (!canTransitionRecommendation(current.status, args.to)) {
+      throw new OpportunityError(
+        `A recommendation that is ${label(current.status)} cannot be marked ${label(args.to)}.`,
+        409,
+      );
+    }
+    // Accepting (as is or edited) is the review a low-confidence
+    // recommendation needs; any other blocker (an unused channel, an
+    // unavailable integration) stays.
+    const reviewed = ACCEPTED_RECOMMENDATION_STATUSES.includes(args.to);
+    const blockers = reviewed
+      ? current.blockers.filter((b) => b !== LOW_CONFIDENCE_BLOCKER)
+      : current.blockers;
     // Advice is not a task: nothing blocked can be started or completed.
     if ((args.to === 'IN_PROGRESS' || args.to === 'COMPLETED') && blockers.length) {
       throw new OpportunityError(
@@ -270,17 +319,19 @@ export async function transitionRecommendation(args: {
       status: args.to,
       statusChangedAt: now,
     };
-    if (['ACCEPTED', 'REJECTED', 'WITHDRAWN'].includes(args.to)) {
+    if (['ACCEPTED', 'EDITED', 'SKIPPED', 'REJECTED', 'WITHDRAWN'].includes(args.to)) {
       Object.assign(stamp, {
         decidedAt: now,
         decidedById: args.actorId,
         decisionNote: args.note ?? null,
       });
     }
-    if (args.to === 'ACCEPTED' && blockers.length !== current.blockers.length) {
+    if (reviewed && blockers.length !== current.blockers.length) {
       stamp.blockers = blockers;
       stamp.executable = blockers.length === 0;
     }
+    if (args.to === 'PRESENTED' && !current.presentedAt) stamp.presentedAt = now;
+    if (args.to === 'EDITED') stamp.editedAt = now;
     if (args.to === 'IN_PROGRESS') stamp.startedAt = now;
     if (args.to === 'COMPLETED') {
       stamp.completedAt = now;
@@ -303,8 +354,11 @@ export async function transitionRecommendation(args: {
         recommendationId: current.id,
         fromStatus: current.status,
         toStatus: args.to,
+        action: ACTION_FOR_STATUS[args.to],
+        source,
         actorId: args.actorId,
         note: args.note ?? null,
+        metadata: (args.metadata ?? {}) as Prisma.InputJsonObject,
         createdAt: now,
       },
     });
@@ -317,32 +371,171 @@ export async function transitionRecommendation(args: {
           opportunityId: current.opportunity.id,
           to,
           actorId: args.actorId,
-          note:
-            args.note ??
-            `Recommendation ${args.to.toLowerCase().replace('_', ' ')}.`,
+          note: args.note ?? `Recommendation ${label(args.to)}.`,
           now,
         },
         tx,
       );
     }
-    return tx.recommendation.findUniqueOrThrow({
-      where: { id: current.id },
-      include: withDetail,
-    });
+    return Object.assign(
+      await tx.recommendation.findUniqueOrThrow({
+        where: { id: current.id },
+        include: withDetail,
+      }),
+      { changed: true },
+    );
   });
 }
 
-/** Accept, reject or withdraw — the decisions on a recommendation. */
+/** Accept, skip, reject or withdraw — the decisions on a recommendation. */
 export function decideRecommendation(args: {
   companyId: string;
   recommendationId: string;
-  decision: 'ACCEPTED' | 'REJECTED' | 'WITHDRAWN';
+  decision: 'ACCEPTED' | 'SKIPPED' | 'REJECTED' | 'WITHDRAWN';
   actorId: string | null;
   note?: string;
   now?: Date;
+  expectedStatus?: RecommendationStatus;
 }) {
   const { decision, ...rest } = args;
   return transitionRecommendation({ ...rest, to: decision });
+}
+
+/**
+ * PRESENTED: these recommendations were shown to a person. Idempotent — only
+ * ones never shown before move (and are recorded, with where and at what
+ * rank); showing one again changes nothing.
+ */
+export async function presentRecommendations(args: {
+  companyId: string;
+  recommendationIds: string[];
+  actorId: string | null;
+  /** Where they were shown, and each one's position there. */
+  surface?: string;
+  positions?: Record<string, { rank?: number; score?: number; band?: string }>;
+  now?: Date;
+}): Promise<{ presented: string[]; alreadyPresented: string[] }> {
+  const now = args.now ?? new Date();
+  const ids = [...new Set(args.recommendationIds)].slice(0, 100);
+  const rows = await db.recommendation.findMany({
+    where: { companyId: args.companyId, id: { in: ids } },
+    select: { id: true, status: true },
+  });
+  const presented: string[] = [];
+  const alreadyPresented: string[] = [];
+  for (const r of rows) {
+    if (r.status !== 'GENERATED') {
+      alreadyPresented.push(r.id);
+      continue;
+    }
+    try {
+      const result = await transitionRecommendation({
+        companyId: args.companyId,
+        recommendationId: r.id,
+        to: 'PRESENTED',
+        actorId: args.actorId,
+        source: 'user',
+        now,
+        metadata: {
+          ...(args.surface ? { surface: args.surface } : {}),
+          ...(args.positions?.[r.id] ?? {}),
+        },
+      });
+      (result.changed ? presented : alreadyPresented).push(r.id);
+    } catch {
+      // Decided or presented a moment ago by someone else.
+      alreadyPresented.push(r.id);
+    }
+  }
+  return { presented, alreadyPresented };
+}
+
+/**
+ * EDITED: a person changed the recommendation — and by doing so accepted it,
+ * with changes. Each changed field is recorded from → to in its history, so
+ * the original is never lost. Editing again records the new changes; an edit
+ * that changes nothing changes nothing (no history entry). Guardrails are
+ * re-applied: a channel the business does not use still blocks execution.
+ */
+export async function editRecommendation(args: {
+  companyId: string;
+  recommendationId: string;
+  changes: Partial<Record<EditableField, unknown>>;
+  actorId: string | null;
+  note?: string;
+  expectedStatus?: RecommendationStatus;
+  now?: Date;
+}) {
+  const now = args.now ?? new Date();
+  const current = await db.recommendation.findFirst({
+    where: { id: args.recommendationId, companyId: args.companyId },
+  });
+  if (!current) throw new OpportunityError('Recommendation not found.', 404);
+  if (args.expectedStatus && current.status !== args.expectedStatus) {
+    throw new OpportunityError(
+      `This recommendation changed since you opened it — it is now ${label(current.status)}. Reload to see it.`,
+      409,
+    );
+  }
+  if (!canTransitionRecommendation(current.status, 'EDITED')) {
+    throw new OpportunityError(
+      `A recommendation that is ${label(current.status)} cannot be edited.`,
+      409,
+    );
+  }
+
+  const before = Object.fromEntries(
+    EDITABLE_FIELDS.map((f) => [f, current[f]]),
+  ) as Record<EditableField, unknown>;
+  // Validated as a whole recommendation, so an edit cannot leave it invalid.
+  const merged = recommendationContentSchema.parse({
+    type: current.type,
+    ...before,
+    details: current.details ?? {},
+    ...args.changes,
+  });
+  const after = Object.fromEntries(
+    EDITABLE_FIELDS.filter((f) => f in args.changes).map((f) => [f, merged[f]]),
+  ) as Partial<Record<EditableField, unknown>>;
+  const changes = diffEdit(before, after);
+  if (Object.keys(changes).length === 0) {
+    const same = await getRecommendation(args.companyId, current.id);
+    return Object.assign(same!, { changed: false });
+  }
+
+  // Re-apply the channel guardrail; low confidence is cleared by the edit
+  // itself (a person reviewed it).
+  const snap = await getContextSnapshot(args.companyId, {
+    view: 'recommendation',
+    now,
+  });
+  const ctx = snap ? engineContext(snap.snapshot) : { publishesOn: [], connected: [] };
+  const guard = executability({
+    type: merged.type,
+    channel: merged.channel ?? null,
+    confidence: 'MEDIUM',
+    ctx: { publishesOn: ctx.publishesOn, connected: ctx.connected },
+  });
+
+  await db.recommendation.update({
+    where: { id: current.id },
+    data: {
+      ...(after as Prisma.RecommendationUpdateInput),
+      blockers: guard.blockers,
+      executable: guard.executable,
+    },
+  });
+  // The status move (and its history entry, with the field changes) goes
+  // through the same transition as every other action.
+  return transitionRecommendation({
+    companyId: args.companyId,
+    recommendationId: current.id,
+    to: 'EDITED',
+    actorId: args.actorId,
+    note: args.note,
+    now,
+    metadata: { changes },
+  });
 }
 
 /**
@@ -354,21 +547,26 @@ export async function expireRecommendations(
   now: Date = new Date(),
 ): Promise<number> {
   const due = await db.recommendation.findMany({
-    where: { companyId, status: 'PROPOSED', relevantUntil: { lte: now } },
+    where: {
+      companyId,
+      status: { in: OPEN_RECOMMENDATION_STATUSES },
+      relevantUntil: { lte: now },
+    },
     select: { id: true },
   });
   let expired = 0;
   for (const r of due) {
     try {
-      await transitionRecommendation({
+      const result = await transitionRecommendation({
         companyId,
         recommendationId: r.id,
         to: 'EXPIRED',
         actorId: null,
+        source: 'system',
         note: 'Its relevance window passed before a decision.',
         now,
       });
-      expired += 1;
+      if (result.changed) expired += 1;
     } catch {
       // Decided a moment ago — not expired.
     }
@@ -386,6 +584,56 @@ export async function getRecommendation(
     include: withDetail,
   });
   return r ? { ...r, execution: executionBrief(r) } : null;
+}
+
+/**
+ * The full history of one recommendation, oldest first, with who did each
+ * thing named. `outcome` is how the business answered it — what Aura learns
+ * from: accepted, edited (accepted with changes), skipped, rejected, or
+ * undecided.
+ */
+export async function getRecommendationHistory(
+  companyId: string,
+  recommendationId: string,
+) {
+  const r = await db.recommendation.findFirst({
+    where: { id: recommendationId, companyId },
+    select: {
+      id: true,
+      status: true,
+      createdAt: true,
+      presentedAt: true,
+      decidedAt: true,
+      decidedById: true,
+      editedAt: true,
+      startedAt: true,
+      completedAt: true,
+      expiredAt: true,
+      events: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
+    },
+  });
+  if (!r) return null;
+  const actorIds = [
+    ...new Set(r.events.map((e) => e.actorId).filter((x): x is string => !!x)),
+  ];
+  const actors = actorIds.length
+    ? await db.user.findMany({
+        where: { id: { in: actorIds } },
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+  const nameOf = new Map(actors.map((u) => [u.id, u.name || u.email]));
+  const { events, ...timestamps } = r;
+  return {
+    recommendationId: r.id,
+    status: r.status,
+    outcome: recommendationOutcome(events.map((e) => e.toStatus)),
+    timestamps,
+    events: events.map((e) => ({
+      ...e,
+      actorName: e.actorId ? (nameOf.get(e.actorId) ?? null) : null,
+    })),
+  };
 }
 
 /** A workspace's recommendations, newest first. Expires stale ones first. */
