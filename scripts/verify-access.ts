@@ -263,6 +263,7 @@ async function main() {
       ownerA.req('GET', '/api/signals'),
       ownerA.req('GET', '/api/advisor'),
       ownerA.req('GET', '/api/recommendations'),
+      ownerA.req('GET', '/api/recommendations/surface?includeHidden=1'),
     ]);
     check(
       'lists contain nothing of business B',
@@ -284,6 +285,7 @@ async function main() {
         { decision: 'REJECTED' },
       ],
       ['GET', `/api/recommendations/${recB.id}`, undefined],
+      ['POST', `/api/recommendations/${recB.id}/snooze`, { days: 3 }],
       [
         'POST',
         `/api/recommendations/${recB.id}/status`,

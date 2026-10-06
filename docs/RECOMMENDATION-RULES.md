@@ -78,6 +78,10 @@ and 7 or fewer days left. **Low confidence caps the score at 65**, so it can
 never be high or urgent. The reason is stored with every recommendation (e.g.
 "high impact, low effort (one post), high confidence, 12 day(s) left").
 
+That is the recommendation's own priority. Which recommendations to
+**surface first** is decided separately, on every read, by
+[RECOMMENDATION-PRIORITIZATION.md](RECOMMENDATION-PRIORITIZATION.md).
+
 ## 5. Frequency limits
 
 | Limit | Value |
