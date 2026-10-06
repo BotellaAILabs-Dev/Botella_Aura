@@ -16,6 +16,17 @@ import {
   type EngineSignal,
 } from '@/lib/recommendation-engine';
 import {
+  CONFIDENCE_RULES,
+  applyGuardrails,
+  capRelevance,
+  executability,
+  findConflicts,
+  findDuplicate,
+  frequencyBreach,
+  mutedActions,
+  type RecentRecommendation,
+} from '@/lib/recommendation-rules';
+import {
   LIVE_RECOMMENDATION_STATUSES,
   recommendationContentSchema,
   type RecommendationContentInput,
@@ -49,6 +60,8 @@ import {
  * is written to the audit log.
  */
 
+const DAY = 86_400_000;
+
 export type GenerationStatus = 'created' | 'flagged' | 'rejected';
 
 export interface GenerationReport {
@@ -75,6 +88,9 @@ export interface GenerationReport {
   /** Why the model's version was not used, when it was tried. */
   aiRejected?: string[];
   snapshotFingerprint: string | null;
+  /** Whether the stored recommendation may be acted on, and why not. */
+  executable?: boolean;
+  blockers?: string[];
 }
 
 /** The model call, replaceable in tests and verification scripts. */
@@ -196,6 +212,17 @@ export async function generateRecommendation(args: {
   const ctx = engineContext(snap.snapshot);
   base.snapshotFingerprint = snap.snapshot.fingerprint;
 
+  // --- Guardrails: frequency (lib/recommendation-rules.ts) --------------------
+  const recent = await loadRecent(args.companyId, now);
+  const breach = frequencyBreach({
+    createdLastDay: recent.filter(
+      (r) => now.getTime() - r.createdAt.getTime() < DAY,
+    ).length,
+    open: recent.filter((r) => r.status === 'PROPOSED').length,
+  });
+  if (breach)
+    return finish({ ...base, reasons: [`Frequency limit: ${breach}`] });
+
   const evidenceIds = h.evidence
     .map((e) => e.signalId)
     .filter((x): x is string => Boolean(x));
@@ -230,7 +257,10 @@ export async function generateRecommendation(args: {
   ctx.learnedFormats = [
     ...new Set([...ctx.learnedFormats, ...learnedFormatsFromSignals(signals)]),
   ];
-  const selection = selectActions(h, ctx, own, now);
+  const selection = applyGuardrails(selectActions(h, ctx, own, now), {
+    h,
+    muted: mutedActions(recent, now),
+  });
   const report: GenerationReport = {
     ...base,
     unsupported: selection.unsupported,
@@ -260,6 +290,22 @@ export async function generateRecommendation(args: {
     score: chosen.score,
     reasons: chosen.reasons,
   };
+  const channelBreach = frequencyBreach({
+    createdLastDay: 0,
+    open: 0,
+    channel: chosen.spec.needsChannel ? chosen.channel : null,
+    sameChannelLastWeek: recent.filter(
+      (r) =>
+        r.channel === chosen.channel &&
+        now.getTime() - r.createdAt.getTime() < 7 * DAY,
+    ).length,
+  });
+  if (channelBreach) {
+    return finish({
+      ...report,
+      reasons: [`Frequency limit: ${channelBreach}`],
+    });
+  }
 
   // --- Write ----------------------------------------------------------------
   const template = composeRecommendation(h, chosen, ctx, own);
@@ -326,8 +372,57 @@ export async function generateRecommendation(args: {
   if (gate.rejected.length) {
     return finish({ ...report, reasons: gate.rejected, flags: gate.flags });
   }
-  const flags = [...report.flags, ...gate.flags];
+  const duplicate = findDuplicate(
+    {
+      opportunityId: args.opportunityId,
+      title: content.title,
+      type: content.type,
+      channel: content.channel,
+    },
+    recent,
+    now,
+  );
+  if (duplicate) {
+    return finish({
+      ...report,
+      reasons: [`Duplicate: it ${duplicate.reason}.`],
+      flags: gate.flags,
+    });
+  }
   const a = assess(h, chosen, gate.flags, now);
+  const competitor =
+    own
+      .map((x) => (x.metadata as { competitor?: unknown } | null)?.competitor)
+      .find((c): c is string => typeof c === 'string') ?? null;
+  const conflicts = findConflicts(
+    {
+      opportunityId: args.opportunityId,
+      actionId: chosen.spec.id,
+      signalIds: evidenceIds,
+      competitor,
+      priorityScore: a.priorityScore,
+    },
+    recent,
+  );
+  const guard = executability({
+    type: content.type,
+    channel: content.channel,
+    confidence: a.confidence,
+    ctx,
+  });
+  const flags = [
+    ...new Set([
+      ...report.flags,
+      ...gate.flags,
+      ...(CONFIDENCE_RULES[a.confidence].flag
+        ? [CONFIDENCE_RULES[a.confidence].flag!]
+        : []),
+      ...conflicts.map(
+        (c) =>
+          `conflicts with “${c.title}” (${c.why}): ${c.precedence === 'this' ? 'this one goes first' : 'do that one first'}`,
+      ),
+    ]),
+  ];
 
   const rec = await createRecommendationFromOpportunity({
     companyId: args.companyId,
@@ -336,12 +431,25 @@ export async function generateRecommendation(args: {
     actorId: args.actorId,
     now,
     priority: { priority: a.priority, priorityScore: a.priorityScore },
+    guardrails: {
+      executable: guard.executable,
+      blockers: guard.blockers,
+      flags,
+    },
     content: {
       ...content,
+      // EXPIRATION: the opportunity's window, at most 30 days.
+      relevantUntil: capRelevance(
+        h.opportunity.relevantUntil
+          ? new Date(h.opportunity.relevantUntil)
+          : null,
+        now,
+      ),
       confidence: a.confidence,
       confidenceReason: a.confidenceReason,
       details: {
         ...content.details,
+        ...(competitor ? { competitor } : {}),
         engine: {
           version: ENGINE_VERSION,
           writtenBy: report.writtenBy,
@@ -358,10 +466,78 @@ export async function generateRecommendation(args: {
     },
   });
 
+  // The other side of each conflict hears about it too.
+  for (const c of conflicts) {
+    const other = recent.find((r) => r.id === c.id);
+    if (!other) continue;
+    const note = `conflicts with “${content.title}” (${c.why}): ${c.precedence === 'this' ? 'do that one first' : 'this one goes first'}`;
+    await db.recommendation.update({
+      where: { id: c.id },
+      data: { flags: { push: note } },
+    });
+  }
+
   return finish({
     ...report,
     status: flags.length ? 'flagged' : 'created',
     flags,
     recommendationId: rec.id,
+    executable: guard.executable,
+    blockers: guard.blockers,
+  });
+}
+
+/**
+ * The workspace's recommendations that the frequency, duplicate, muting and
+ * conflict rules look at: everything in play, and anything made or decided
+ * in the last 30 days.
+ */
+async function loadRecent(
+  companyId: string,
+  now: Date,
+): Promise<RecentRecommendation[]> {
+  const since = new Date(now.getTime() - 30 * DAY);
+  const rows = await db.recommendation.findMany({
+    where: {
+      companyId,
+      OR: [
+        { status: { in: LIVE_RECOMMENDATION_STATUSES } },
+        { createdAt: { gte: since } },
+        { decidedAt: { gte: since } },
+      ],
+    },
+    select: {
+      id: true,
+      opportunityId: true,
+      title: true,
+      type: true,
+      channel: true,
+      status: true,
+      priorityScore: true,
+      createdAt: true,
+      decidedAt: true,
+      details: true,
+      evidence: { select: { signalId: true } },
+    },
+    take: 500,
+  });
+  return rows.map((r) => {
+    const d = (r.details ?? {}) as { action?: unknown; competitor?: unknown };
+    return {
+      id: r.id,
+      opportunityId: r.opportunityId,
+      title: r.title,
+      type: r.type,
+      actionId: typeof d.action === 'string' ? d.action : null,
+      channel: r.channel,
+      status: r.status,
+      priorityScore: r.priorityScore,
+      createdAt: r.createdAt,
+      decidedAt: r.decidedAt,
+      signalIds: r.evidence
+        .map((e) => e.signalId)
+        .filter((x): x is string => Boolean(x)),
+      competitor: typeof d.competitor === 'string' ? d.competitor : null,
+    };
   });
 }

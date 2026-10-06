@@ -2095,6 +2095,13 @@ model Recommendation {
   /// Type-specific detail for the workflow that carries it out.
   details          Json                  @default("{}")
 
+  /// GUARDRAILS (lib/recommendation-rules.ts). Whether it may be handed to an
+  /// execution workflow; why not, if not; and what it rests on that is
+  /// uncertain or what it conflicts with. Blocked ones are advice, not tasks.
+  executable       Boolean               @default(true)
+  blockers         String[]              @default([])
+  flags            String[]              @default([])
+
   /// CONFIDENCE and PRIORITY — as handed over by the opportunity, or lower.
   confidence       OpportunityConfidence
   confidenceReason String?

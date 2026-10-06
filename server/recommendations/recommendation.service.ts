@@ -12,6 +12,7 @@ import {
   type HandoffEligibility,
   type OpportunityHandoff,
 } from '@/lib/recommendation-handoff';
+import { LOW_CONFIDENCE_BLOCKER } from '@/lib/recommendation-rules';
 import {
   LIVE_RECOMMENDATION_STATUSES,
   RECOMMENDATION_TO_OPPORTUNITY,
@@ -124,6 +125,8 @@ export async function createRecommendationFromOpportunity(args: {
    * action's effort). Defaults to the opportunity's.
    */
   priority?: { priority: OpportunityPriority; priorityScore: number };
+  /** Guardrail outcome (lib/recommendation-rules.ts): advice vs. executable. */
+  guardrails?: { executable: boolean; blockers: string[]; flags: string[] };
   now?: Date;
 }) {
   const now = args.now ?? new Date();
@@ -183,6 +186,7 @@ export async function createRecommendationFromOpportunity(args: {
         details: own.details as Prisma.InputJsonObject,
         ...bounds,
         ...(args.priority ?? {}),
+        ...(args.guardrails ?? {}),
         companyId: args.companyId,
         handoff: handoff as unknown as Prisma.InputJsonObject,
         createdBy: args.createdBy.slice(0, 100),
@@ -248,6 +252,19 @@ export async function transitionRecommendation(args: {
         409,
       );
     }
+    // Accepting is the review a low-confidence recommendation needs; any
+    // other blocker (an unused channel, an unavailable integration) stays.
+    const blockers =
+      args.to === 'ACCEPTED'
+        ? current.blockers.filter((b) => b !== LOW_CONFIDENCE_BLOCKER)
+        : current.blockers;
+    // Advice is not a task: nothing blocked can be started or completed.
+    if ((args.to === 'IN_PROGRESS' || args.to === 'COMPLETED') && blockers.length) {
+      throw new OpportunityError(
+        `This recommendation cannot be acted on yet: ${blockers.join(' ')}`,
+        409,
+      );
+    }
 
     const stamp: Prisma.RecommendationUpdateManyMutationInput = {
       status: args.to,
@@ -259,6 +276,10 @@ export async function transitionRecommendation(args: {
         decidedById: args.actorId,
         decisionNote: args.note ?? null,
       });
+    }
+    if (args.to === 'ACCEPTED' && blockers.length !== current.blockers.length) {
+      stamp.blockers = blockers;
+      stamp.executable = blockers.length === 0;
     }
     if (args.to === 'IN_PROGRESS') stamp.startedAt = now;
     if (args.to === 'COMPLETED') {

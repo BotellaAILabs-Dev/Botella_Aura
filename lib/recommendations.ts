@@ -9,6 +9,7 @@ import {
 import type { OpportunityHandoff } from '@/lib/recommendation-handoff';
 import { CONTENT_TYPES, type ContentTypeKey } from '@/lib/validations/content';
 import { CONTENT_CHANNELS } from '@/lib/validations/planner';
+import { integrationAvailable } from '@/lib/recommendation-rules';
 
 /**
  * Recommendations: the rules.
@@ -429,6 +430,14 @@ export interface ExecutionBrief {
   dueBy: string | null;
   /** What it is based on, so the output can cite it. */
   evidence: { label: string; detail: string; url: string | null }[];
+  /**
+   * Whether a workflow may act on it (lib/recommendation-rules.ts). When
+   * false, `blockers` says why and `href` leads to the review, not the work.
+   */
+  executable: boolean;
+  blockers: string[];
+  /** Whether Aura can publish to the channel, or the business posts by hand. */
+  publishing: 'aura' | 'manual' | null;
 }
 
 /**
@@ -451,7 +460,10 @@ export function executionBrief(r: {
   details: unknown;
   relevantUntil: Date | null;
   evidence: { label: string; detail: string; url: string | null }[];
+  executable?: boolean;
+  blockers?: string[];
 }): ExecutionBrief {
+  const executable = r.executable ?? true;
   const workflow = WORKFLOW_FOR_TYPE[r.type];
   const angle =
     r.details && typeof r.details === 'object' && 'angle' in r.details
@@ -468,8 +480,9 @@ export function executionBrief(r: {
     `Why: ${r.rationale}`,
     `Goal: ${r.expectedOutcome}`,
   ].join('\n');
-  const href =
-    workflow === 'CONTENT'
+  const href = !executable
+    ? `/dashboard/opportunities?focus=${r.opportunityId}`
+    : workflow === 'CONTENT'
       ? `/dashboard/content/new?brief=${encodeURIComponent(brief.slice(0, 1500))}`
       : workflow === 'PLANNER'
         ? '/dashboard/planner'
@@ -494,5 +507,12 @@ export function executionBrief(r: {
       detail: e.detail,
       url: e.url,
     })),
+    executable,
+    blockers: r.blockers ?? [],
+    publishing: r.channel
+      ? integrationAvailable(r.channel)
+        ? 'aura'
+        : 'manual'
+      : null,
   };
 }

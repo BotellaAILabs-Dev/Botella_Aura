@@ -107,6 +107,18 @@ the priority reason) are stored in `details.engine`.
 **Every run** (created, flagged or rejected) is written to the audit log as
 `RECOMMENDATION_GENERATED`.
 
+## Rules and guardrails
+
+On top of the steps above, the engine enforces
+[RECOMMENDATION-RULES.md](RECOMMENDATION-RULES.md):
+- minimum evidence per type
+- frequency limits
+- duplicate and repetition control
+- integration availability
+- a 30-day maximum life
+- conflict flags
+- low confidence makes a recommendation advisory, not executable
+
 ## API
 
 `POST /api/opportunities/:id/recommendations` `{ title?, action?, channel?, … }`
