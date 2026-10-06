@@ -5,7 +5,7 @@ import { queueDraftSchema } from '@/lib/validations/media';
 import { queueDraft, getDraft } from '@/server/content/content.service';
 import { getAttachedMedia } from '@/server/media/asset.service';
 import { resolvePlatform, platformSpec } from '@/lib/platforms';
-import type { ContentTypeKey } from '@/lib/validations/content';
+import { isCopyOnlyType, type ContentTypeKey } from '@/lib/validations/content';
 
 /**
  * POST /api/content/drafts/:id/queue — "Add to queue" from the post composer.
@@ -30,6 +30,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const existing = await getDraft(company.id, params.id);
     if (!existing) return jsonError('Draft not found', 404);
+    if (isCopyOnlyType(existing.type as ContentTypeKey)) {
+      return jsonError(
+        'Email and ad copy are sent from your email tool or ad manager, not queued for publishing — copy it out instead.',
+        409,
+      );
+    }
 
     const platform = resolvePlatform(
       existing.type as ContentTypeKey,

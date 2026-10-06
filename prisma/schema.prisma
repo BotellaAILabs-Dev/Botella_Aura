@@ -74,6 +74,12 @@ enum ContentType {
   /// a five-slide carousel and discarding four of them, so this exists to stop
   /// the most common kind of post being the one the product could not express.
   IMAGE_POST
+  /// A marketing email: subject line, preview text, body, CTA. Copy only —
+  /// sent from the business's own email tool, never published to a network.
+  EMAIL
+  /// Ad copy (headline, primary text, description, CTA button) shaped for the
+  /// placement it targets. Copy only — set up in the ad platform by hand.
+  AD
 }
 
 /// Approval lifecycle for generated content. The core human-in-the-loop

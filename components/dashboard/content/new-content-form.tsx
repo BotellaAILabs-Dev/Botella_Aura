@@ -18,6 +18,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toaster';
 import type { ContentTypeKey } from '@/lib/validations/content';
 import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
+import {
+  DEFAULT_CHOICES,
+  GenerationOptions,
+  choicesPayload,
+  type GenerationChoices,
+} from '@/components/dashboard/content/generation-options';
 
 /**
  * Single hand-off point into Content Studio.
@@ -47,6 +53,7 @@ export function NewContentForm({ types }: { types: ContentTypeKey[] }) {
     initialType && types.includes(initialType) ? initialType : types[0]!,
   );
   const [brief, setBrief] = useState(initialBrief);
+  const [choices, setChoices] = useState<GenerationChoices>(DEFAULT_CHOICES);
   const [loading, setLoading] = useState(false);
 
   async function generate() {
@@ -64,6 +71,7 @@ export function NewContentForm({ types }: { types: ContentTypeKey[] }) {
                 brief: brief.trim() || 'Timely content for our audience.',
               },
           ...(campaignId ? { campaignId } : {}),
+          ...choicesPayload(choices),
         }),
       });
       if (!res.ok) {
@@ -72,7 +80,11 @@ export function NewContentForm({ types }: { types: ContentTypeKey[] }) {
         return;
       }
       const data = (await res.json()) as { id: string };
-      toast.success('Draft generated.');
+      toast.success(
+        choices.variations > 1
+          ? `${choices.variations} versions written — pick your favourite on the draft.`
+          : 'Draft generated.',
+      );
       router.push(`/dashboard/content/${data.id}`);
     } finally {
       setLoading(false);
@@ -136,6 +148,7 @@ export function NewContentForm({ types }: { types: ContentTypeKey[] }) {
               placeholder="What should this piece say? Edit freely — this is your instruction to the writer."
             />
           </div>
+          <GenerationOptions type={type} value={choices} onChange={setChoices} />
           <Button onClick={generate} loading={loading} className="w-full">
             <Sparkles className="h-4 w-4" /> Generate draft
           </Button>

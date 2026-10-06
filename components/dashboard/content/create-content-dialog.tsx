@@ -18,14 +18,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toaster';
 import { CONTENT_TYPES, type ContentTypeKey } from '@/lib/validations/content';
-
-const TYPE_LABELS: Record<ContentTypeKey, string> = {
-  LINKEDIN_POST: 'LinkedIn post',
-  IMAGE_POST: 'Single image post',
-  CAROUSEL: 'Carousel',
-  TWEET_THREAD: 'X thread',
-  BLOG: 'Blog draft',
-};
+import { CONTENT_TYPE_LABELS as TYPE_LABELS } from '@/lib/content-ui';
+import {
+  DEFAULT_CHOICES,
+  GenerationOptions,
+  choicesPayload,
+  type GenerationChoices,
+} from '@/components/dashboard/content/generation-options';
 
 interface Campaign {
   id: string;
@@ -52,6 +51,7 @@ export function CreateContentDialog({
   const [campaignId, setCampaignId] = useState('');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [campaignsLoaded, setCampaignsLoaded] = useState(false);
+  const [choices, setChoices] = useState<GenerationChoices>(DEFAULT_CHOICES);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -95,6 +95,7 @@ export function CreateContentDialog({
             brief: brief.trim() || undefined,
           },
           campaignId: sourceKind === 'CAMPAIGN' ? campaignId || undefined : undefined,
+          ...choicesPayload(choices),
         }),
       });
       if (!res.ok) {
@@ -145,6 +146,7 @@ export function CreateContentDialog({
               ))}
             </select>
           </div>
+          <GenerationOptions type={type} value={choices} onChange={setChoices} />
 
           <div className="space-y-1.5">
             <Label htmlFor="source">From</Label>

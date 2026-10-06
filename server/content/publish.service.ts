@@ -11,7 +11,7 @@ import {
   markPublished,
 } from '@/server/content/content.service';
 import { renderForManual, renderLinkedInCommentary } from '@/server/content/render';
-import type { ContentTypeKey } from '@/lib/validations/content';
+import { isCopyOnlyType, type ContentTypeKey } from '@/lib/validations/content';
 import { resolvePlatform, platformSpec, type SocialPlatformKey } from '@/lib/platforms';
 import { getAsset, readAssetBytes } from '@/server/media/asset.service';
 import { validateForPlatform } from '@/server/media/validate';
@@ -92,6 +92,7 @@ export function canAutoPublishTo(
   type: ContentTypeKey,
   platform: SocialPlatformKey,
 ): boolean {
+  if (isCopyOnlyType(type)) return false; // copied out, never posted
   if (platform === 'INSTAGRAM') return true; // needs media; checked at publish
   // A Page post is a message plus an optional photo, so anything that renders
   // to text qualifies — including a carousel, which posts as its first image.
@@ -157,6 +158,18 @@ export async function publishDraft({
   assertPublishable(draft); // hard gate — must be APPROVED
 
   const type = draft.type as ContentTypeKey;
+  // Email and ad copy never go to a social network — an ad aimed at Facebook
+  // would otherwise be posted as an ordinary Facebook post.
+  if (isCopyOnlyType(type)) {
+    return {
+      mode: 'manual',
+      text: renderForManual(draft),
+      reason:
+        type === 'EMAIL'
+          ? 'Emails are sent from your email tool. The email is copied — paste it there.'
+          : 'Ads are set up in the ad manager. The ad copy is copied — paste it there.',
+    };
+  }
   const platform = resolvePlatform(type, draft.platform);
   const media = await loadMedia(companyId, draftId);
 

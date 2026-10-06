@@ -13,12 +13,21 @@ import {
   CalendarClock,
   Upload,
   ExternalLink,
+  Minimize2,
+  Maximize2,
+  Wand2,
+  Undo2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/toaster';
-import type { ContentTypeKey } from '@/lib/validations/content';
+import {
+  CONTENT_TONES,
+  type ContentTone,
+  type ContentTypeKey,
+} from '@/lib/validations/content';
+import { TONE_LABEL } from '@/components/dashboard/content/generation-options';
 
 type Status = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'PUBLISHED';
 
@@ -30,6 +39,10 @@ interface Props {
   manualText: string;
   publishedUrl: string | null;
   canPublish: boolean;
+  /** There is a previous version to go back to. */
+  canUndo?: boolean;
+  /** Email / ad copy: copied out, never scheduled or published. */
+  copyOnly?: boolean;
 }
 
 export function DraftActions({
@@ -40,6 +53,8 @@ export function DraftActions({
   manualText,
   publishedUrl,
   canPublish,
+  canUndo = false,
+  copyOnly = false,
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -49,6 +64,7 @@ export function DraftActions({
   const [feedback, setFeedback] = useState('');
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduledFor, setScheduledFor] = useState('');
+  const [tone, setTone] = useState<ContentTone>('friendly');
 
   async function call(
     url: string,
@@ -120,7 +136,7 @@ export function DraftActions({
     }
     const res = await call(
       `/api/content/drafts/${draftId}/refine`,
-      { feedback: feedback.trim() },
+      { action: 'custom', feedback: feedback.trim() },
       'refine',
     );
     if (res) {
@@ -131,10 +147,26 @@ export function DraftActions({
     }
   }
 
-  async function regenerate() {
-    const res = await call(`/api/content/drafts/${draftId}/refine`, { feedback: 'Give a noticeably fresh take.' }, 'regen');
+  /** One-click AI rewrites. Each keeps the previous version for Undo. */
+  async function rewrite(
+    action: 'regenerate' | 'shorten' | 'expand' | 'improve' | 'tone',
+    done: string,
+  ) {
+    const res = await call(
+      `/api/content/drafts/${draftId}/refine`,
+      action === 'tone' ? { action, tone } : { action },
+      action,
+    );
     if (res) {
-      toast.success('Fresh draft generated.');
+      toast.success(done);
+      router.refresh();
+    }
+  }
+
+  async function undo() {
+    const res = await call(`/api/content/drafts/${draftId}/undo`, undefined, 'undo');
+    if (res) {
+      toast.success('Restored the previous version.');
       router.refresh();
     }
   }
@@ -174,7 +206,13 @@ export function DraftActions({
 
   async function copyManual() {
     await navigator.clipboard.writeText(manualText).catch(() => undefined);
-    toast.success('Copied — paste it into LinkedIn / X.');
+    toast.success(
+      type === 'EMAIL'
+        ? 'Copied — paste it into your email tool.'
+        : type === 'AD'
+          ? 'Copied — paste it into your ad manager.'
+          : 'Copied — paste it into LinkedIn / X.',
+    );
   }
 
   const loading = (k: string) => busy === k;
@@ -209,9 +247,11 @@ export function DraftActions({
                 <Upload className="h-4 w-4" /> Publish
               </Button>
             )}
-            <Button variant="outline" onClick={() => setScheduleOpen((v) => !v)}>
-              <CalendarClock className="h-4 w-4" /> Schedule
-            </Button>
+            {!copyOnly && (
+              <Button variant="outline" onClick={() => setScheduleOpen((v) => !v)}>
+                <CalendarClock className="h-4 w-4" /> Schedule
+              </Button>
+            )}
             <Button
               variant="ghost"
               onClick={() => transition('request_changes')}
@@ -269,15 +309,98 @@ export function DraftActions({
         </div>
       )}
 
-      {/* Iterate: refine / regenerate / edit / copy */}
-      <div className="flex flex-wrap gap-2 border-t border-border pt-4">
+      {/* Rewrite with AI: one click each, all undoable */}
+      {status !== 'PUBLISHED' && (
+        <div className="space-y-2 border-t border-border pt-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Rewrite with AI
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy !== null}
+              onClick={() => rewrite('regenerate', 'Fresh version written.')}
+              loading={loading('regenerate')}
+            >
+              <RotateCcw className="h-4 w-4" /> Regenerate
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy !== null}
+              onClick={() => rewrite('shorten', 'Shortened.')}
+              loading={loading('shorten')}
+            >
+              <Minimize2 className="h-4 w-4" /> Shorten
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy !== null}
+              onClick={() => rewrite('expand', 'Expanded.')}
+              loading={loading('expand')}
+            >
+              <Maximize2 className="h-4 w-4" /> Expand
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy !== null}
+              onClick={() => rewrite('improve', 'Improved.')}
+              loading={loading('improve')}
+            >
+              <Wand2 className="h-4 w-4" /> Improve
+            </Button>
+            <div className="flex items-center gap-1">
+              <label htmlFor="tone" className="sr-only">
+                Tone
+              </label>
+              <select
+                id="tone"
+                value={tone}
+                onChange={(e) => setTone(e.target.value as ContentTone)}
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              >
+                {CONTENT_TONES.map((t) => (
+                  <option key={t} value={t}>
+                    {TONE_LABEL[t]}
+                  </option>
+                ))}
+              </select>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy !== null}
+                onClick={() =>
+                  rewrite('tone', `Rewritten in a ${TONE_LABEL[tone].toLowerCase()} tone.`)
+                }
+                loading={loading('tone')}
+              >
+                Change tone
+              </Button>
+            </div>
+            {canUndo && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy !== null}
+                onClick={undo}
+                loading={loading('undo')}
+              >
+                <Undo2 className="h-4 w-4" /> Undo
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Your own changes: a note, a direct edit, or copy it out */}
+      <div className="flex flex-wrap gap-2">
         {status !== 'PUBLISHED' && (
           <>
             <Button variant="outline" size="sm" onClick={() => setRefineOpen((v) => !v)}>
-              <Sparkles className="h-4 w-4" /> Refine
-            </Button>
-            <Button variant="outline" size="sm" onClick={regenerate} loading={loading('regen')}>
-              <RotateCcw className="h-4 w-4" /> Regenerate
+              <Sparkles className="h-4 w-4" /> Custom instruction
             </Button>
             <Button variant="outline" size="sm" onClick={() => setEditing((v) => !v)}>
               <Pencil className="h-4 w-4" /> {editing ? 'Cancel edit' : 'Edit'}
@@ -285,7 +408,12 @@ export function DraftActions({
           </>
         )}
         <Button variant="ghost" size="sm" onClick={copyManual}>
-          <Copy className="h-4 w-4" /> Copy for manual posting
+          <Copy className="h-4 w-4" />{' '}
+          {type === 'EMAIL'
+            ? 'Copy email'
+            : type === 'AD'
+              ? 'Copy ad'
+              : 'Copy for manual posting'}
         </Button>
       </div>
 

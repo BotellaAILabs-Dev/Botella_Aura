@@ -10,7 +10,14 @@ import { can } from '@/lib/rbac';
 import { getDraft } from '@/server/content/content.service';
 import { renderForManual } from '@/server/content/render';
 import { canAutoPublishTo } from '@/server/content/publish.service';
-import { CONTENT_TYPE_LABELS, CONTENT_STATUS_LABELS } from '@/lib/content-ui';
+import {
+  CONTENT_TYPE_LABELS,
+  CONTENT_STATUS_LABELS,
+  draftSnippet,
+} from '@/lib/content-ui';
+import type { QualityReport } from '@/lib/content-quality';
+import { isCopyOnlyType } from '@/lib/validations/content';
+import { ContentAssistantPanel } from '@/components/dashboard/content/content-assistant-panel';
 import {
   resolvePlatform,
   platformSpec,
@@ -62,8 +69,21 @@ export default async function DraftDetailPage({
   const platform = resolvePlatform(type, draft.platform);
   const meta = (draft.aiMetadata ?? {}) as {
     source?: { kind?: string; brief?: string | null };
+    quality?: QualityReport;
+    variations?: { angle?: string; body?: unknown; quality?: QualityReport }[];
+    activeVariation?: number;
+    history?: unknown[];
+    writtenFor?: string | null;
+    tone?: string | null;
   };
   const sourceKind = meta.source?.kind;
+  const copyOnly = isCopyOnlyType(type);
+  const variations = (meta.variations ?? []).map((v) => ({
+    angle: v.angle ?? '',
+    snippet: draftSnippet(type, v.body),
+    approvable: v.quality?.approvable ?? true,
+    issues: (v.quality?.issues ?? []).filter((i) => i.severity === 'block').length,
+  }));
 
   // Graphics and attachments are loaded server-side so the panel renders with
   // its history already present — no spinner on a page that has been visited.
@@ -128,16 +148,19 @@ export default async function DraftDetailPage({
             />
           )}
 
-          <PostComposer
-            draftId={draft.id}
-            status={draft.status}
-            contentPreview={renderForManual(draft)}
-            platform={platform}
-            platformOptions={platformsForType(type)}
-            media={media}
-            scheduledFor={draft.scheduledFor ? draft.scheduledFor.toISOString() : null}
-            canEdit={canEdit}
-          />
+          {/* Email and ad copy are copied out, never queued or posted. */}
+          {!copyOnly && (
+            <PostComposer
+              draftId={draft.id}
+              status={draft.status}
+              contentPreview={renderForManual(draft)}
+              platform={platform}
+              platformOptions={platformsForType(type)}
+              media={media}
+              scheduledFor={draft.scheduledFor ? draft.scheduledFor.toISOString() : null}
+              canEdit={canEdit}
+            />
+          )}
 
           <Card>
             <CardContent className="p-4">
@@ -148,7 +171,9 @@ export default async function DraftDetailPage({
                 bodyJson={JSON.stringify(draft.body, null, 2)}
                 manualText={renderForManual(draft)}
                 publishedUrl={draft.publishedUrl}
-                canPublish={canPublish}
+                canPublish={canPublish && !copyOnly}
+                canUndo={(meta.history?.length ?? 0) > 0}
+                copyOnly={copyOnly}
               />
             </CardContent>
           </Card>
@@ -157,10 +182,35 @@ export default async function DraftDetailPage({
         {/* Metadata sidebar */}
         <aside className="space-y-4">
           <Card>
+            <CardContent className="p-4">
+              <p className="mb-3 text-sm font-semibold text-foreground">
+                Writing assistant
+              </p>
+              <ContentAssistantPanel
+                draftId={draft.id}
+                editable={canEdit}
+                writtenFor={
+                  meta.writtenFor
+                    ? platformSpec(meta.writtenFor as typeof platform).label
+                    : type === 'EMAIL'
+                      ? 'email'
+                      : null
+                }
+                tone={meta.tone ?? null}
+                quality={meta.quality ?? null}
+                variations={variations}
+                activeVariation={meta.activeVariation ?? 0}
+              />
+            </CardContent>
+          </Card>
+          <Card>
             <CardContent className="space-y-3 p-4 text-sm">
               <Row label="Type" value={CONTENT_TYPE_LABELS[type]} />
               <Row label="Status" value={CONTENT_STATUS_LABELS[draft.status]} />
-              <Row label="Platform" value={platformSpec(platform).label} />
+              <Row
+                label={type === 'AD' ? 'Placement' : 'Platform'}
+                value={type === 'EMAIL' ? 'Email (copied out)' : platformSpec(platform).label}
+              />
               <Row
                 label="Graphic"
                 value={media.length === 0 ? 'None attached' : `${media.length} attached`}
@@ -184,7 +234,18 @@ export default async function DraftDetailPage({
             <CardContent className="flex items-start gap-2 p-4 text-xs text-muted-foreground">
               <Info className="mt-0.5 h-4 w-4 shrink-0" />
               <p>
-                {canAutoPublishTo(type, platform) ? (
+                {copyOnly ? (
+                  <>
+                    {type === 'EMAIL' ? 'Emails are' : 'Ads are'} written here
+                    and sent from{' '}
+                    {type === 'EMAIL' ? 'your email tool' : 'your ad manager'} —
+                    approve it, then use{' '}
+                    <span className="font-medium text-foreground">
+                      “{type === 'EMAIL' ? 'Copy email' : 'Copy ad'}”
+                    </span>
+                    . Aura never posts it to a social network.
+                  </>
+                ) : canAutoPublishTo(type, platform) ? (
                   <>
                     Approved posts publish to{' '}
                     <span className="font-medium text-foreground">

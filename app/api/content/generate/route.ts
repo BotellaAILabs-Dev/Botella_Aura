@@ -36,13 +36,16 @@ export async function POST(req: Request) {
       type: input.type,
       source: input.source,
       campaignId: input.campaignId,
+      platform: input.platform,
+      variations: input.variations,
+      tone: input.tone,
     });
 
     return jsonOk({ id: draft.id, type: draft.type, status: draft.status }, 201);
   } catch (error) {
     if (error instanceof ClaudeNotConfiguredError) {
       return jsonError(
-        'Content generation needs ANTHROPIC_API_KEY. Add it to enable the AI writer.',
+        'No AI writer is configured on this server. Add GEMINI_API_KEY (or ANTHROPIC_API_KEY) to the server environment.',
         503,
       );
     }

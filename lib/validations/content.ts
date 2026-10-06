@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { SOCIAL_PLATFORMS } from '@/lib/platforms';
+
 /**
  * Content Studio schemas — the single source of truth for every content type's
  * structure. Claude generation output is validated against these (retry-once on
@@ -14,14 +16,37 @@ export const CONTENT_TYPES = [
   'CAROUSEL',
   'TWEET_THREAD',
   'BLOG',
+  'EMAIL',
+  'AD',
 ] as const;
 export type ContentTypeKey = (typeof CONTENT_TYPES)[number];
+
+/**
+ * Types that are written in Aura but sent from somewhere else — an email from
+ * the business's email tool, an ad from the ad platform. They are copied out,
+ * never published to a social network.
+ */
+export const COPY_ONLY_TYPES: readonly ContentTypeKey[] = ['EMAIL', 'AD'];
+export function isCopyOnlyType(type: ContentTypeKey): boolean {
+  return COPY_ONLY_TYPES.includes(type);
+}
+
+/**
+ * The call to action, as its own field.
+ *
+ * It used to live inside the last paragraph or caption, so nothing could
+ * check there was one, the UI could not show it, and "rewrite the CTA" meant
+ * rewriting the whole post. Optional with an empty default, so every draft
+ * written before it existed still loads unchanged.
+ */
+const ctaField = z.string().max(300).default('');
 
 // ---- Per-type body schemas -------------------------------------------------
 
 export const linkedInPostSchema = z.object({
   hook: z.string().min(1).max(300),
   paragraphs: z.array(z.string().min(1).max(1200)).min(3).max(5),
+  cta: ctaField,
   hashtags: z.array(z.string().max(40)).max(8).default([]),
 });
 
@@ -34,6 +59,7 @@ export const linkedInPostSchema = z.object({
  */
 export const imagePostSchema = z.object({
   caption: z.string().min(1).max(2200),
+  cta: ctaField,
   hashtags: z.array(z.string().max(40)).max(12).default([]),
   /** Accessibility text for the graphic. Empty until an image is attached. */
   altText: z.string().max(420).default(''),
@@ -46,12 +72,15 @@ export const carouselSlideSchema = z.object({
 export const carouselSchema = z.object({
   title: z.string().min(1).max(160),
   slides: z.array(carouselSlideSchema).min(5).max(8),
+  cta: ctaField,
   hashtags: z.array(z.string().max(40)).max(8).default([]),
 });
 
 export const threadSchema = z.object({
   // First tweet is the hook. 280-char guidance enforced by the model + here.
   tweets: z.array(z.string().min(1).max(280)).min(2).max(12),
+  /** Used sparingly on X: one or two, carried in the last tweet. */
+  hashtags: z.array(z.string().max(40)).max(3).default([]),
 });
 
 export const blogSectionSchema = z.object({
@@ -63,6 +92,30 @@ export const blogSchema = z.object({
   subtitle: z.string().max(300).optional().default(''),
   sections: z.array(blogSectionSchema).min(2).max(10),
   tags: z.array(z.string().max(40)).max(10).default([]),
+});
+
+/** A marketing email, sent from the business's own email tool. */
+export const emailSchema = z.object({
+  subjectLine: z.string().min(1).max(120),
+  /** The inbox preview line after the subject. */
+  previewText: z.string().max(160).default(''),
+  greeting: z.string().max(80).default(''),
+  paragraphs: z.array(z.string().min(1).max(1500)).min(1).max(6),
+  /** The button or link text — one clear action. */
+  cta: ctaField,
+  signOff: z.string().max(160).default(''),
+});
+
+/**
+ * Ad copy for a social placement (Meta, LinkedIn, X ads). Field names follow
+ * the ad managers', so it pastes straight in.
+ */
+export const adSchema = z.object({
+  headline: z.string().min(1).max(80),
+  primaryText: z.string().min(1).max(1000),
+  description: z.string().max(120).default(''),
+  /** The button label, e.g. "Shop now", "Learn more". */
+  cta: z.string().max(40).default('Learn more'),
 });
 
 // ---- Brand Voice Profile ---------------------------------------------------
@@ -91,12 +144,16 @@ export type ImagePostBody = z.infer<typeof imagePostSchema>;
 export type CarouselBody = z.infer<typeof carouselSchema>;
 export type ThreadBody = z.infer<typeof threadSchema>;
 export type BlogBody = z.infer<typeof blogSchema>;
+export type EmailBody = z.infer<typeof emailSchema>;
+export type AdBody = z.infer<typeof adSchema>;
 export type ContentBody =
   | LinkedInPostBody
   | ImagePostBody
   | CarouselBody
   | ThreadBody
-  | BlogBody;
+  | BlogBody
+  | EmailBody
+  | AdBody;
 
 /** Map a content type to its body schema. */
 export function bodySchemaFor(type: ContentTypeKey) {
@@ -111,6 +168,10 @@ export function bodySchemaFor(type: ContentTypeKey) {
       return threadSchema;
     case 'BLOG':
       return blogSchema;
+    case 'EMAIL':
+      return emailSchema;
+    case 'AD':
+      return adSchema;
   }
 }
 
@@ -123,15 +184,61 @@ export const generationSourceSchema = z.object({
   brief: z.string().trim().max(2000).optional(),
 });
 
+/** Tones a draft can be rewritten in (the "Change tone" action). */
+export const CONTENT_TONES = [
+  'professional',
+  'friendly',
+  'playful',
+  'bold',
+  'warm',
+  'concise',
+] as const;
+export type ContentTone = (typeof CONTENT_TONES)[number];
+
 export const generateContentSchema = z.object({
   type: z.enum(CONTENT_TYPES),
   source: generationSourceSchema,
   campaignId: z.string().optional(),
+  /**
+   * Where it will run. The copy is written for this platform's conventions
+   * and limits (lib/content-playbook.ts); without it, the type's default.
+   */
+  platform: z.enum(SOCIAL_PLATFORMS).optional(),
+  /** Creative variations to write (different angles); the first is the draft. */
+  variations: z.number().int().min(1).max(3).default(1),
+  /** Optional tone for this piece, on top of the brand voice. */
+  tone: z.enum(CONTENT_TONES).optional(),
 });
 
-export const refineContentSchema = z.object({
-  feedback: z.string().trim().min(1, 'Add a note on what to change').max(1000),
-});
+/** The one-click editing actions on a draft. */
+export const REFINE_ACTIONS = [
+  'regenerate',
+  'shorten',
+  'expand',
+  'tone',
+  'improve',
+  'custom',
+] as const;
+export type RefineAction = (typeof REFINE_ACTIONS)[number];
+
+/**
+ * Refine a draft. `{ feedback }` alone still works (a custom instruction),
+ * so existing callers are unaffected.
+ */
+export const refineContentSchema = z
+  .object({
+    action: z.enum(REFINE_ACTIONS).default('custom'),
+    tone: z.enum(CONTENT_TONES).optional(),
+    feedback: z.string().trim().max(1000).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.action === 'custom' && (!v.feedback || v.feedback.length < 1)) {
+      ctx.addIssue({ code: 'custom', path: ['feedback'], message: 'Add a note on what to change' });
+    }
+    if (v.action === 'tone' && !v.tone) {
+      ctx.addIssue({ code: 'custom', path: ['tone'], message: 'Pick a tone' });
+    }
+  });
 
 /** Manual edits saved from the detail editor. Body is validated per type. */
 export const updateDraftSchema = z.object({

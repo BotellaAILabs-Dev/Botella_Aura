@@ -25,6 +25,9 @@ const FORMAT_BLURBS: Record<ContentTypeKey, string> = {
     'Five to eight slides that build an idea. Strong on LinkedIn and Instagram alike.',
   TWEET_THREAD: 'A numbered thread for X. Short, punchy, one idea per post.',
   BLOG: 'A structured long-form draft with headings. For your own site or newsletter.',
+  EMAIL:
+    'A marketing email: subject line, preview text, body and one clear call to action. Sent from your own email tool.',
+  AD: 'Ad copy — headline, primary text and button — shaped for the placement it runs in.',
 };
 
 /**

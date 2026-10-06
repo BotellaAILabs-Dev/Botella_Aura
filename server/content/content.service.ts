@@ -7,7 +7,16 @@ import type {
 } from '@prisma/client';
 import { db } from '@/lib/db';
 import { recordAudit } from '@/server/services/audit.service';
-import { bodySchemaFor, type ContentTypeKey } from '@/lib/validations/content';
+import {
+  bodySchemaFor,
+  isCopyOnlyType,
+  type ContentTypeKey,
+} from '@/lib/validations/content';
+import type { QualityReport } from '@/lib/content-quality';
+import { assessDraft } from '@/server/content/quality.service';
+
+/** Undo steps kept per draft (matches server/content/generator.ts). */
+const HISTORY_LIMIT = 5;
 
 /**
  * Content approval state machine + service. The publish guarantee lives HERE,
@@ -81,6 +90,22 @@ export async function transition({
   if (!isValidTransition(draft.status, to)) {
     throw new InvalidTransitionError(draft.status, to);
   }
+  // Compliance before approval: a draft whose check found something that
+  // must not be published (an alcohol-code breach, a never-mention topic, an
+  // unsupported claim, copy too long for its platform) cannot be approved
+  // until it is fixed — by a rewrite, or a person's edit, which re-checks.
+  if (to === 'APPROVED') {
+    const quality = ((draft.aiMetadata ?? {}) as { quality?: QualityReport }).quality;
+    const blocking = (quality?.issues ?? []).filter((i) => i.severity === 'block');
+    if (blocking.length) {
+      throw Object.assign(
+        new Error(
+          `Fix before approving: ${blocking.map((i) => i.message).join(' ')}`,
+        ),
+        { status: 409 },
+      );
+    }
+  }
 
   const data: Prisma.ContentDraftUpdateInput = { status: to };
   if (to === 'REJECTED') data.rejectionReason = reason ?? null;
@@ -139,6 +164,14 @@ export async function updateDraftBody(args: {
   const body = bodySchemaFor(draft.type as ContentTypeKey).parse(args.body);
   const nextStatus: ContentStatus =
     draft.status === 'APPROVED' ? 'DRAFT' : draft.status;
+  // A person's edit is re-checked against the same rules (it can fix — or
+  // introduce — a compliance problem), and is undoable like any rewrite.
+  const quality = await assessDraft(draft, body);
+  const meta = (draft.aiMetadata ?? {}) as Record<string, unknown>;
+  const history = [
+    { body: draft.body, at: new Date().toISOString(), before: 'edit' },
+    ...((Array.isArray(meta.history) ? meta.history : []) as unknown[]),
+  ].slice(0, HISTORY_LIMIT);
 
   const updated = await db.contentDraft.update({
     where: { id: draft.id },
@@ -146,6 +179,11 @@ export async function updateDraftBody(args: {
       body: body as object,
       title: args.title ?? draft.title,
       status: nextStatus,
+      aiMetadata: {
+        ...meta,
+        quality,
+        history,
+      } as unknown as Prisma.InputJsonValue,
     },
   });
   await recordAudit({
@@ -165,6 +203,14 @@ export async function scheduleDraft(args: {
   scheduledFor: Date;
 }): Promise<ContentDraft> {
   const draft = await loadOwned(args.companyId, args.draftId);
+  if (isCopyOnlyType(draft.type as ContentTypeKey)) {
+    throw Object.assign(
+      new Error(
+        'Email and ad copy are sent from your email tool or ad manager, not published by Aura — copy it out instead.',
+      ),
+      { status: 409 },
+    );
+  }
   if (draft.status !== 'APPROVED') {
     throw Object.assign(
       new Error('Only approved content can be scheduled.'),

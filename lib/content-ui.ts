@@ -6,6 +6,8 @@ import {
   type CarouselBody,
   type ThreadBody,
   type BlogBody,
+  type EmailBody,
+  type AdBody,
 } from '@/lib/validations/content';
 
 /** Shared, client-safe content-type presentation helpers (no React). */
@@ -16,6 +18,8 @@ export const CONTENT_TYPE_LABELS: Record<ContentTypeKey, string> = {
   CAROUSEL: 'Carousel',
   TWEET_THREAD: 'X thread',
   BLOG: 'Blog draft',
+  EMAIL: 'Email',
+  AD: 'Ad copy',
 };
 
 export type ContentStatusKey =
@@ -48,5 +52,9 @@ export function draftSnippet(type: ContentTypeKey, body: unknown): string {
       return (parsed.data as ThreadBody).tweets[0] ?? '';
     case 'BLOG':
       return (parsed.data as BlogBody).headline;
+    case 'EMAIL':
+      return (parsed.data as EmailBody).subjectLine;
+    case 'AD':
+      return (parsed.data as AdBody).headline;
   }
 }

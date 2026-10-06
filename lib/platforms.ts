@@ -151,6 +151,15 @@ export function defaultPlatformFor(type: ContentTypeKey): SocialPlatformKey {
     case 'CAROUSEL':
     case 'BLOG':
       return 'LINKEDIN';
+    // Ads are written for the placement they run in; Meta's is the common one.
+    case 'AD':
+      return 'FACEBOOK';
+    // An email is never published to a network (it is copy-only, and
+    // publishing refuses it). The platform only decides the format of a
+    // header image, and LinkedIn's landscape-friendly specs suit an email
+    // header best.
+    case 'EMAIL':
+      return 'LINKEDIN';
   }
 }
 
@@ -187,5 +196,11 @@ export function platformsForType(type: ContentTypeKey): SocialPlatformKey[] {
       return ['X'];
     case 'BLOG':
       return ['LINKEDIN'];
+    // The placement the ad copy is shaped for.
+    case 'AD':
+      return ['FACEBOOK', 'INSTAGRAM', 'LINKEDIN', 'X'];
+    // Not aimed at a network at all.
+    case 'EMAIL':
+      return [];
   }
 }

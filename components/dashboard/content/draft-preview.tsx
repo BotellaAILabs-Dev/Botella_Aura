@@ -1,4 +1,4 @@
-import { Image as ImageIcon, Linkedin, Twitter } from 'lucide-react';
+import { Image as ImageIcon, Linkedin, Mail, Megaphone, Twitter } from 'lucide-react';
 import {
   bodySchemaFor,
   type ContentTypeKey,
@@ -7,6 +7,8 @@ import {
   type CarouselBody,
   type ThreadBody,
   type BlogBody,
+  type EmailBody,
+  type AdBody,
 } from '@/lib/validations/content';
 
 /**
@@ -41,7 +43,24 @@ export function DraftPreview({
       return <ThreadPreview b={parsed.data as ThreadBody} />;
     case 'BLOG':
       return <BlogPreview b={parsed.data as BlogBody} />;
+    case 'EMAIL':
+      return <EmailPreview b={parsed.data as EmailBody} />;
+    case 'AD':
+      return <AdPreview b={parsed.data as AdBody} />;
   }
+}
+
+/** The call to action, shown as its own line so it is obvious there is one. */
+function Cta({ text }: { text: string }) {
+  if (!text.trim()) return null;
+  return (
+    <p className="mt-3 text-sm font-medium text-primary">
+      <span className="mr-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] uppercase tracking-wide">
+        CTA
+      </span>
+      {text}
+    </p>
+  );
 }
 
 /**
@@ -77,6 +96,7 @@ function PostPreview({ b }: { b: LinkedInPostBody }) {
           </p>
         ))}
       </div>
+      <Cta text={b.cta} />
       <Hashtags tags={b.hashtags} />
     </div>
   );
@@ -103,6 +123,7 @@ function ImagePostPreview({ b }: { b: ImagePostBody }) {
         </p>
       </div>
       <p className="whitespace-pre-wrap text-sm text-foreground">{b.caption}</p>
+      <Cta text={b.cta} />
       <Hashtags tags={b.hashtags} />
     </div>
   );
@@ -132,6 +153,7 @@ function CarouselPreview({ b }: { b: CarouselBody }) {
           </div>
         ))}
       </div>
+      <Cta text={b.cta} />
       <Hashtags tags={b.hashtags} />
     </div>
   );
@@ -152,6 +174,7 @@ function ThreadPreview({ b }: { b: ThreadBody }) {
           <span className="whitespace-pre-wrap text-foreground">{t}</span>
         </div>
       ))}
+      <Hashtags tags={b.hashtags} />
     </div>
   );
 }
@@ -181,5 +204,70 @@ function BlogPreview({ b }: { b: BlogBody }) {
         </p>
       )}
     </article>
+  );
+}
+
+function EmailPreview({ b }: { b: EmailBody }) {
+  return (
+    <div className="mx-auto max-w-xl rounded-lg border border-border bg-card shadow-sm">
+      <div className="space-y-1 border-b border-border p-4 text-sm">
+        <div className="mb-2 flex items-center gap-2 text-muted-foreground">
+          <Mail className="h-4 w-4 text-primary" /> Email preview
+        </div>
+        <p>
+          <span className="text-muted-foreground">Subject: </span>
+          <span className="font-semibold text-foreground">{b.subjectLine}</span>
+        </p>
+        {b.previewText && (
+          <p className="text-muted-foreground">{b.previewText}</p>
+        )}
+      </div>
+      <div className="space-y-3 p-5 text-sm text-foreground">
+        {b.greeting && <p>{b.greeting}</p>}
+        {b.paragraphs.map((p, i) => (
+          <p key={i} className="whitespace-pre-wrap">
+            {p}
+          </p>
+        ))}
+        {b.cta && (
+          <div className="pt-1">
+            <span className="inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+              {b.cta}
+            </span>
+          </div>
+        )}
+        {b.signOff && (
+          <p className="whitespace-pre-wrap text-muted-foreground">{b.signOff}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Laid out like a feed ad: primary text, then the headline row with its button. */
+function AdPreview({ b }: { b: AdBody }) {
+  return (
+    <div className="mx-auto max-w-md rounded-lg border border-border bg-card shadow-sm">
+      <div className="flex items-center gap-2 p-4 pb-2 text-sm text-muted-foreground">
+        <Megaphone className="h-4 w-4 text-primary" /> Ad preview · Sponsored
+      </div>
+      <p className="whitespace-pre-wrap px-4 pb-3 text-sm text-foreground">
+        {b.primaryText}
+      </p>
+      <div className="flex aspect-[1.91/1] items-center justify-center border-y border-dashed border-border bg-muted/40 text-xs text-muted-foreground">
+        Ad image or video
+      </div>
+      <div className="flex items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-foreground">{b.headline}</p>
+          {b.description && (
+            <p className="truncate text-xs text-muted-foreground">{b.description}</p>
+          )}
+        </div>
+        <span className="shrink-0 rounded-md bg-muted px-3 py-1.5 text-xs font-semibold text-foreground">
+          {b.cta}
+        </span>
+      </div>
+    </div>
   );
 }

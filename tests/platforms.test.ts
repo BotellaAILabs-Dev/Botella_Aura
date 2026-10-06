@@ -103,6 +103,11 @@ describe('resolvePlatform', () => {
 describe('platformsForType', () => {
   it('always includes the type’s own default', () => {
     for (const type of CONTENT_TYPES) {
+      // An email is never aimed at a network (copy-only, never published).
+      if (type === 'EMAIL') {
+        expect(platformsForType(type)).toEqual([]);
+        continue;
+      }
       expect(platformsForType(type)).toContain(defaultPlatformFor(type));
     }
   });

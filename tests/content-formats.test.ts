@@ -70,6 +70,11 @@ describe('every content type stays wired end to end', () => {
     expect(bodySchemaFor(type as ContentTypeKey)).toBeDefined();
     expect(CONTENT_TYPE_LABELS[type as ContentTypeKey]).toBeTruthy();
     const platforms = platformsForType(type as ContentTypeKey);
+    // An email is never aimed at a network (copy-only); every other type is.
+    if (type === 'EMAIL') {
+      expect(platforms).toEqual([]);
+      return;
+    }
     expect(platforms.length).toBeGreaterThan(0);
     // The default must be one of the offered destinations, or the composer
     // would open on a platform the user cannot then re-select.
