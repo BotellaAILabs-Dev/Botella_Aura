@@ -61,9 +61,22 @@ interface GenerateResponse {
   error?: string;
 }
 
-export function AgnesImageGenerator() {
+export function AgnesImageGenerator({
+  configured,
+}: {
+  /**
+   * Which models this deployment has a key for (decided server-side; the
+   * keys themselves never reach the browser). Unconfigured ones are shown but
+   * disabled, and the default is the first that works — defaulting to one
+   * with no key made the very first click fail.
+   */
+  configured?: Partial<Record<ModelValue, boolean>>;
+} = {}) {
+  const isOn = (v: ModelValue) => configured?.[v] ?? true;
   const [prompt, setPrompt] = useState('');
-  const [model, setModel] = useState<ModelValue>('huggingface');
+  const [model, setModel] = useState<ModelValue>(
+    () => MODELS.find((m) => isOn(m.value))?.value ?? 'huggingface',
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -143,8 +156,9 @@ export function AgnesImageGenerator() {
             )}
           >
             {MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
+              <option key={m.value} value={m.value} disabled={!isOn(m.value)}>
                 {m.label}
+                {isOn(m.value) ? '' : ' (not set up)'}
               </option>
             ))}
           </select>

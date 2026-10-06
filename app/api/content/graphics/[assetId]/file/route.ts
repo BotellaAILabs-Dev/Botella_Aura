@@ -37,18 +37,27 @@ export async function GET(
     url.searchParams.get('sig'),
   );
 
-  const asset = await db.generatedAsset.findUnique({
+  // Who owns it first, WITHOUT the image bytes: the multi-MB blob is only
+  // read once the caller is known to be allowed it. (This used to load the
+  // whole image before the session check, so every preview — and every
+  // refused request — paid for a full read.)
+  const owner = await db.generatedAsset.findUnique({
     where: { id: params.assetId },
+    select: { companyId: true },
   });
-  if (!asset) return notFound();
+  if (!owner) return notFound();
 
   if (!signed) {
     const user = await getCurrentUser();
     if (!user) return notFound();
-    const membership = await getMembership(user.id, asset.companyId);
+    const membership = await getMembership(user.id, owner.companyId);
     if (!membership) return notFound();
   }
 
+  const asset = await db.generatedAsset.findUnique({
+    where: { id: params.assetId },
+  });
+  if (!asset) return notFound();
   const bytes = await readAssetBytes(asset);
   if (!bytes) return notFound();
 

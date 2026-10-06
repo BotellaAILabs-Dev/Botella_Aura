@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { RetryingImage } from '@/components/ui/retrying-image';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -128,6 +129,8 @@ type Phase =
  */
 const JOB_POLL_MS = 1500;
 const JOB_TIMEOUT_MS = 6 * 60 * 1000;
+/** Re-start a job seen waiting in the queue this long (see pollJob). */
+const JOB_REKICK_MS = 5000;
 
 const PHASE_STEPS: Array<{ key: Phase; label: string }> = [
   { key: 'analyzing', label: 'Analyzing content' },
@@ -382,6 +385,12 @@ export function GraphicStudio({
   /** Poll until the job finishes, applying its result or its error. */
   async function pollJob(jobId: string) {
     const deadline = Date.now() + JOB_TIMEOUT_MS;
+    // A job that is QUEUED is not running: either the first kick has not
+    // landed yet, or a retryable failure put it back in the queue — and on a
+    // deploy without the jobs cron, nothing else ever starts it again. So
+    // while we are watching, we start it ourselves. Claiming is atomic
+    // (QUEUED → RUNNING), so a kick that races another does nothing.
+    let lastKick = Date.now();
 
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, JOB_POLL_MS));
@@ -404,6 +413,13 @@ export function GraphicStudio({
         };
         error?: string | null;
       };
+
+      if (job.status === 'QUEUED' && Date.now() - lastKick >= JOB_REKICK_MS) {
+        lastKick = Date.now();
+        void fetch(`/api/jobs/${jobId}/run`, { method: 'POST' }).catch(
+          () => undefined,
+        );
+      }
 
       // The runner reports 90% once it is storing previews.
       if ((job.progress?.percent ?? 0) >= 90) setPhase('preparing');
@@ -1111,8 +1127,7 @@ function Gallery({
                 paints, and the width/height stop the grid reflowing as each
                 one lands. The file route marks them immutable, so the download
                 cost is paid once per image. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <RetryingImage
               src={asset.url}
               alt={`Generated graphic, ${asset.aspectRatio}`}
               className="h-full w-full object-cover"
@@ -1192,8 +1207,7 @@ function SelectedGraphic({
             asset.aspectRatio,
           )}`}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <RetryingImage
             src={asset.url}
             alt="Selected graphic preview"
             className="h-full w-full object-cover"

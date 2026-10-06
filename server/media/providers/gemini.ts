@@ -39,8 +39,20 @@ import {
  * was never reachable. The default is now a model such a key actually has,
  * and the request shape follows from the model name.
  */
-const DEFAULT_MODEL = 'gemini-2.5-flash-image';
-const TIMEOUT_MS = 120_000;
+const DEFAULT_MODEL = 'gemini-3.1-flash-lite-image';
+/**
+ * Per attempt, with ONE retry on a network error or 5xx (lib/http.ts).
+ *
+ * Generation runs inside a function with a 60-second budget
+ * (app/api/jobs/[id]/run, app/api/generate-image). The old single 120s
+ * attempt could outlive that budget: the platform killed the request, the
+ * job was left RUNNING with nothing to fail it, and the preview never came.
+ * Two 25s attempts plus the retry pause always finish inside 60s, and the
+ * flash-lite image model answers in about 4s, so a timeout means a stuck
+ * request worth retrying, not a slow image worth waiting for.
+ */
+const TIMEOUT_MS = 25_000;
+const RETRIES = 1;
 
 /** Imagen's own ratio vocabulary. It happens to match ours exactly. */
 const SUPPORTED: AspectRatioKey[] = ['1:1', '4:5', '16:9', '9:16'];
@@ -202,7 +214,7 @@ async function predictImagen(
         },
       }),
       timeoutMs: TIMEOUT_MS,
-      retries: 0,
+      retries: RETRIES,
     },
   );
 
@@ -260,7 +272,7 @@ async function generateWithGemini(
         },
       }),
       timeoutMs: TIMEOUT_MS,
-      retries: 0,
+      retries: RETRIES,
     },
   );
 
