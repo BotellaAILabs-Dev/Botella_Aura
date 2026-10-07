@@ -30,7 +30,7 @@ rather than numbers, but every part of it was a snapshot taken once a week.
 | Competitor moves | **Kept**, under "This week" | Context, with "what it means" |
 | What Aura could not do | **Kept** | Honest gaps |
 | Setup checklist | **Kept** | It is the next action until setup is done |
-| Needs you | **Replaced** by *What matters now* | It was a weekly count that could be up to 7 days stale. It is now live and includes more |
+| Needs you | **Replaced** by *Waiting on you*, under *What matters now* | It was a weekly count that could be up to 7 days stale. It is now live |
 | What to do next | **Removed** | An older heuristic list that duplicated Aura Suggests. Recommendations now come from one place |
 | Business insights | **Replaced** by *Results* | Bare numbers with no comparison (for example "Posts with a graphic 3/5"). Results now compare with last week |
 | Go deeper links | **Kept** as *Everything else* | Every tool stays one click away |
@@ -46,9 +46,12 @@ Here’s what matters for Botella right now.
 
 [Setup checklist — until setup is done]
 
-● What matters now                  ← live, at most 4, urgent first
-  ⚠ “Promote fall bourbon”           Best done within 2 days → See the suggestion
-    2 posts waiting for approval     Nothing publishes until you approve → Review
+● What matters now                  ← live: the situation, from real records
+  1 opportunity worth acting on (1 closing soon) and 2 changes to know about.
+  [Opportunity] Respond to Acme’s pricing change — why it matters ·
+                Strong evidence · ✦ See Aura’s suggestion
+  [Change]      Total engagement down 40% — why it matters
+  Waiting on you: [2 posts to approve · Review →]
 
 ✦ Aura Suggests                      See all (5)
   [top 3 suggestions: what · why · expected outcome · based on · evidence
@@ -72,20 +75,20 @@ Everything else: Content Studio · Content plan · Market trends · …
 
 ## What matters now
 
-At most **4** items, so it stays a priority list. Urgent items come first.
-Each has one action and somewhere to go. When nothing needs a person, Home
-says so calmly.
+The business situation in a few lines: active, high-relevance opportunities
+and important changes in current signals. Every item is tied to its
+opportunity or signal, says why it matters, and links to its suggestion.
+When there isn't enough information, the section says so instead of
+inventing anything. Full rules: [WHAT-MATTERS-NOW.md](WHAT-MATTERS-NOW.md).
 
-| Item | When | Action |
-| --- | --- | --- |
-| A suggestion that's only relevant for a few days | Best done within 3 days | See the suggestion |
-| An opportunity about to close | Closes within 3 days, no decision yet. Not shown if it already has a suggestion | Decide on it |
-| Engagement falling | Down 25% or more on last week | See what changed |
-| Posts waiting for approval | Any | Review |
-| Suggestions you said yes to | Accepted or edited, not started | The suggestion's own next step (for example Create content) |
-| Approved posts with no publish time | Any | Schedule |
-| New leads | Any | Review leads |
-| Outreach ready to send | Any | Send |
+Under it, **Waiting on you** lists the work ready for a person, each with
+its action:
+- posts to approve
+- suggestions you said yes to (with their next step, for example Create
+  content)
+- approved posts to schedule
+- new leads to review
+- outreach ready to send
 
 ## The other sections
 
@@ -117,7 +120,7 @@ simulates an outage to prove this.
 
 | Criterion | How |
 | --- | --- |
-| Opens with actionable context rather than disconnected metrics | *What matters now* comes first: what needs a person, each with an action. Numbers sit lower and are compared, not just listed |
+| Opens with actionable context rather than disconnected metrics | *What matters now* comes first: the situation from real opportunities and changes, each linked to its suggestion, then what is waiting on you. Numbers sit lower and are compared, not just listed |
 | Recommendations are prominent | *Aura Suggests* is the second section, with the top 3 suggestions and their actions on Home itself |
-| Opportunities can be accessed | *Active opportunities* links to each one and to the full list. Urgent ones also appear in *What matters now* |
+| Opportunities can be accessed | *Active opportunities* links to each one and to the full list. High-relevance ones also lead *What matters now* |
 | Existing important dashboard functionality remains accessible | The weekly briefing ("This week"), setup, and every tool (sidebar and *Everything else*) are kept. The old "Needs you" and "Business insights" live on in better form |

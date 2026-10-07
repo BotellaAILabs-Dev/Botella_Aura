@@ -98,7 +98,7 @@ export default async function HomePage() {
           />
         )}
 
-        <WhatMattersNow items={home.matters} />
+        <WhatMattersNow data={home.whatMatters} waiting={home.waiting} />
 
         <HomeSection
           id="suggests"

@@ -21,9 +21,10 @@ import {
   closesIn,
   type ActivityItem,
   type HomeOpportunity,
-  type MatterItem,
+  type WaitingItem,
   type ResultTile,
 } from '@/lib/aura-home';
+import type { WhatMatters } from '@/lib/what-matters';
 
 /**
  * The sections of Aura Home (lib/aura-home.ts). Server components: nothing
@@ -80,49 +81,166 @@ export function HomeSection({
 
 // ---------------------------------------------------------------------------
 
-export function WhatMattersNow({ items }: { items: MatterItem[] }) {
+const STATE_HINT: Record<WhatMatters['state'], string | null> = {
+  ready: null,
+  limited: 'Based on limited information',
+  quiet: null,
+  insufficient: 'Not enough information yet',
+};
+
+export function WhatMattersNow({
+  data,
+  waiting,
+}: {
+  data: WhatMatters | null;
+  waiting: WaitingItem[];
+}) {
   return (
-    <HomeSection id="matters" icon={CircleDot} title="What matters now">
-      {items.length === 0 ? (
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4 text-sm">
-            <CheckCircle2
-              className="h-5 w-5 shrink-0 text-primary"
-              aria-hidden
-            />
-            <span className="text-muted-foreground">
-              Nothing needs you right now. Aura is keeping an eye on your
-              market, competitors and results, and will flag anything that does.
-            </span>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {items.map((m) => (
-            <Link
-              key={m.key}
-              href={m.href}
-              className={cn(
-                'group flex flex-col justify-between gap-3 rounded-lg border bg-card p-4 transition-colors hover:border-primary/50',
-                m.tone === 'urgent' ? 'border-warning/60' : 'border-border',
+    <HomeSection
+      id="matters"
+      icon={CircleDot}
+      title="What matters now"
+      hint={data ? (STATE_HINT[data.state] ?? undefined) : undefined}
+    >
+      <Card>
+        <CardContent className="space-y-4 p-4 sm:p-5">
+          {!data ? (
+            <p className="text-sm text-muted-foreground">
+              Aura couldn’t load the current picture just now. Refresh in a
+              moment.
+            </p>
+          ) : (
+            <>
+              <p
+                className={cn(
+                  'text-sm',
+                  data.state === 'ready' || data.state === 'limited'
+                    ? 'font-medium text-foreground'
+                    : 'text-muted-foreground',
+                )}
+              >
+                {data.state === 'quiet' && (
+                  <CheckCircle2
+                    className="mr-1.5 inline h-4 w-4 align-text-bottom text-primary"
+                    aria-hidden
+                  />
+                )}
+                {data.summary}
+              </p>
+
+              {data.items.length > 0 && (
+                <ul className="divide-y divide-border rounded-md border border-border">
+                  {data.items.map((m) => (
+                    <li key={m.key} className="space-y-1.5 p-3">
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <Badge
+                          variant={
+                            m.kind === 'opportunity' ? 'default' : 'muted'
+                          }
+                        >
+                          {m.kind === 'opportunity' ? 'Opportunity' : 'Change'}
+                        </Badge>
+                        {m.urgency && (
+                          <Badge variant="warning">{m.urgency}</Badge>
+                        )}
+                        <span className="text-muted-foreground">
+                          {m.source}
+                        </span>
+                      </div>
+                      <p className="text-sm font-medium text-foreground">
+                        {m.title}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        <span className="font-medium text-foreground/80">
+                          Why it matters:
+                        </span>{' '}
+                        {m.why}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-1',
+                            m.confidence.weak
+                              ? '[color:hsl(38_92%_35%)] dark:[color:hsl(var(--warning))]'
+                              : 'text-muted-foreground',
+                          )}
+                        >
+                          {m.confidence.weak && (
+                            <AlertCircle className="h-3.5 w-3.5" aria-hidden />
+                          )}
+                          {m.confidence.label}
+                        </span>
+                        <Link
+                          href={m.href}
+                          className="text-primary hover:underline"
+                        >
+                          {m.kind === 'opportunity'
+                            ? 'Open the opportunity'
+                            : 'See where this came from'}
+                        </Link>
+                        {m.related && (
+                          <Link
+                            href={m.related.href}
+                            className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                          >
+                            <Sparkles className="h-3 w-3" aria-hidden />
+                            {m.related.label}
+                          </Link>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               )}
+
+              {data.gaps.length > 0 && data.state !== 'ready' && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-foreground">
+                    {data.state === 'insufficient'
+                      ? 'To tell you what matters, Aura needs:'
+                      : 'Aura could say more with:'}
+                  </p>
+                  <ul className="space-y-1">
+                    {data.gaps.map((g) => (
+                      <li
+                        key={g.key}
+                        className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"
+                      >
+                        <span>{g.text}</span>
+                        <Link
+                          href={g.action.href}
+                          className="font-medium text-primary hover:underline"
+                        >
+                          {g.action.label}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {data.basis && (
+                <p className="text-xs text-muted-foreground">{data.basis}</p>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {waiting.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">
+            Waiting on you:
+          </span>
+          {waiting.map((w) => (
+            <Link
+              key={w.key}
+              href={w.href}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-foreground transition-colors hover:border-primary/50"
             >
-              <div>
-                <p className="flex items-start gap-2 text-sm font-medium text-foreground">
-                  {m.tone === 'urgent' && (
-                    <AlertCircle
-                      className="mt-0.5 h-4 w-4 shrink-0 [color:hsl(38_92%_40%)]"
-                      aria-label="Time-sensitive"
-                    />
-                  )}
-                  {m.title}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">{m.detail}</p>
-              </div>
-              <span className="inline-flex items-center gap-1 text-sm font-medium text-primary">
-                {m.action}
-                <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-              </span>
+              {w.title}
+              <span className="font-medium text-primary">{w.action}</span>
+              <ArrowRight className="h-3 w-3 text-primary" aria-hidden />
             </Link>
           ))}
         </div>

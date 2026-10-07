@@ -4,9 +4,10 @@ import type { SuggestionView } from '@/lib/aura-suggests';
  * Aura Home — the home page as a recommendation-led answer to three
  * questions, not a wall of metrics:
  *
- *   What matters right now?      whatMattersNow — a short, ranked list of the
- *                                things that need a person, each with the one
- *                                action that deals with it
+ *   What matters right now?      What matters now (lib/what-matters.ts) — the
+ *                                business situation from opportunities and
+ *                                signals — and waitingOnYou, the work ready
+ *                                for a person
  *   What does Aura suggest?      Aura Suggests (lib/aura-suggests.ts)
  *   What happened recently?      buildActivity — what Aura and the team did
  *
@@ -18,16 +19,17 @@ import type { SuggestionView } from '@/lib/aura-suggests';
 const DAY = 86_400_000;
 
 // ---------------------------------------------------------------------------
-// What matters now
+// Waiting on you
 // ---------------------------------------------------------------------------
 
-export interface MatterItem {
-  /** Stable key: which rule produced it. */
+/**
+ * Work that is ready and waiting on a person — the to-do strip under What
+ * matters now. (What matters now itself is the business situation:
+ * lib/what-matters.ts.)
+ */
+export interface WaitingItem {
   key: string;
-  /** urgent = time-sensitive or going wrong; action = waiting on a person. */
-  tone: 'urgent' | 'action';
   title: string;
-  detail: string;
   action: string;
   href: string;
 }
@@ -63,82 +65,19 @@ export interface ResultsInput {
   suggestionsActedOn: number;
 }
 
-/** The most items What matters now shows: more than this is a list, not a priority. */
-export const MATTERS_LIMIT = 4;
-
 const plural = (n: number, one: string, many = `${one}s`) =>
   `${n} ${n === 1 ? one : many}`;
 
-/** How far engagement must fall, week on week, to need attention. */
-export const ENGAGEMENT_DROP = 0.25;
-
-export function whatMattersNow(input: {
-  suggestions: SuggestionView[];
+export function waitingOnYou(input: {
   accepted: SuggestionView[];
-  opportunities: HomeOpportunity[];
   counts: HomeCounts;
-  results: ResultsInput | null;
-}): MatterItem[] {
-  const out: MatterItem[] = [];
+}): WaitingItem[] {
   const { counts } = input;
-
-  // 1. Time-sensitive suggestions: worth doing soon or not at all.
-  for (const s of input.suggestions) {
-    if (!s.timing || !/today|within [1-3] days/.test(s.timing)) continue;
-    out.push({
-      key: `suggestion:${s.id}`,
-      tone: 'urgent',
-      title: s.what,
-      detail: `${s.timing} — after that it stops being relevant.`,
-      action: 'See the suggestion',
-      href: '/dashboard/suggestions',
-    });
-  }
-
-  // 2. Opportunities about to close with no decision and no suggestion yet.
-  for (const o of input.opportunities) {
-    if (o.daysLeft === null || o.daysLeft > 3) continue;
-    if (o.status === 'RECOMMENDED') continue; // covered by its suggestion
-    out.push({
-      key: `opportunity:${o.id}`,
-      tone: 'urgent',
-      title: o.title,
-      detail:
-        o.daysLeft <= 0
-          ? 'This opportunity closes today.'
-          : `This opportunity closes in ${plural(o.daysLeft, 'day')}.`,
-      action: 'Decide on it',
-      href: `/dashboard/opportunities?focus=${o.id}`,
-    });
-  }
-
-  // 3. Results going the wrong way.
-  const r = input.results;
-  if (
-    r?.hasData &&
-    r.engagementLastWeek > 0 &&
-    r.engagementThisWeek <= r.engagementLastWeek * (1 - ENGAGEMENT_DROP)
-  ) {
-    const pct = Math.round(
-      (1 - r.engagementThisWeek / r.engagementLastWeek) * 100,
-    );
-    out.push({
-      key: 'results:engagement-drop',
-      tone: 'urgent',
-      title: `Engagement is down ${pct}% on last week`,
-      detail: `${r.engagementThisWeek} this week, against ${r.engagementLastWeek} the week before.`,
-      action: 'See what changed',
-      href: '/dashboard/analytics',
-    });
-  }
-
-  // 4. Work waiting on a person.
+  const out: WaitingItem[] = [];
   if (counts.pendingApproval > 0) {
     out.push({
       key: 'content:approval',
-      tone: 'action',
-      title: `${plural(counts.pendingApproval, 'post')} waiting for your approval`,
-      detail: 'Written and ready. Nothing publishes until you approve it.',
+      title: `${plural(counts.pendingApproval, 'post')} to approve`,
       action: 'Review',
       href: '/dashboard/content',
     });
@@ -147,15 +86,10 @@ export function whatMattersNow(input: {
     const first = input.accepted[0]!;
     out.push({
       key: 'suggestions:accepted',
-      tone: 'action',
       title:
         input.accepted.length === 1
           ? `Next step on “${first.what}”`
-          : `${plural(input.accepted.length, 'suggestion')} you said yes to are waiting`,
-      detail:
-        input.accepted.length === 1
-          ? 'You said yes — this is the next step.'
-          : `You said yes to these. Start with “${first.what}”.`,
+          : `${plural(input.accepted.length, 'suggestion')} you said yes to`,
       action: first.next.label,
       href: first.next.href,
     });
@@ -163,9 +97,7 @@ export function whatMattersNow(input: {
   if (counts.approvedUnscheduled > 0) {
     out.push({
       key: 'content:unscheduled',
-      tone: 'action',
-      title: `${plural(counts.approvedUnscheduled, 'approved post')} with no publish time`,
-      detail: 'Approved, but not on the calendar yet.',
+      title: `${plural(counts.approvedUnscheduled, 'approved post')} to schedule`,
       action: 'Schedule',
       href: '/dashboard/content/calendar',
     });
@@ -173,9 +105,7 @@ export function whatMattersNow(input: {
   if (counts.newLeads > 0) {
     out.push({
       key: 'leads:new',
-      tone: 'action',
       title: `${plural(counts.newLeads, 'new lead')} to review`,
-      detail: 'People who may be worth contacting.',
       action: 'Review leads',
       href: '/dashboard/leads',
     });
@@ -183,19 +113,12 @@ export function whatMattersNow(input: {
   if (counts.outreachReady > 0) {
     out.push({
       key: 'outreach:ready',
-      tone: 'action',
       title: `${plural(counts.outreachReady, 'message')} ready to send`,
-      detail: 'Approved outreach, waiting to go out.',
       action: 'Send',
       href: '/dashboard/outreach',
     });
   }
-
-  // Urgent first; within a tone, the order above.
-  return [
-    ...out.filter((m) => m.tone === 'urgent'),
-    ...out.filter((m) => m.tone === 'action'),
-  ].slice(0, MATTERS_LIMIT);
+  return out;
 }
 
 // ---------------------------------------------------------------------------

@@ -6,12 +6,12 @@ import {
   buildResults,
   recommendationActivity,
   splitWeeks,
-  whatMattersNow,
+  waitingOnYou,
   type ActivityInput,
   type ActivityItem,
   type HomeCounts,
   type HomeOpportunity,
-  type MatterItem,
+  type WaitingItem,
   type ResultTile,
   type ResultsInput,
 } from '@/lib/aura-home';
@@ -20,6 +20,8 @@ import { toOpportunityView } from '@/lib/opportunity-ui';
 import { getAnalytics } from '@/server/analytics/analytics.service';
 import { listOpportunitiesForView } from '@/server/opportunities/opportunity.service';
 import { getSuggestions } from '@/server/recommendations/suggestions.service';
+import type { WhatMatters } from '@/lib/what-matters';
+import { getWhatMatters } from './what-matters.service';
 
 /**
  * Everything Aura Home shows (lib/aura-home.ts), loaded live and in parallel.
@@ -40,7 +42,10 @@ function sentence(text: string | null): string | null {
 }
 
 export interface AuraHome {
-  matters: MatterItem[];
+  /** The business situation; null if it could not be loaded. */
+  whatMatters: WhatMatters | null;
+  /** Work ready and waiting on a person. */
+  waiting: WaitingItem[];
   suggestions: SuggestionView[];
   suggestionCount: number;
   accepted: SuggestionView[];
@@ -320,41 +325,45 @@ export async function getAuraHome(
   companyId: string,
   now: Date = new Date(),
 ): Promise<AuraHome> {
-  const [suggested, counts, opportunities, resultsInput, activity] =
-    await Promise.all([
-      part('suggestions', companyId, { suggestions: [], accepted: [] }, () =>
-        getSuggestions(companyId, { now }),
-      ),
-      part<HomeCounts>(
-        'counts',
-        companyId,
-        {
-          pendingApproval: 0,
-          approvedUnscheduled: 0,
-          newLeads: 0,
-          outreachReady: 0,
-        },
-        () => loadCounts(companyId),
-      ),
-      part('opportunities', companyId, [] as HomeOpportunity[], () =>
-        loadOpportunities(companyId, now),
-      ),
-      part('results', companyId, null as ResultsInput | null, () =>
-        loadResults(companyId, now),
-      ),
-      part('activity', companyId, [] as ActivityItem[], () =>
-        loadActivity(companyId, now),
-      ),
-    ]);
+  const [
+    suggested,
+    counts,
+    opportunities,
+    resultsInput,
+    activity,
+    whatMatters,
+  ] = await Promise.all([
+    part('suggestions', companyId, { suggestions: [], accepted: [] }, () =>
+      getSuggestions(companyId, { now }),
+    ),
+    part<HomeCounts>(
+      'counts',
+      companyId,
+      {
+        pendingApproval: 0,
+        approvedUnscheduled: 0,
+        newLeads: 0,
+        outreachReady: 0,
+      },
+      () => loadCounts(companyId),
+    ),
+    part('opportunities', companyId, [] as HomeOpportunity[], () =>
+      loadOpportunities(companyId, now),
+    ),
+    part('results', companyId, null as ResultsInput | null, () =>
+      loadResults(companyId, now),
+    ),
+    part('activity', companyId, [] as ActivityItem[], () =>
+      loadActivity(companyId, now),
+    ),
+    part('what matters', companyId, null as WhatMatters | null, () =>
+      getWhatMatters(companyId, now),
+    ),
+  ]);
 
   return {
-    matters: whatMattersNow({
-      suggestions: suggested.suggestions,
-      accepted: suggested.accepted,
-      opportunities,
-      counts,
-      results: resultsInput,
-    }),
+    whatMatters,
+    waiting: waitingOnYou({ accepted: suggested.accepted, counts }),
     suggestions: suggested.suggestions.slice(0, 3),
     suggestionCount: suggested.suggestions.length,
     accepted: suggested.accepted,

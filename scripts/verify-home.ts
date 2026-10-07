@@ -4,7 +4,8 @@
  * written and published, suggestions made and answered.
  *
  * Checks the acceptance criteria: Home opens with actionable context (what
- * matters now, each with an action) rather than disconnected metrics;
+ * matters now: the situation, and the work waiting on a person) rather than
+ * disconnected metrics;
  * recommendations are prominent; opportunities can be reached; results are
  * compared, not just listed; recent activity says what happened; and one
  * failing source never takes Home down.
@@ -65,7 +66,9 @@ async function main() {
     const fresh = await getAuraHome(companyId);
     check(
       'nothing to show yet: Home still renders every section, calmly',
-      fresh.matters.length === 0 &&
+      fresh.whatMatters?.state === 'insufficient' &&
+        fresh.whatMatters.items.length === 0 &&
+        fresh.waiting.length === 0 &&
         fresh.suggestions.length === 0 &&
         fresh.opportunities.length === 0 &&
         fresh.activity.length === 0 &&
@@ -184,24 +187,24 @@ async function main() {
     // ---- What matters now ---------------------------------------------------
     console.log('\nWhat matters now');
     check(
-      'Home opens with what needs a person, each with an action and a place to go',
-      home.matters.length > 0 &&
-        home.matters.length <= 4 &&
-        home.matters.every(
-          (m) => m.action.length > 2 && m.href.startsWith('/dashboard'),
-        ),
-      home.matters.map((m) => m.title).join(' | '),
+      'Home opens with the business situation: a summary and items from real opportunities and changes',
+      home.whatMatters !== null &&
+        (home.whatMatters.state === 'ready' ||
+          home.whatMatters.state === 'limited') &&
+        home.whatMatters.items.length > 0 &&
+        home.whatMatters.summary.length > 10,
+      `${home.whatMatters?.state}: ${home.whatMatters?.summary}`,
     );
     check(
-      'posts waiting for approval are there',
-      home.matters.some((m) => m.title === '2 posts waiting for your approval'),
-    );
-    check(
-      'the suggestion said yes to is there, with its next step',
-      home.matters.some(
-        (m) =>
-          m.key === 'suggestions:accepted' && m.title.includes(firstRec.title),
-      ),
+      'and the work waiting on a person, each with an action',
+      home.waiting.some((w) => w.title === '2 posts to approve') &&
+        home.waiting.some(
+          (w) =>
+            w.key === 'suggestions:accepted' &&
+            w.title.includes(firstRec.title),
+        ) &&
+        home.waiting.every((w) => w.href.startsWith('/dashboard')),
+      home.waiting.map((w) => w.title).join(' | '),
     );
 
     // ---- Aura Suggests ------------------------------------------------------
@@ -290,7 +293,8 @@ async function main() {
       other.suggestions.length === 0 &&
         other.opportunities.length === 0 &&
         other.activity.length === 0 &&
-        other.matters.length === 0,
+        other.whatMatters?.items.length === 0 &&
+        other.waiting.length === 0,
     );
     const original = db.lead.count.bind(db.lead);
     (db.lead as unknown as { count: () => Promise<number> }).count = () =>

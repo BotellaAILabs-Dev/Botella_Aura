@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-  ENGAGEMENT_DROP,
-  MATTERS_LIMIT,
   activeOpportunities,
   buildActivity,
   buildResults,
@@ -10,7 +8,7 @@ import {
   recommendationActivity,
   relativeTime,
   splitWeeks,
-  whatMattersNow,
+  waitingOnYou,
   type HomeCounts,
   type HomeOpportunity,
   type ResultsInput,
@@ -92,163 +90,41 @@ const RESULTS: ResultsInput = {
   suggestionsActedOn: 3,
 };
 
-describe('What matters now', () => {
-  it('nothing needs you: an empty list (Home says so, calmly)', () => {
-    expect(
-      whatMattersNow({
-        suggestions: [suggestion()],
-        accepted: [],
-        opportunities: [opportunity()],
-        counts: NO_COUNTS,
-        results: RESULTS,
-      }),
-    ).toEqual([]);
+describe('Waiting on you', () => {
+  it('nothing waiting: an empty strip', () => {
+    expect(waitingOnYou({ accepted: [], counts: NO_COUNTS })).toEqual([]);
   });
 
-  it('a suggestion that is only relevant for a few days is urgent', () => {
-    const m = whatMattersNow({
-      suggestions: [suggestion({ timing: 'Best done within 2 days' })],
-      accepted: [],
-      opportunities: [],
-      counts: NO_COUNTS,
-      results: null,
-    });
-    expect(m).toEqual([
-      expect.objectContaining({
-        key: 'suggestion:s1',
-        tone: 'urgent',
-        title: 'Promote your fall bourbon selection',
-        href: '/dashboard/suggestions',
-      }),
-    ]);
-    // A week away is not "now".
-    expect(
-      whatMattersNow({
-        suggestions: [suggestion({ timing: 'Best done within 7 days' })],
-        accepted: [],
-        opportunities: [],
-        counts: NO_COUNTS,
-        results: null,
-      }),
-    ).toEqual([]);
-  });
-
-  it('an opportunity about to close, with no decision yet, is urgent and links to it', () => {
-    const [m] = whatMattersNow({
-      suggestions: [],
-      accepted: [],
-      opportunities: [opportunity({ daysLeft: 2 })],
-      counts: NO_COUNTS,
-      results: null,
-    });
-    expect(m).toEqual(
-      expect.objectContaining({
-        tone: 'urgent',
-        detail: 'This opportunity closes in 2 days.',
-        href: '/dashboard/opportunities?focus=o1',
-      }),
-    );
-  });
-
-  it('an opportunity that already has a suggestion is not listed twice', () => {
-    expect(
-      whatMattersNow({
-        suggestions: [],
-        accepted: [],
-        opportunities: [opportunity({ daysLeft: 1, status: 'RECOMMENDED' })],
-        counts: NO_COUNTS,
-        results: null,
-      }),
-    ).toEqual([]);
-  });
-
-  it(`engagement down ${ENGAGEMENT_DROP * 100}% or more on last week needs attention; a small dip does not`, () => {
-    const drop = whatMattersNow({
-      suggestions: [],
-      accepted: [],
-      opportunities: [],
-      counts: NO_COUNTS,
-      results: { ...RESULTS, engagementThisWeek: 60, engagementLastWeek: 100 },
-    });
-    expect(drop[0]).toEqual(
-      expect.objectContaining({
-        key: 'results:engagement-drop',
-        title: 'Engagement is down 40% on last week',
-        href: '/dashboard/analytics',
-      }),
-    );
-    expect(
-      whatMattersNow({
-        suggestions: [],
-        accepted: [],
-        opportunities: [],
-        counts: NO_COUNTS,
-        results: {
-          ...RESULTS,
-          engagementThisWeek: 90,
-          engagementLastWeek: 100,
-        },
-      }),
-    ).toEqual([]);
-  });
-
-  it('work waiting on a person: approvals, accepted suggestions, scheduling, leads, outreach', () => {
-    const m = whatMattersNow({
-      suggestions: [],
+  it('approvals, accepted suggestions, scheduling, leads and outreach — each with its action', () => {
+    const w = waitingOnYou({
       accepted: [suggestion({ status: 'ACCEPTED', stage: 'accepted' })],
-      opportunities: [],
       counts: {
         pendingApproval: 2,
         approvedUnscheduled: 1,
-        newLeads: 0,
-        outreachReady: 0,
-      },
-      results: null,
-    });
-    expect(m.map((x) => x.title)).toEqual([
-      '2 posts waiting for your approval',
-      'Next step on “Promote your fall bourbon selection”',
-      '1 approved post with no publish time',
-    ]);
-    expect(m[1]!.action).toBe('Create content');
-    expect(m[1]!.href).toBe('/dashboard/content/new?brief=x');
-  });
-
-  it(`urgent first, and never more than ${MATTERS_LIMIT} — a priority, not a list`, () => {
-    const m = whatMattersNow({
-      suggestions: [],
-      accepted: [],
-      opportunities: [opportunity({ id: 'a', daysLeft: 1 })],
-      counts: {
-        pendingApproval: 1,
-        approvedUnscheduled: 1,
-        newLeads: 4,
-        outreachReady: 2,
-      },
-      results: null,
-    });
-    expect(m).toHaveLength(MATTERS_LIMIT);
-    expect(m[0]!.tone).toBe('urgent');
-    expect(m.slice(1).every((x) => x.tone === 'action')).toBe(true);
-  });
-
-  it('every item has a clear action and somewhere to go', () => {
-    const m = whatMattersNow({
-      suggestions: [suggestion({ timing: 'Best done today' })],
-      accepted: [suggestion({ id: 's2', stage: 'accepted' })],
-      opportunities: [opportunity({ daysLeft: 0 })],
-      counts: {
-        pendingApproval: 1,
-        approvedUnscheduled: 1,
-        newLeads: 1,
+        newLeads: 3,
         outreachReady: 1,
       },
-      results: { ...RESULTS, engagementThisWeek: 10 },
     });
-    for (const x of m) {
-      expect(x.action.length).toBeGreaterThan(2);
-      expect(x.href.startsWith('/dashboard')).toBe(true);
-    }
+    expect(w.map((x) => [x.title, x.action])).toEqual([
+      ['2 posts to approve', 'Review'],
+      ['Next step on “Promote your fall bourbon selection”', 'Create content'],
+      ['1 approved post to schedule', 'Schedule'],
+      ['3 new leads to review', 'Review leads'],
+      ['1 message ready to send', 'Send'],
+    ]);
+    expect(w[1]!.href).toBe('/dashboard/content/new?brief=x');
+    for (const x of w) expect(x.href.startsWith('/dashboard')).toBe(true);
+  });
+
+  it('several accepted suggestions are counted, leading with the first', () => {
+    const [w] = waitingOnYou({
+      accepted: [
+        suggestion({ id: 'a', stage: 'accepted' }),
+        suggestion({ id: 'b', stage: 'accepted' }),
+      ],
+      counts: NO_COUNTS,
+    });
+    expect(w!.title).toBe('2 suggestions you said yes to');
   });
 });
 
