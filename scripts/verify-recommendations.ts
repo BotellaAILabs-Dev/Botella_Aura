@@ -345,10 +345,13 @@ async function main() {
     );
     const content = await getRecommendation(company.id, recB.id);
     check(
-      'a content recommendation opens Content Studio pre-filled',
+      'a content recommendation opens Content Studio pre-filled, carrying the recommendation',
       Boolean(
-        content?.execution.href.startsWith('/dashboard/content/new?brief='),
+        content?.execution.href.startsWith(
+          `/dashboard/content/new?rec=${recB.id}&brief=`,
+        ),
       ),
+      content?.execution.href.slice(0, 80),
     );
     const listed = await listRecommendations(company.id, {
       status: ['GENERATED'],

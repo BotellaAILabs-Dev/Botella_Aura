@@ -42,6 +42,7 @@
     "verify:suggestions": "tsx scripts/verify-suggestions.ts",
     "verify:home": "tsx scripts/verify-home.ts",
     "verify:what-matters": "tsx scripts/verify-what-matters.ts",
+    "verify:modules": "tsx scripts/verify-modules.ts",
     "verify:content-studio": "tsx scripts/verify-content-studio.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

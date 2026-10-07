@@ -6,6 +6,10 @@ import { getEnabledContentTypes } from '@/server/company/profile.service';
 import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
 import { ClaudeNotConfiguredError } from '@/server/ai/claude';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
+import {
+  linkRecommendation,
+  ownRecommendation,
+} from '@/server/recommendations/context.service';
 
 /**
  * POST /api/content/generate — generate a new draft from a trend/brief/campaign.
@@ -30,6 +34,12 @@ export async function POST(req: Request) {
       );
     }
 
+    // Only this workspace's recommendation is remembered; anything else is
+    // ignored rather than trusted.
+    const recommendation = await ownRecommendation(
+      company.id,
+      input.recommendationId,
+    );
     const draft = await generateDraft({
       companyId: company.id,
       userId: user.id,
@@ -39,7 +49,17 @@ export async function POST(req: Request) {
       platform: input.platform,
       variations: input.variations,
       tone: input.tone,
+      recommendation,
     });
+    if (recommendation) {
+      await linkRecommendation({
+        companyId: company.id,
+        recommendationId: recommendation.id,
+        module: 'content-studio',
+        created: { type: 'content-draft', id: draft.id, label: draft.title },
+        actorId: user.id,
+      });
+    }
 
     return jsonOk({ id: draft.id, type: draft.type, status: draft.status }, 201);
   } catch (error) {

@@ -208,6 +208,12 @@ export const generateContentSchema = z.object({
   variations: z.number().int().min(1).max(3).default(1),
   /** Optional tone for this piece, on top of the brand voice. */
   tone: z.enum(CONTENT_TONES).optional(),
+  /**
+   * Written for one of Aura's recommendations (`?rec=` in Content Studio).
+   * Checked against the workspace on the server, remembered on the draft and
+   * recorded in the recommendation's history.
+   */
+  recommendationId: z.string().min(1).max(64).optional(),
 });
 
 /** The one-click editing actions on a draft. */

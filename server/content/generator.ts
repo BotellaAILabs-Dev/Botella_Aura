@@ -168,6 +168,8 @@ interface GenerateArgs {
   /** 1–3 creative variations; the first becomes the draft. */
   variations?: number;
   tone?: ContentTone;
+  /** The Aura recommendation it was written for (already checked as this workspace's). */
+  recommendation?: { id: string; title: string } | null;
 }
 
 export async function generateDraft({
@@ -179,6 +181,7 @@ export async function generateDraft({
   platform: requested,
   variations = 1,
   tone,
+  recommendation,
 }: GenerateArgs): Promise<ContentDraft> {
   const company = await db.company.findUnique({ where: { id: companyId } });
   if (!company) throw new Error('Company not found');
@@ -298,6 +301,10 @@ export async function generateDraft({
       ref: source.ref ?? null,
       brief: source.brief ?? null,
     },
+    // So the draft leads back to the suggestion it was written for.
+    ...(recommendation
+      ? { recommendation: { id: recommendation.id, title: recommendation.title } }
+      : {}),
     // Recorded from the client rather than hardcoded, so the metadata stays
     // true when the model or its tier changes.
     model: getModel('premium'),

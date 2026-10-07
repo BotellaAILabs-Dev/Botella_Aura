@@ -160,7 +160,8 @@ async function main() {
     );
     check(
       'its execution brief leads to review, not the work',
-      r2?.execution.href === `/dashboard/opportunities?focus=${lowOpp.id}`,
+      r2?.execution.href ===
+        `/dashboard/opportunities?focus=${lowOpp.id}&rec=${r2?.id}`,
     );
     const start = await expectError(() =>
       transitionRecommendation({

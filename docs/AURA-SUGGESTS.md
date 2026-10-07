@@ -49,7 +49,7 @@ your fall selection.             • Recent content performance
 | **Based on** | Evidence kinds and the business-profile fields used | Trend signal · Competitor activity · Recent content performance · What has worked for you before · Your recent content · Your business documents · Customer interest · Business goals · Your audience · What your business offers · The channels you use · Your brand voice |
 | **Evidence** | Each piece, one click away | Shows its source, what it says, when it was seen ("3 days ago"), a link when there is one, and a "No longer current" marker |
 | **Confidence** | Confidence | Strong evidence · Good evidence · Early signal, worth a look at the evidence first |
-| **Next step** | Execution brief | Create content · Add to your plan · Connect *channel* · Look at the competitor · Update your business profile |
+| **Next step** | Execution brief, via the module routing ([AURA-MODULES.md](AURA-MODULES.md)) | Named for the module that carries it out: Create content · Plan the series · Write the comparison · Add to your plan · Connect *channel* · Add the audience. "Also useful:" links the related modules. Every link carries the suggestion (`?rec=`) |
 
 No enum names, scores, ids, codes or internal fields reach the page. The
 tests scan every part of every kind of suggestion for them, and also prove

@@ -10,6 +10,12 @@ import type { OpportunityHandoff } from '@/lib/recommendation-handoff';
 import { CONTENT_TYPES, type ContentTypeKey } from '@/lib/validations/content';
 import { CONTENT_CHANNELS } from '@/lib/validations/planner';
 import { integrationAvailable } from '@/lib/recommendation-rules';
+import {
+  recommendationBrief,
+  routeRecommendation,
+  type AuraModuleId,
+  type ModuleDestination,
+} from '@/lib/aura-modules';
 
 /**
  * Recommendations: the rules.
@@ -207,6 +213,8 @@ export const RECOMMENDATION_ACTIONS = [
   'withdraw',
   'expire',
   'defer',
+  /** A module made something from it (lib/aura-modules.ts); status unchanged. */
+  'link',
 ] as const;
 export type RecommendationAction = (typeof RECOMMENDATION_ACTIONS)[number];
 
@@ -600,6 +608,14 @@ export interface ExecutionBrief {
   blockers: string[];
   /** Whether Aura can publish to the channel, or the business posts by hand. */
   publishing: 'aura' | 'manual' | null;
+  /**
+   * The Aura module that carries it out, the button that takes the person
+   * there, and the other modules that help (lib/aura-modules.ts). Every
+   * destination carries `?rec=<id>`.
+   */
+  module: AuraModuleId;
+  verb: string;
+  related: ModuleDestination[];
 }
 
 /**
@@ -627,32 +643,12 @@ export function executionBrief(r: {
 }): ExecutionBrief {
   const executable = r.executable ?? true;
   const workflow = WORKFLOW_FOR_TYPE[r.type];
-  const angle =
-    r.details && typeof r.details === 'object' && 'angle' in r.details
-      ? String((r.details as { angle: unknown }).angle)
-      : null;
-  const brief = [
-    r.title,
-    '',
-    r.action,
-    ...(r.steps.length ? ['', ...r.steps.map((s) => `- ${s}`)] : []),
-    ...(angle ? ['', `Angle: ${angle}`] : []),
-    ...(r.audience ? ['', `For: ${r.audience}`] : []),
-    '',
-    `Why: ${r.rationale}`,
-    `Goal: ${r.expectedOutcome}`,
-  ].join('\n');
-  const href = !executable
-    ? `/dashboard/opportunities?focus=${r.opportunityId}`
-    : workflow === 'CONTENT'
-      ? `/dashboard/content/new?brief=${encodeURIComponent(brief.slice(0, 1500))}`
-      : workflow === 'PLANNER'
-        ? '/dashboard/planner'
-        : workflow === 'CONNECTORS'
-          ? '/dashboard/connectors'
-          : workflow === 'COMPETITORS'
-            ? '/dashboard/competitors'
-            : '/dashboard/business';
+  const brief = recommendationBrief(r);
+  const route = routeRecommendation(r);
+  // Blocked: the review, not the work (with the recommendation in context).
+  const href = executable
+    ? route.primary.href
+    : `/dashboard/opportunities?focus=${r.opportunityId}&rec=${r.id}`;
   return {
     version: 1,
     workflow,
@@ -676,5 +672,8 @@ export function executionBrief(r: {
         ? 'aura'
         : 'manual'
       : null,
+    module: route.primary.module,
+    verb: route.primary.verb,
+    related: route.related,
   };
 }

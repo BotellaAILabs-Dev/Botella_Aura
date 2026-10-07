@@ -55,6 +55,9 @@ function suggestion(o: Partial<SuggestionView> = {}): SuggestionView {
       href: '/dashboard/content/new?brief=x',
       accepts: true,
       blocked: null,
+      module: 'content-studio',
+      moduleLabel: 'Content Studio',
+      related: [],
     },
     editable: {
       title: 'Promote your fall bourbon selection',

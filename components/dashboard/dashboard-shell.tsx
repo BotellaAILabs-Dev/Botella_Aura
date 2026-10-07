@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { Menu, X } from 'lucide-react';
 import { Logo } from '@/components/brand/logo';
 import { SidebarNav } from '@/components/dashboard/sidebar-nav';
 import { CompanySwitcher } from '@/components/dashboard/company-switcher';
 import { UserMenu } from '@/components/dashboard/user-menu';
+import { RecommendationContextBar } from '@/components/dashboard/recommendations/recommendation-context-bar';
 import { cn } from '@/lib/utils';
 import type { CompanySummary } from '@/types';
 
@@ -106,6 +107,11 @@ export function DashboardShell({
             'mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:py-8',
           )}
         >
+          {/* The Aura recommendation being worked on follows the person
+              between modules (?rec=). Suspense: it reads search params. */}
+          <Suspense fallback={null}>
+            <RecommendationContextBar />
+          </Suspense>
           {children}
         </main>
       </div>

@@ -657,6 +657,11 @@ export function composeRecommendation(
       action: s.id,
       ...(o.angle ? { angle: o.angle } : {}),
       ...(ideas.length ? { contentIdeas: ideas } : {}),
+      // What the receiving module needs to pick it up (lib/aura-modules.ts):
+      // the competitor to look at, the metric to watch, the topic.
+      ...(competitor ? { competitor } : {}),
+      ...(shift ? { metric: shift.metric } : {}),
+      ...(typeof o.details.topic === 'string' ? { topic: o.details.topic } : {}),
     },
   });
 }

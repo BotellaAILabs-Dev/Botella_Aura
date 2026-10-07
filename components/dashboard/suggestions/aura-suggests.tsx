@@ -387,6 +387,22 @@ function SuggestionCard({
                 </DropdownMenu>
               </div>
             )}
+            {s.next.related.length > 0 && !s.next.blocked && (
+              <p className="text-xs text-muted-foreground">
+                Also useful:{' '}
+                {s.next.related.map((r, i) => (
+                  <span key={r.href}>
+                    {i > 0 && ' · '}
+                    <Link
+                      href={r.href}
+                      className="text-primary hover:underline"
+                    >
+                      {r.label}
+                    </Link>
+                  </span>
+                ))}
+              </p>
+            )}
           </>
         )}
       </CardContent>

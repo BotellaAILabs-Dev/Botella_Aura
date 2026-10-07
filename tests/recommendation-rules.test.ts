@@ -259,7 +259,7 @@ describe('channels and integrations', () => {
       blockers: ['x'],
       publishing: 'manual',
     });
-    expect(blocked.href).toBe('/dashboard/opportunities?focus=opp1');
+    expect(blocked.href).toBe('/dashboard/opportunities?focus=opp1&rec=rec');
     const ok = executionBrief({ ...base, channel: 'LinkedIn' });
     expect(ok).toMatchObject({ executable: true, publishing: 'aura' });
     expect(ok.href.startsWith('/dashboard/content/new')).toBe(true);

@@ -75,6 +75,8 @@ export default async function DraftDetailPage({
     history?: unknown[];
     writtenFor?: string | null;
     tone?: string | null;
+    /** The Aura recommendation it was written for (lib/aura-modules.ts). */
+    recommendation?: { id?: string; title?: string };
   };
   const sourceKind = meta.source?.kind;
   const copyOnly = isCopyOnlyType(type);
@@ -217,6 +219,17 @@ export default async function DraftDetailPage({
               />
               {sourceKind && (
                 <Row label="Source" value={sourceKind.toLowerCase()} />
+              )}
+              {meta.recommendation?.id && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Written for</span>
+                  <Link
+                    href={`/dashboard/suggestions?rec=${meta.recommendation.id}`}
+                    className="text-right font-medium text-primary hover:underline"
+                  >
+                    {meta.recommendation.title ?? 'Aura’s suggestion'}
+                  </Link>
+                </div>
               )}
               {draft.scheduledFor && (
                 <Row

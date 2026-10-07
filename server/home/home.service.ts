@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { AURA_MODULES, type AuraModuleId } from '@/lib/aura-modules';
 import { logger } from '@/lib/logger';
 import {
   activeOpportunities,
@@ -195,6 +196,7 @@ async function loadActivity(
         take: 30,
         select: {
           action: true,
+          metadata: true,
           actorId: true,
           createdAt: true,
           recommendation: { select: { title: true } },
@@ -261,7 +263,14 @@ async function loadActivity(
 
   const items: ActivityInput[] = [];
   for (const e of recEvents) {
-    const text = recommendationActivity(e.action, e.recommendation.title);
+    const linkedModule = (e.metadata as { module?: unknown } | null)?.module;
+    const text = recommendationActivity(
+      e.action,
+      e.recommendation.title,
+      typeof linkedModule === 'string' && linkedModule in AURA_MODULES
+        ? AURA_MODULES[linkedModule as AuraModuleId].label
+        : null,
+    );
     if (!text) continue;
     items.push({
       at: e.createdAt,

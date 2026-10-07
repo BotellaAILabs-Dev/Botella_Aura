@@ -57,12 +57,12 @@ Every move is one `RecommendationEvent`, never edited or deleted:
 
 | Field | |
 | --- | --- |
-| `action` | `generate` · `present` · `accept` · `edit` · `skip` · `reject` · `start` · `complete` · `withdraw` · `expire` · `defer` ("Not now", which keeps the status) |
+| `action` | `generate` · `present` · `accept` · `edit` · `skip` · `reject` · `start` · `complete` · `withdraw` · `expire` · `defer` ("Not now", which keeps the status) · `link` (a module made something from it, such as a draft or campaign; keeps the status, see [AURA-MODULES.md](AURA-MODULES.md)) |
 | `fromStatus` → `toStatus` | The move |
 | `source` | `user` (a person) · `engine` (Aura made it) · `system` (expiry) · `opportunity` (a decision made on its opportunity, carried over) |
 | `actorId` | The person, if any |
 | `note` | Why, if given |
-| `metadata` | Detail. For an **edit**, each changed field `{ from, to }`, so the original is never lost. For a **presentation**, where it was shown (`surface`) and its `rank`, `score` and `band`. For a **deferral**, until when |
+| `metadata` | Detail. For an **edit**, each changed field `{ from, to }`, so the original is never lost. For a **presentation**, where it was shown (`surface`) and its `rank`, `score` and `band`. For a **deferral**, until when. For a **link**, the module and what it made |
 | `createdAt` | When |
 
 **Telling outcomes apart:** `recommendationOutcome(history)` gives

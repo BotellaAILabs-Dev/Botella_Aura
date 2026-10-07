@@ -1,11 +1,11 @@
 import type { OpportunityConfidence, SignalKind } from '@/lib/opportunities';
 import type { Band, RankingFactor } from '@/lib/recommendation-ranking';
 import { LOW_CONFIDENCE_BLOCKER } from '@/lib/recommendation-rules';
+import { AURA_MODULES, type AuraModuleId } from '@/lib/aura-modules';
 import {
   ACCEPTED_RECOMMENDATION_STATUSES,
   OPEN_RECOMMENDATION_STATUSES,
   executionBrief,
-  type ExecutionWorkflow,
   type RecommendationStatus,
   type RecommendationType,
 } from '@/lib/recommendations';
@@ -62,18 +62,6 @@ export function contextSourceLabel(field: string): string {
     'Your business profile'
   );
 }
-
-/** The one action that carries a recommendation out, by where it goes. */
-const NEXT_STEP_LABEL: Record<
-  ExecutionWorkflow,
-  (channel: string | null) => string
-> = {
-  CONTENT: () => 'Create content',
-  PLANNER: () => 'Add to your plan',
-  CONNECTORS: (c) => (c ? `Connect ${c}` : 'Connect the channel'),
-  COMPETITORS: () => 'Look at the competitor',
-  BUSINESS_PROFILE: () => 'Update your business profile',
-};
 
 const CONFIDENCE_WORDS: Record<OpportunityConfidence, string> = {
   HIGH: 'Strong evidence',
@@ -176,6 +164,11 @@ export interface SuggestionView {
     accepts: boolean;
     /** Something must be fixed first; the action leads there instead. */
     blocked: string | null;
+    /** The Aura module it leads to (lib/aura-modules.ts). */
+    module: AuraModuleId;
+    moduleLabel: string;
+    /** Other modules that help, each carrying the recommendation. */
+    related: { label: string; href: string }[];
   };
   /** Editable fields as they are now, to prefill Edit. */
   editable: {
@@ -342,10 +335,16 @@ export function toSuggestion(
     next: {
       label: otherBlockers.length
         ? 'See what’s needed'
-        : NEXT_STEP_LABEL[brief.workflow](r.channel),
+        : brief.verb,
       href: brief.href,
       accepts: open && otherBlockers.length === 0,
       blocked: otherBlockers.length ? plainBlocker(otherBlockers[0]!) : null,
+      module: brief.module,
+      moduleLabel: AURA_MODULES[brief.module].label,
+      related: brief.related.map((d) => ({
+        label: d.label,
+        href: d.href,
+      })),
     },
     editable: {
       title: r.title,

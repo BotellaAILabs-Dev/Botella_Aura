@@ -373,9 +373,15 @@ export function buildActivity(
 export function recommendationActivity(
   action: string,
   title: string,
+  /** For "link": the module that picked it up. */
+  moduleLabel?: string | null,
 ): string | null {
   const t = `“${title}”`;
   switch (action) {
+    case 'link':
+      return moduleLabel
+        ? `started on ${t} in ${moduleLabel}`
+        : `started on ${t}`;
     case 'generate':
       return `suggested ${t}`;
     case 'accept':

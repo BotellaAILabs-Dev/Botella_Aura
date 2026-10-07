@@ -20,6 +20,8 @@ export const createCampaignSchema = z.object({
   modules: campaignModulesSchema,
   targetAudience: z.string().trim().max(1000).optional().or(z.literal('')),
   themes: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
+  /** Planned for one of Aura's recommendations (`?rec=`); checked on the server. */
+  recommendationId: z.string().min(1).max(64).optional(),
 });
 
 /** A single planned day. `contentType: null` = no content that day. */

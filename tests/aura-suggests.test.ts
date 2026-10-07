@@ -147,16 +147,21 @@ describe('What, Why, Expected outcome, Based on, Next step', () => {
   it('ends in one clear next action that also says yes, plus Edit and Skip', () => {
     expect(s.next).toEqual({
       label: 'Create content',
-      href: expect.stringMatching(/^\/dashboard\/content\/new\?brief=/),
+      href: expect.stringMatching(
+        /^\/dashboard\/content\/new\?rec=cm1abcdefghijklmnopqrstuv&brief=/,
+      ),
       accepts: true,
       blocked: null,
+      module: 'content-studio',
+      moduleLabel: 'Content Studio',
+      related: [],
     });
     expect(s.editable.title).toBe(s.what);
     expect(s.stage).toBe('open');
   });
 
   it('carries the recommendation into Content Studio as the brief', () => {
-    const brief = decodeURIComponent(s.next.href.split('brief=')[1]!);
+    const brief = new URL(s.next.href, 'https://x').searchParams.get('brief')!;
     expect(brief).toMatch(/Promote your fall bourbon selection/);
     expect(brief).toMatch(/Goal: Increase engagement/);
   });
@@ -246,7 +251,7 @@ describe('a clear next action, whatever the situation', () => {
     CONTENT: /^Create content$/,
     COMPETITIVE_RESPONSE: /^Create content$/,
     AUDIENCE: /^Create content$/,
-    CAMPAIGN: /^Add to your plan$/,
+    CAMPAIGN: /^Plan the campaign$/,
     OPTIMIZATION: /^Add to your plan$/,
     OTHER: /^Add to your plan$/,
     CHANNEL: /^Connect Instagram$/,
@@ -254,7 +259,8 @@ describe('a clear next action, whatever the situation', () => {
 
   it('names the action by where it goes', () => {
     for (const type of RECOMMENDATION_TYPES) {
-      const s = toSuggestion(bourbon({ type }), RANK, NOW);
+      // No engine action recorded: routed by type.
+      const s = toSuggestion(bourbon({ type, details: {} }), RANK, NOW);
       expect(s.next.label).toMatch(LABELS[type]);
       expect(s.next.href.startsWith('/dashboard/')).toBe(true);
     }
@@ -289,10 +295,13 @@ describe('a clear next action, whatever the situation', () => {
     );
     expect(s.next).toEqual({
       label: 'See what’s needed',
-      href: '/dashboard/opportunities?focus=cm2abcdefghijklmnopqrstuv',
+      href: '/dashboard/opportunities?focus=cm2abcdefghijklmnopqrstuv&rec=cm1abcdefghijklmnopqrstuv',
       accepts: false,
       blocked:
         'You don’t post on TikTok at the moment. Edit the suggestion to pick a channel you use.',
+      module: 'content-studio',
+      moduleLabel: 'Content Studio',
+      related: [],
     });
     expect(s.caution).toBe(s.next.blocked);
   });

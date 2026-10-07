@@ -315,8 +315,12 @@ describe('handing over to execution workflows', () => {
   it('sends content to Content Studio with the brief pre-filled', () => {
     const b = executionBrief(rec('CONTENT'));
     expect(b.workflow).toBe('CONTENT');
-    expect(b.href.startsWith('/dashboard/content/new?brief=')).toBe(true);
-    const brief = decodeURIComponent(b.href.split('brief=')[1]!);
+    // Carries the recommendation (?rec=) as well as the pre-filled brief.
+    expect(b.href.startsWith('/dashboard/content/new?rec=rec1&brief=')).toBe(
+      true,
+    );
+    expect(b.module).toBe('content-studio');
+    const brief = new URL(b.href, 'https://x').searchParams.get('brief')!;
     expect(brief).toContain('Publish a post on Instagram about it.');
     expect(brief).toContain('- Open with the harvest numbers');
     expect(brief).toContain('Angle: Explain the harvest');

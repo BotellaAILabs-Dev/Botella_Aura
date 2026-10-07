@@ -24,15 +24,27 @@ const MODULES = [
   { key: 'engagement', label: 'Engagement', note: 'Handled live in the extension (no schedule)' },
 ] as const;
 
-export function CampaignForm() {
+export function CampaignForm({
+  initial,
+  recommendationId,
+}: {
+  /** Filled in from an Aura recommendation (lib/aura-modules.ts), editable. */
+  initial?: {
+    name: string;
+    goal: string;
+    targetAudience: string | null;
+    themes: string[];
+  };
+  recommendationId?: string;
+} = {}) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    name: '',
-    goal: '',
+    name: initial?.name ?? '',
+    goal: initial?.goal ?? '',
     durationDays: 30,
-    targetAudience: '',
-    themes: '',
+    targetAudience: initial?.targetAudience ?? '',
+    themes: initial?.themes.join(', ') ?? '',
   });
   const [modules, setModules] = useState({
     content: true,
@@ -58,6 +70,7 @@ export function CampaignForm() {
           modules,
           targetAudience: form.targetAudience,
           themes: form.themes.split(',').map((s) => s.trim()).filter(Boolean),
+          ...(recommendationId ? { recommendationId } : {}),
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string };

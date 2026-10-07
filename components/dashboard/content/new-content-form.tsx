@@ -28,7 +28,9 @@ import {
 /**
  * Single hand-off point into Content Studio.
  *
- * `?trendId=` comes from Market trends; `?brief=` comes from
+ * `?rec=` comes from an Aura recommendation, with its `?brief=` and `?type=`
+ * (lib/aura-modules.ts): the draft is linked back to it. `?trendId=` comes
+ * from Market trends; `?brief=` also comes from
  * Opportunities and the Content plan calendar, so a suggested idea can
  * be turned into a real draft without retyping it. The brief stays editable —
  * the suggestion is a starting point, not a instruction.
@@ -45,6 +47,8 @@ export function NewContentForm({ types }: { types: ContentTypeKey[] }) {
   const initialBrief = params.get('brief') ?? '';
   const initialType = params.get('type') as ContentTypeKey | null;
   const campaignId = params.get('campaignId') ?? undefined;
+  // From an Aura recommendation (lib/aura-modules.ts): the draft remembers it.
+  const recommendationId = params.get('rec') ?? undefined;
 
   // A ?type= deep link for a format this workspace disabled falls back to the
   // first one it does allow, rather than pre-selecting something the generate
@@ -71,6 +75,7 @@ export function NewContentForm({ types }: { types: ContentTypeKey[] }) {
                 brief: brief.trim() || 'Timely content for our audience.',
               },
           ...(campaignId ? { campaignId } : {}),
+          ...(recommendationId ? { recommendationId } : {}),
           ...choicesPayload(choices),
         }),
       });
@@ -105,7 +110,9 @@ export function NewContentForm({ types }: { types: ContentTypeKey[] }) {
         description={
           trendId
             ? 'From the selected trend, in your brand voice.'
-            : initialBrief
+            : recommendationId && initialBrief
+              ? 'From Aura’s suggestion — the brief is filled in below. Edit it before generating.'
+              : initialBrief
               ? 'From the suggested brief below — edit it before generating.'
               : 'Pick a type to generate.'
         }
