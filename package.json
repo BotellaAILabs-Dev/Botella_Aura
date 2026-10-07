@@ -44,6 +44,7 @@
     "verify:what-matters": "tsx scripts/verify-what-matters.ts",
     "verify:modules": "tsx scripts/verify-modules.ts",
     "verify:context-handoff": "tsx scripts/verify-context-handoff.ts",
+    "verify:autosuggest": "tsx scripts/verify-autosuggest.ts",
     "verify:content-studio": "tsx scripts/verify-content-studio.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
