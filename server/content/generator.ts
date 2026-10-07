@@ -169,7 +169,12 @@ interface GenerateArgs {
   variations?: number;
   tone?: ContentTone;
   /** The Aura recommendation it was written for (already checked as this workspace's). */
-  recommendation?: { id: string; title: string } | null;
+  recommendation?: {
+    id: string;
+    title: string;
+    /** The Context Handoff it was written from: version, readiness, what was missing. */
+    handoff?: { version: number; readiness: string; missing: string[] } | null;
+  } | null;
 }
 
 export async function generateDraft({
@@ -303,7 +308,13 @@ export async function generateDraft({
     },
     // So the draft leads back to the suggestion it was written for.
     ...(recommendation
-      ? { recommendation: { id: recommendation.id, title: recommendation.title } }
+      ? {
+          recommendation: {
+            id: recommendation.id,
+            title: recommendation.title,
+            ...(recommendation.handoff ? { handoff: recommendation.handoff } : {}),
+          },
+        }
       : {}),
     // Recorded from the client rather than hardcoded, so the metadata stays
     // true when the model or its tier changes.

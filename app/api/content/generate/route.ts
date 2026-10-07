@@ -10,6 +10,7 @@ import {
   linkRecommendation,
   ownRecommendation,
 } from '@/server/recommendations/context.service';
+import { getContextHandoff } from '@/server/recommendations/context-handoff.service';
 
 /**
  * POST /api/content/generate — generate a new draft from a trend/brief/campaign.
@@ -36,10 +37,22 @@ export async function POST(req: Request) {
 
     // Only this workspace's recommendation is remembered; anything else is
     // ignored rather than trusted.
-    const recommendation = await ownRecommendation(
-      company.id,
-      input.recommendationId,
-    );
+    const owned = await ownRecommendation(company.id, input.recommendationId);
+    // What the recommendation handed over, and what it could not: kept on the
+    // draft so the gaps stay visible after it is written.
+    const handoff = owned ? await getContextHandoff(company.id, owned.id) : null;
+    const recommendation = owned
+      ? {
+          ...owned,
+          handoff: handoff
+            ? {
+                version: handoff.version,
+                readiness: handoff.readiness,
+                missing: handoff.missing.map((m) => m.field),
+              }
+            : null,
+        }
+      : null;
     const draft = await generateDraft({
       companyId: company.id,
       userId: user.id,

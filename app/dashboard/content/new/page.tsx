@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
 import { getEnabledContentTypes } from '@/server/company/profile.service';
+import { getContextHandoff } from '@/server/recommendations/context-handoff.service';
 import { NewContentForm } from '@/components/dashboard/content/new-content-form';
 
 export const metadata: Metadata = { title: 'Generate content' };
@@ -21,16 +22,26 @@ export const dynamic = 'force-dynamic';
  * client-side rendering, and Next will not build a server page containing one
  * without it.
  */
-export default async function NewFromSourcePage() {
+export default async function NewFromSourcePage({
+  searchParams,
+}: {
+  searchParams: { rec?: string };
+}) {
   const user = await requireUser();
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const types = await getEnabledContentTypes(active.id);
+  // `?rec=`: written for an Aura recommendation — the brief comes from its
+  // Context Handoff (lib/recommendation-context-handoff.ts), with what is
+  // missing stated rather than filled in.
+  const [types, handoff] = await Promise.all([
+    getEnabledContentTypes(active.id),
+    searchParams.rec ? getContextHandoff(active.id, searchParams.rec) : null,
+  ]);
 
   return (
     <Suspense>
-      <NewContentForm types={types} />
+      <NewContentForm types={types} handoff={handoff} />
     </Suspense>
   );
 }

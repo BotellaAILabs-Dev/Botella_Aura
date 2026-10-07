@@ -17,6 +17,11 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toaster';
 import type { ContentTypeKey } from '@/lib/validations/content';
+import {
+  handoffBrief,
+  type ContextHandoff,
+} from '@/lib/recommendation-context-handoff';
+import { HandoffPanel } from '@/components/dashboard/content/handoff-panel';
 import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
 import {
   DEFAULT_CHOICES,
@@ -40,12 +45,24 @@ import {
  * that renders five formats and then removes two looks like a bug, and a
  * workspace that turned a format off should never see it offered at all.
  */
-export function NewContentForm({ types }: { types: ContentTypeKey[] }) {
+export function NewContentForm({
+  types,
+  handoff = null,
+}: {
+  types: ContentTypeKey[];
+  /** The recommendation's Context Handoff, when opened with `?rec=`. */
+  handoff?: ContextHandoff | null;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const trendId = params.get('trendId') ?? undefined;
-  const initialBrief = params.get('brief') ?? '';
-  const initialType = params.get('type') as ContentTypeKey | null;
+  // From a recommendation, the brief and format come from its handoff: the
+  // full context, with what is missing stated instead of invented.
+  const initialBrief = handoff
+    ? handoffBrief(handoff)
+    : (params.get('brief') ?? '');
+  const initialType = (handoff?.channel?.contentType ??
+    params.get('type')) as ContentTypeKey | null;
   const campaignId = params.get('campaignId') ?? undefined;
   // From an Aura recommendation (lib/aura-modules.ts): the draft remembers it.
   const recommendationId = params.get('rec') ?? undefined;
@@ -117,6 +134,7 @@ export function NewContentForm({ types }: { types: ContentTypeKey[] }) {
               : 'Pick a type to generate.'
         }
       />
+      {handoff && <HandoffPanel handoff={handoff} />}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Choose a format</CardTitle>
