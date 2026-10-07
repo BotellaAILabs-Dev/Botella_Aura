@@ -17,6 +17,9 @@ import { BriefingView } from '@/components/dashboard/briefing/briefing-view';
 import { GettingStarted } from '@/components/dashboard/briefing/getting-started';
 import { SetupChecklist } from '@/components/dashboard/onboarding/setup-checklist';
 import { getOnboardingState } from '@/server/onboarding/checklist.service';
+import { getSuggestions } from '@/server/recommendations/suggestions.service';
+import { AuraSuggests } from '@/components/dashboard/suggestions/aura-suggests';
+import { logger } from '@/lib/logger';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
@@ -51,12 +54,44 @@ export default async function OverviewPage() {
     );
   }
 
-  const [row, membership, setup] = await Promise.all([
+  const [row, membership, setup, suggested] = await Promise.all([
     getLatestBriefing(active.id),
     getMembership(user.id, active.id),
     getOnboardingState(active.id),
+    // Suggestions lead the page when there are any; a failure here must
+    // never take the home page down with it.
+    getSuggestions(active.id, { limit: 3 }).catch((error: unknown) => {
+      logger.warn('home: suggestions unavailable', {
+        companyId: active.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { suggestions: [], accepted: [] };
+    }),
   ]);
   const canRun = membership ? can(membership.role, 'content:create') : false;
+  const canDecide = membership ? can(membership.role, 'company:update') : false;
+  const suggestions = suggested.suggestions.length ? (
+    <section className="mb-6">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-base font-semibold text-foreground">
+          Aura Suggests
+        </h2>
+        <Link
+          href="/dashboard/suggestions"
+          className="text-sm text-primary hover:underline"
+        >
+          See all
+        </Link>
+      </div>
+      <AuraSuggests
+        suggestions={suggested.suggestions.slice(0, 1)}
+        canAct={canDecide}
+        canRecord={canRun}
+        surface="home"
+        compact
+      />
+    </section>
+  ) : null;
 
   if (!row) {
     return (
@@ -68,6 +103,7 @@ export default async function OverviewPage() {
         {/* Before the first briefing, setup IS the next action — so it leads,
             expanded, above the explanation of what Aura will do with it. */}
         {!setup.finished && <SetupChecklist state={setup} />}
+        {suggestions}
         <GettingStarted canRun={canRun} />
       </div>
     );
@@ -97,6 +133,8 @@ export default async function OverviewPage() {
           <SetupChecklist state={setup} variant="compact" />
         </div>
       )}
+
+      {suggestions}
 
       <BriefingView
         briefingId={briefing.id}

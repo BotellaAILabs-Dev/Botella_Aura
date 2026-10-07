@@ -39,6 +39,7 @@
     "verify:guardrails": "tsx scripts/verify-guardrails.ts",
     "verify:prioritization": "tsx scripts/verify-prioritization.ts",
     "verify:lifecycle": "tsx scripts/verify-lifecycle.ts",
+    "verify:suggestions": "tsx scripts/verify-suggestions.ts",
     "verify:content-studio": "tsx scripts/verify-content-studio.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

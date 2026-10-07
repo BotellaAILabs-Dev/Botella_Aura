@@ -17,6 +17,7 @@ import {
   CalendarRange,
   Building2,
   Telescope,
+  Sparkles,
 } from 'lucide-react';
 
 /**
@@ -78,6 +79,14 @@ export const NAV_ITEMS: NavItem[] = [
     icon: LayoutDashboard,
     ready: true,
     section: 'overview',
+  },
+  {
+    label: 'Aura Suggests',
+    href: '/dashboard/suggestions',
+    icon: Sparkles,
+    ready: true,
+    section: 'overview',
+    description: 'What Aura thinks you should do next, why, and the evidence behind it.',
   },
   {
     label: 'Marketing health',

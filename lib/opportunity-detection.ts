@@ -162,7 +162,7 @@ export const competitorMoveRule: Rule = {
         effort: 'low',
         signals: group,
         criteria: [
-          `${group.length} change(s) observed directly by ${name}: ${kinds.join(', ')}`,
+          `${name} made ${group.length === 1 ? 'a change' : `${group.length} changes`} to its ${kinds.join(' and ')}, seen directly on its site`,
         ],
         contextFields: ['identity.description', 'identity.offerings'],
         relevantUntil: latestExpiry(group, new Date(now.getTime() + 30 * DAY)),
@@ -236,8 +236,8 @@ export const trendingTopicRule: Rule = {
         signals: group,
         criteria: [
           group.length >= 2
-            ? `${group.length} different stories on "${topic}"`
-            : `one story on "${topic}" seen in several places`,
+            ? `${group.length} different news stories are covering “${topic}” right now`
+            : `a story about “${topic}” is being picked up in several places`,
           ...(onCampaign ? ['matches a running campaign theme'] : []),
         ],
         contextFields: ['identity.description', 'audience.stated'],

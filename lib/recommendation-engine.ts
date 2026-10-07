@@ -87,6 +87,14 @@ const FORMAT_WORDS: [RegExp, ContentTypeKey][] = [
   [/\b(blog|article|long-form)s?\b/i, 'BLOG'],
 ];
 
+/** A detection note as a sentence: capitalised, ending in a full stop. */
+export function asSentence(text: string): string {
+  const t = text.trim().replace(/\s+/g, ' ');
+  if (!t) return t;
+  const cap = t.charAt(0).toUpperCase() + t.slice(1);
+  return /[.!?…]["”’)]?$/.test(cap) ? cap : `${cap}.`;
+}
+
 export function engineContext(s: BusinessContextSnapshot): EngineContext {
   const assumed = s.assumptions.find((a) => a.field === 'audience.stated');
   return {
@@ -449,10 +457,10 @@ export function selectActions(
       if (ctx.connected.includes(channel)) {
         score += 10;
         reasons.push(
-          `${channel} is connected, so it can be published and measured`,
+          `${channel} is connected, so Aura can publish and measure it`,
         );
       } else {
-        reasons.push(`the business publishes on ${channel}`);
+        reasons.push(`you publish on ${channel}`);
       }
       const learned = ctx.learnedFormats.find((f) =>
         CHANNEL_FORMATS[channel!].includes(f),
@@ -461,13 +469,13 @@ export function selectActions(
         contentType = learned;
         score += 10;
         reasons.push(
-          `uses a format the business learned works (${learned.toLowerCase().replace('_', ' ')})`,
+          `it uses a format that works for you (${learned.toLowerCase().replace('_', ' ')})`,
         );
       }
     }
     if (fitsGoal) {
       score += 10;
-      reasons.push('relates to the business’s current goal or campaign');
+      reasons.push('it relates to your current goal or campaign');
     }
     score += spec.effort === 'low' ? 10 : spec.effort === 'high' ? -10 : 0;
     if (daysLeft !== null && daysLeft <= 7 && spec.effort !== 'low') {
@@ -520,18 +528,15 @@ export function composeRecommendation(
     .find((c): c is string => typeof c === 'string');
   const shift = analyticsShift(signals);
 
+  // Headlines a person reads ("Aura Suggests"): the opportunity's own title
+  // already says what to do; the format is in the action line, not stacked
+  // in front as a prefix ("Post about: …").
   const TITLE: Record<string, string> = {
-    post: `Post about: ${o.title}`,
-    series: `A short series on: ${o.title}`,
-    article: `Write an article on: ${o.title}`,
-    'response-post': `Answer ${competitor ?? 'the competitor'}: ${o.title}`,
-    'comparison-article': `Publish a comparison: ${o.title}`,
-    'targeted-post': `Speak to this audience: ${o.title}`,
+    'comparison-article': `Show how you compare with ${competitor ?? 'the competition'}`,
     'update-audience': `Add an audience: ${o.title}`,
-    'connect-channel': o.title,
-    'recovery-post': `Win back ${shift?.metric ?? 'results'}: ${o.title}`,
-    'apply-pattern': `Do more of what works: ${o.title}`,
-    'plan-it': o.title,
+    'recovery-post': shift
+      ? `Win back your ${shift.metric.toLowerCase()}`
+      : 'Win back your results',
   };
   const ACTION: Record<string, string> = {
     post: `Publish ${one}${on} about this, this week.`,
@@ -635,10 +640,11 @@ export function composeRecommendation(
       ? ideas
       : (STEPS[s.id] ?? (o.angle ? [`Take this angle: ${o.angle}`] : []))
     ).map((x) => x.slice(0, 300)),
-    rationale: `${o.rationale || o.summary} ${evidenceLine}${fit}`.slice(
-      0,
-      2000,
-    ),
+    rationale:
+      `${asSentence(o.rationale || o.summary)} ${evidenceLine}${fit}`.slice(
+        0,
+        2000,
+      ),
     expectedOutcome: outcome,
     outcomeMetric: metric,
     channel: chosen.channel,

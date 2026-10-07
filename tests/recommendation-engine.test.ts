@@ -261,7 +261,9 @@ describe('selecting the action that fits the business', () => {
     expect(r.action).toMatch(
       /^Publish (a carousel|three carousels) on LinkedIn/,
     );
-    expect(s.viable[0]!.reasons.join(' ')).toMatch(/learned works/);
+    expect(s.viable[0]!.reasons.join(' ')).toContain(
+      'a format that works for you (carousel)',
+    );
   });
 
   it('connecting a channel: only one the business uses and has not connected', () => {
