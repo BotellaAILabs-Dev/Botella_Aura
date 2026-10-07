@@ -8,11 +8,7 @@ import {
   RefreshCw,
   CalendarDays,
   Swords,
-  Lightbulb,
-  Gauge,
-  ArrowRight,
   ImageIcon,
-  Inbox,
   Info,
 } from 'lucide-react';
 
@@ -31,12 +27,14 @@ import { DATE_LOCALE } from '@/lib/dates';
 import { LocalTime } from '@/components/ui/local-time';
 
 /**
- * The weekly briefing, as a person reads it.
+ * The weekly briefing — "This week" on Aura Home.
  *
- * Ordering is the whole design: what Aura DID, then what NEEDS YOU, then the
- * week ahead, then context. A dashboard leads with numbers; an employee leads
- * with work. Scores are near the bottom on purpose — they are the least
- * actionable thing on the page.
+ * Home leads with what matters now, Aura's suggestions, opportunities and
+ * results, all live (components/dashboard/home). The briefing is the weekly
+ * part below them: what Aura did, the content it wrote, the week's calendar
+ * and competitor moves. What used to sit here and now lives on Home, live,
+ * instead of as a weekly snapshot: "Needs you" (→ What matters now), "What to
+ * do next" (→ Aura Suggests) and "Business insights" (→ Results).
  */
 interface Props {
   briefingId: string;
@@ -110,9 +108,9 @@ export function BriefingView({
                 <Sparkles className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <h1 className="text-lg font-semibold text-foreground">
+                <h2 className="text-lg font-semibold text-foreground">
                   {payload.headline || 'Your week'}
-                </h1>
+                </h2>
                 <p className="mt-0.5 text-sm text-muted-foreground">
                   {payload.summary}
                 </p>
@@ -163,27 +161,6 @@ export function BriefingView({
           )}
         </CardContent>
       </Card>
-
-      {/* ---- What needs you ------------------------------------------- */}
-      {payload.attention.length > 0 && (
-        <Section icon={Inbox} title="Needs you">
-          <div className="grid gap-2 sm:grid-cols-2">
-            {payload.attention.map((a) => (
-              <Link
-                key={a.label}
-                href={a.href}
-                className="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2.5 text-sm transition-colors hover:border-primary/50"
-              >
-                <span className="text-foreground">{a.label}</span>
-                <span className="flex items-center gap-2">
-                  <Badge>{a.count}</Badge>
-                  <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-                </span>
-              </Link>
-            ))}
-          </div>
-        </Section>
-      )}
 
       {/* ---- Content Aura already wrote -------------------------------- */}
       {payload.readyContent.length > 0 && (
@@ -267,57 +244,6 @@ export function BriefingView({
         </Section>
       )}
 
-      {/* ---- Recommendations -------------------------------------------- */}
-      {payload.recommendations.length > 0 && (
-        <Section icon={Lightbulb} title="What to do next">
-          <div className="space-y-2">
-            {payload.recommendations.slice(0, 5).map((rec, i) => (
-              <Link
-                key={i}
-                href={rec.href}
-                className="block rounded-md border border-border bg-card p-3 transition-colors hover:border-primary/50"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">
-                      {rec.title}
-                    </p>
-                    {rec.why && (
-                      <p className="mt-0.5 text-sm text-muted-foreground">
-                        {rec.why}
-                      </p>
-                    )}
-                  </div>
-                  {rec.priority === 'high' && <Badge variant="warning">Now</Badge>}
-                </div>
-                <span className="mt-1.5 inline-flex items-center gap-1 text-xs text-primary">
-                  {rec.action} <ArrowRight className="h-3 w-3" />
-                </span>
-              </Link>
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {/* ---- Numbers, last: least actionable thing on the page ---------- */}
-      {payload.insights.length > 0 && (
-        <Section icon={Gauge} title="Business insights">
-          <div className="grid gap-3 sm:grid-cols-3">
-            {payload.insights.map((insight, i) => (
-              <div key={i} className="rounded-md border border-border bg-card p-3">
-                <p className="text-xs text-muted-foreground">{insight.label}</p>
-                <p className="mt-0.5 text-xl font-semibold text-foreground">
-                  {insight.value}
-                </p>
-                {insight.note && (
-                  <p className="mt-1 text-xs text-muted-foreground">{insight.note}</p>
-                )}
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
-
       {/* ---- Honest gaps ------------------------------------------------ */}
       {(payload.coverage.skipped.length > 0 || activity.skipped.length > 0) && (
         <Card>
@@ -346,7 +272,7 @@ function Section({
   hint,
   children,
 }: {
-  icon: typeof Inbox;
+  icon: typeof CalendarDays;
   title: string;
   hint?: string;
   children: React.ReactNode;

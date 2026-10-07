@@ -11,7 +11,7 @@ already exist; nothing about recommendations is duplicated.
 | Loading, in ranked order | [`server/recommendations/suggestions.service.ts`](../server/recommendations/suggestions.service.ts) |
 | Cards, actions, edit form | [`components/dashboard/suggestions/aura-suggests.tsx`](../components/dashboard/suggestions/aura-suggests.tsx) |
 | Page | `/dashboard/suggestions` (sidebar: **Aura Suggests**, under Home) |
-| Home | The top suggestion leads the home page, with "See all" |
+| Home | The top 3 suggestions are the second section of Aura Home ([AURA-HOME.md](AURA-HOME.md)), with "See all" |
 | Tests | [`tests/aura-suggests.test.ts`](../tests/aura-suggests.test.ts); `pnpm verify:suggestions` (the real pipeline, from signals to suggestions) |
 
 ---
