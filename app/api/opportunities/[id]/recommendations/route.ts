@@ -3,6 +3,7 @@ import { can } from '@/lib/rbac';
 import { recommendationContentSchema } from '@/lib/recommendations';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 import { generateRecommendation } from '@/server/recommendations/engine.service';
+import { opportunityBelongsTo } from '@/server/opportunities/opportunity.service';
 import {
   getRecommendation,
   listRecommendations,
@@ -49,6 +50,10 @@ export async function GET(
 ) {
   try {
     const { company } = await requireActiveCompany();
+    // Another business's opportunity answers like one that does not exist.
+    if (!(await opportunityBelongsTo(company.id, params.id))) {
+      return jsonError('Opportunity not found', 404);
+    }
     const recommendations = await listRecommendations(company.id, {
       opportunityId: params.id,
     });

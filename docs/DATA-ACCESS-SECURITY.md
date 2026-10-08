@@ -106,6 +106,7 @@ for. Cross-detector merging searches only within that workspace.
 | 3 | When creating a recommendation, the "already has an open one?" lookup was not scoped to the workspace. Not exploitable, because the opportunity was verified a few lines earlier, but caught by the new static guard. | **Fixed:** scoped. |
 | 4 | The same raw-link pattern exists outside this area: lead source URLs, LinkedIn profile URLs, engagement target posts, and competitor website links entered by the business. | **Follow-up:** apply `safeExternalUrl` there too (leads, outreach and engagement pages). |
 | 5 | No database-level RLS. | **Reviewed** (section 1): isolation is enforced in the application and tested. RLS is a separate ticket if policy requires it. |
+| 6 | `GET /api/opportunities/:id/recommendations` answered **200 with an empty list** for another business's opportunity, instead of 404. Nothing leaked: the query was scoped, and a made-up id gave the same answer. But it broke the rule that a foreign id behaves like a non-existent one. | **Fixed:** the opportunity is checked against the caller's workspace first, so the answer is 404. `verify:access` now expects 404. |
 
 ## 6. Tests
 
@@ -144,3 +145,64 @@ owner), signs them in, and checks:
 - **Sensitive information:** no credentials, password hashes or member emails
   in any response.
 - Everything it creates is deleted afterwards.
+
+## 7. Recommendations (Recommendation Security & RLS Validation)
+
+Recommendations have grown well beyond create and decide: Aura Suggests,
+edits, presentation, history, module context, the Sprint 9 handoff, quality
+checks and readiness. Each is validated at three layers.
+
+### Who may do what
+
+| | Owner, Admin | Member | Viewer | Another business | Signed out |
+| --- | --- | --- | --- | --- | --- |
+| Read: detail, list, ranking, context, handoff, quality, history, readiness | yes | yes | yes | **404**, nothing revealed | 401 |
+| Record "seen" (`POST /presented`) | yes | yes | no-op (`recorded: false`) | ignored | 401 |
+| Decide, set status, edit, snooze, recommend an opportunity, get suggestions | yes | **403** | **403** | **404**, nothing changed | 401 |
+
+### Row-level isolation (the RLS equivalent)
+
+Postgres RLS is still not used (section 1). Instead, **every database call on
+`Recommendation`, `RecommendationEvent` and `RecommendationEvidence`** must
+be confined to one workspace, in one of three ways:
+- filtered by `companyId`, directly or through its recommendation or
+  opportunity
+- aimed at the `.id` of a row already loaded under that filter
+- creating a row whose data carries the workspace or a verified parent
+
+An id from a request is never used on its own.
+`tests/recommendation-security.test.ts` checks this on every such call in the
+real source. A new query that forgets it fails the test. The test also proves
+its own detector rejects unscoped queries. The one call verified by its
+caller (mirroring an opportunity's decision, after `transitionOpportunity`
+has checked the opportunity's workspace) is listed by name.
+
+### Tests
+
+**`tests/recommendation-security.test.ts`** (static, every test run):
+- every query on the recommendation tables is confined to a workspace
+- every recommendation route resolves the caller's own workspace, and never
+  takes one from the request
+- every write requires `company:update`; only "seen" uses `content:create`
+- an id from the URL only reaches services alongside the caller's workspace
+
+**`pnpm verify:recommendation-security`** (HTTP, against the running app). It
+sets up two throwaway businesses: A has an owner, a member and a viewer; B
+has an owner and a recommendation carrying a secret marker, with history. It
+checks:
+- **Signed out:** every recommendation endpoint returns 401 and reveals
+  nothing.
+- **A reading B:** detail, context, handoff, quality and history return 404.
+  A's lists (recommendations, ranking, history, readiness), A's pages (Home,
+  Aura Suggests, history) and B's opportunity routes contain none of B.
+- **A changing B:** decide, set status, edit, snooze and recommending B's
+  opportunity return 404. Marking B's recommendation as seen does nothing. B's
+  recommendation is byte-for-byte unchanged, with no new history and nothing
+  created.
+- **Forged workspace cookie:** a cookie naming B is ignored.
+- **A's roles:** the viewer can read but every change is refused (403), and
+  seeing records nothing. The member can't decide, edit or set status (403),
+  but may record "seen". The owner can decide (the positive control).
+- **History:** A's history has A's decision and none of B. B's owner sees
+  B's own history.
+

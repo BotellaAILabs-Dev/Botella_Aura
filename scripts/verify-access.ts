@@ -304,10 +304,9 @@ async function main() {
       `/api/opportunities/${bOpp}/recommendations`,
     );
     check(
-      'listing business B’s recommendations returns none',
-      recsOfB.status === 200 &&
-        (recsOfB.json as { recommendations: unknown[] }).recommendations
-          .length === 0,
+      // Like any other id that is not the caller's: 404, with no detail.
+      'listing business B’s recommendations → 404, revealing nothing',
+      recsOfB.status === 404 && !recsOfB.text.includes(bOpp),
     );
     const bOppAfter = await db.opportunity.findUniqueOrThrow({
       where: { id: bOpp },

@@ -538,3 +538,18 @@ export async function opportunitiesForSignal(
     orderBy: { detectedAt: 'desc' },
   });
 }
+
+/**
+ * Whether this opportunity is the workspace's. Another business's id answers
+ * exactly like one that does not exist (docs/DATA-ACCESS-SECURITY.md).
+ */
+export async function opportunityBelongsTo(
+  companyId: string,
+  opportunityId: string,
+): Promise<boolean> {
+  const found = await db.opportunity.findFirst({
+    where: { id: opportunityId, companyId },
+    select: { id: true },
+  });
+  return found !== null;
+}

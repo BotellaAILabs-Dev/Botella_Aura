@@ -48,6 +48,7 @@
     "verify:history": "tsx scripts/verify-history.ts",
     "verify:quality": "tsx scripts/verify-quality.ts",
     "verify:readiness": "tsx scripts/verify-readiness.ts",
+    "verify:recommendation-security": "tsx scripts/verify-recommendation-security.ts",
     "verify:content-studio": "tsx scripts/verify-content-studio.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
