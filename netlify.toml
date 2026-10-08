@@ -26,6 +26,12 @@
 [build.environment]
   NODE_VERSION = "20"
   NEXT_TELEMETRY_DISABLED = "1"
+  # Netlify's secrets scanner flags ANY env value that also appears in the
+  # repo or build output. These are not secrets — public API base URLs, model
+  # names, the site's own address — and they legitimately appear in the code
+  # as defaults and in .env.example. Real secrets (API keys, DATABASE_URL,
+  # NEXTAUTH_SECRET, ENCRYPTION_KEY, CRON_SECRET) are NOT listed: still scanned.
+  SECRETS_SCAN_OMIT_KEYS = "HUGGINGFACE_API_BASE,HUGGINGFACE_MODEL_ID,AGNES_API_BASE_URL,AGNES_IMAGE_MODEL,GOOGLE_IMAGE_MODEL,GEMINI_MODEL,REDDIT_USER_AGENT,NEXTAUTH_URL,APP_URL"
   # NOTE: do NOT set PRISMA_CLI_BINARY_TARGETS here. It *overrides* the schema's
   # binaryTargets and does not accept the "native" keyword, which fails the
   # build with: "Unknown binaryTarget native". The Lambda engine target is
