@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm run vercel-build",
-  "regions": ["iad1"],
+  "regions": ["sin1"],
   "crons": [
     { "path": "/api/cron/publish", "schedule": "0 9 * * *" },
     { "path": "/api/cron/briefing", "schedule": "0 5 * * 1" }
