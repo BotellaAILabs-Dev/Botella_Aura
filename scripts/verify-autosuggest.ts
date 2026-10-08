@@ -108,12 +108,12 @@ async function main() {
       `${open.length} open`,
     );
     check(
+      // Aura does not even start writing without channels
+      // (lib/data-readiness.ts): one clear reason, not one per opportunity.
       'and the reason is the missing channel',
-      none.skipped.length > 0 &&
-        none.skipped.every((s) =>
-          s.reasons.some((r) => /has not said where it publishes/.test(r)),
-        ),
-      JSON.stringify(none.skipped.map((s) => s.reasons)),
+      none.notReady === 'The business has not said where it publishes.' &&
+        none.skipped.length === 0,
+      JSON.stringify({ notReady: none.notReady, skipped: none.skipped }),
     );
 
     console.log('\nOnce the business says where it publishes');

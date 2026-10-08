@@ -4,6 +4,8 @@ import { logger } from '@/lib/logger';
 import { LIVE_RECOMMENDATION_STATUSES } from '@/lib/recommendations';
 import { generateRecommendation } from './engine.service';
 import { repeatHolds } from './history.service';
+import { mayWriteRecommendations } from '@/lib/data-readiness';
+import { getBusinessContext } from '@/server/business-context/business-context.service';
 import { getRecommendationQuality } from './quality.service';
 import { transitionRecommendation } from './recommendation.service';
 
@@ -63,6 +65,8 @@ export interface AutoSuggestReport {
   skipped: { opportunityId: string; title: string; reasons: string[] }[];
   /** Left for the next run (the time budget or the limit was reached). */
   remaining: number;
+  /** Why nothing was written at all: Aura does not have enough to go on. */
+  notReady?: string | null;
 }
 
 export async function suggestFromOpportunities(
@@ -80,6 +84,19 @@ export async function suggestFromOpportunities(
   const limit = options.limit ?? 5;
   const budgetMs = options.budgetMs ?? 40_000;
   const started = Date.now();
+  // Not enough to go on: write nothing rather than something generic.
+  const ctx = await getBusinessContext(companyId, { sections: [] });
+  const may = mayWriteRecommendations({
+    description: ctx?.identity.description ?? null,
+    offerings: ctx?.identity.offerings ?? null,
+    audience: ctx?.audience.stated ?? null,
+    goals: ctx?.objectives.goals ?? null,
+    channels: ctx?.channels.preferred ?? [],
+    connected: [],
+  });
+  if (!may.ok) {
+    return { created: [], skipped: [], remaining: 0, notReady: may.reason };
+  }
   const open = await openOpportunitiesWithoutSuggestion(companyId, options.now);
   const report: AutoSuggestReport = { created: [], skipped: [], remaining: 0 };
 

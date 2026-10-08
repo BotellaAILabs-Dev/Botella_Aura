@@ -23,6 +23,8 @@ import { listOpportunitiesForView } from '@/server/opportunities/opportunity.ser
 import { getSuggestions } from '@/server/recommendations/suggestions.service';
 import type { WhatMatters } from '@/lib/what-matters';
 import { getWhatMatters } from './what-matters.service';
+import type { Readiness } from '@/lib/data-readiness';
+import { getReadiness } from '@/server/recommendations/readiness.service';
 
 /**
  * Everything Aura Home shows (lib/aura-home.ts), loaded live and in parallel.
@@ -45,6 +47,8 @@ function sentence(text: string | null): string | null {
 export interface AuraHome {
   /** The business situation; null if it could not be loaded. */
   whatMatters: WhatMatters | null;
+  /** Whether Aura has enough to recommend; what to do when it does not. */
+  readiness: Readiness | null;
   /** Work ready and waiting on a person. */
   waiting: WaitingItem[];
   suggestions: SuggestionView[];
@@ -341,6 +345,7 @@ export async function getAuraHome(
     resultsInput,
     activity,
     whatMatters,
+    readiness,
   ] = await Promise.all([
     part(
       'suggestions',
@@ -371,10 +376,14 @@ export async function getAuraHome(
     part('what matters', companyId, null as WhatMatters | null, () =>
       getWhatMatters(companyId, now),
     ),
+    part('readiness', companyId, null as Readiness | null, () =>
+      getReadiness(companyId, now),
+    ),
   ]);
 
   return {
     whatMatters,
+    readiness,
     waiting: waitingOnYou({ accepted: suggested.accepted, counts }),
     suggestions: suggested.suggestions.slice(0, 3),
     suggestionCount: suggested.suggestions.length,

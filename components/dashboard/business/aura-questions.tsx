@@ -39,7 +39,7 @@ export function AuraQuestions({ questions, openCount, canAnswer }: Props) {
   if (questions.length === 0) return null;
   const more = openCount - questions.length;
   return (
-    <Card className="border-primary/30">
+    <Card id="aura-questions" className="scroll-mt-20 border-primary/30">
       <CardHeader className="pb-2">
         <div className="flex items-center gap-2">
           <MessageCircleQuestion className="h-5 w-5 text-primary" />

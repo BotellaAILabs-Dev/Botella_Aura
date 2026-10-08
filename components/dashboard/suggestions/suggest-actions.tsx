@@ -19,6 +19,8 @@ interface Report {
   created: { title: string }[];
   skipped: { title: string; reasons: string[] }[];
   remaining: number;
+  /** Nothing written: Aura does not have enough to go on. */
+  notReady?: string | null;
 }
 
 export function SuggestActions({
@@ -60,7 +62,11 @@ export function SuggestActions({
       const report: Report | null =
         pending > 0 ? (data as Report) : (data.suggestions ?? null);
       const made = report?.created.length ?? 0;
-      if (made > 0) {
+      if (report?.notReady) {
+        toast.message?.(
+          `Aura didn’t write anything: ${report.notReady} It won’t make up a generic suggestion.`,
+        );
+      } else if (made > 0) {
         toast.success(
           `Aura made ${made} suggestion${made === 1 ? '' : 's'}.${
             report!.remaining ? ` ${report!.remaining} more next time.` : ''

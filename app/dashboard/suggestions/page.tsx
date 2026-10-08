@@ -8,7 +8,8 @@ import { can } from '@/lib/rbac';
 import { getMembership } from '@/server/services/company.service';
 import { getSuggestions } from '@/server/recommendations/suggestions.service';
 import { openOpportunitiesWithoutSuggestion } from '@/server/recommendations/autosuggest.service';
-import { getBusinessContext } from '@/server/business-context/business-context.service';
+import { getReadiness } from '@/server/recommendations/readiness.service';
+import { ReadinessPanel } from '@/components/dashboard/suggestions/readiness-panel';
 import { SuggestActions } from '@/components/dashboard/suggestions/suggest-actions';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
@@ -28,17 +29,14 @@ export default async function SuggestionsPage() {
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const [membership, { suggestions, accepted, heldBack }, waiting, ctx] =
+  const [membership, { suggestions, accepted, heldBack }, waiting, readiness] =
     await Promise.all([
       getMembership(user.id, active.id),
       getSuggestions(active.id),
       openOpportunitiesWithoutSuggestion(active.id),
-      getBusinessContext(active.id, { sections: [] }),
+      getReadiness(active.id),
     ]);
   const pending = waiting.length;
-  // Every suggestion must be something the business can do; without a
-  // channel, the engine will not guess one (lib/recommendation-rules.ts).
-  const noChannels = (ctx?.channels.preferred.length ?? 0) === 0;
   const canAct = membership ? can(membership.role, 'company:update') : false;
   const canRecord = membership ? can(membership.role, 'content:create') : false;
 
@@ -62,42 +60,27 @@ export default async function SuggestionsPage() {
           </>
         }
       />
-      {suggestions.length === 0 && accepted.length === 0 && noChannels ? (
-        <EmptyState
-          icon={Sparkles}
-          title="Tell Aura where you publish"
-          description={`Every suggestion has to be something you can actually do. ${
-            pending > 0
-              ? `Aura found ${pending} opportunit${pending === 1 ? 'y' : 'ies'}, but`
-              : 'Right now'
-          } you haven’t said where you publish — LinkedIn, Instagram, a blog, a newsletter — so Aura won’t guess and suggests nothing.`}
-          action={
-            <Button asChild>
-              <Link href="/dashboard/business">Add where you publish</Link>
-            </Button>
-          }
-        />
+      {suggestions.length === 0 &&
+      accepted.length === 0 &&
+      readiness.canRecommend &&
+      pending > 0 ? (
+        <div className="space-y-4">
+          <EmptyState
+            icon={Sparkles}
+            title="No suggestions yet"
+            description={`Aura has ${pending} open opportunit${pending === 1 ? 'y' : 'ies'} it hasn’t made suggestions for yet. It checks each one against its rules — evidence, duplicates, your channels — before suggesting anything.`}
+            action={<SuggestActions pending={pending} canAct={canAct} />}
+          />
+          <ReadinessPanel
+            readiness={readiness}
+            canAct={canAct}
+            variant="compact"
+          />
+        </div>
       ) : suggestions.length === 0 && accepted.length === 0 ? (
-        <EmptyState
-          icon={Sparkles}
-          title="No suggestions yet"
-          description={
-            pending > 0
-              ? `Aura has ${pending} open opportunit${pending === 1 ? 'y' : 'ies'} it hasn’t made suggestions for yet. It checks each one against its rules — evidence, duplicates, your channels — before suggesting anything.`
-              : 'Aura suggests something when it spots an opportunity worth acting on — a trend, a competitor move, or a pattern in your results. It checks your market, competitors and results for new ones when you ask.'
-          }
-          action={
-            <div className="flex flex-col items-center gap-2">
-              <SuggestActions pending={pending} canAct={canAct} />
-              <Link
-                href="/dashboard/opportunities"
-                className="text-xs text-primary hover:underline"
-              >
-                See opportunities
-              </Link>
-            </div>
-          }
-        />
+        // The fallback: what Aura needs, in order — never a generic
+        // suggestion to fill the page (lib/data-readiness.ts).
+        <ReadinessPanel readiness={readiness} canAct={canAct} />
       ) : suggestions.length === 0 ? (
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -116,13 +99,22 @@ export default async function SuggestionsPage() {
           />
         </>
       ) : (
-        <AuraSuggests
-          suggestions={suggestions}
-          accepted={accepted}
-          canAct={canAct}
-          canRecord={canRecord}
-          surface="suggestions"
-        />
+        <div className="space-y-4">
+          {readiness.state !== 'ready' && (
+            <ReadinessPanel
+              readiness={readiness}
+              canAct={canAct}
+              variant="compact"
+            />
+          )}
+          <AuraSuggests
+            suggestions={suggestions}
+            accepted={accepted}
+            canAct={canAct}
+            canRecord={canRecord}
+            surface="suggestions"
+          />
+        </div>
       )}
       {canAct && heldBack.length > 0 && (
         <details className="mt-6 rounded-md border border-dashed border-border p-4 text-sm">

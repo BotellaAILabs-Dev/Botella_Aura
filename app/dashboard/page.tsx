@@ -19,6 +19,7 @@ import { BriefingView } from '@/components/dashboard/briefing/briefing-view';
 import { GettingStarted } from '@/components/dashboard/briefing/getting-started';
 import { SetupChecklist } from '@/components/dashboard/onboarding/setup-checklist';
 import { AuraSuggests } from '@/components/dashboard/suggestions/aura-suggests';
+import { ReadinessPanel } from '@/components/dashboard/suggestions/readiness-panel';
 import {
   ActiveOpportunities,
   HomeSection,
@@ -121,6 +122,18 @@ export default async function HomePage() {
               surface="home"
               compact
             />
+          ) : home.readiness && !home.readiness.canRecommend ? (
+            // Not enough to go on: say what Aura needs, never pad with a
+            // generic suggestion (lib/data-readiness.ts).
+            <Card>
+              <CardContent className="p-4">
+                <ReadinessPanel
+                  readiness={home.readiness}
+                  canAct={canDecide}
+                  variant="compact"
+                />
+              </CardContent>
+            </Card>
           ) : (
             <Card>
               <CardContent className="p-4 text-sm text-muted-foreground">

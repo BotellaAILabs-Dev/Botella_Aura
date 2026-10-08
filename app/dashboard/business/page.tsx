@@ -22,7 +22,12 @@ export const dynamic = 'force-dynamic';
  * here is exactly what Aura works from — including where each fact came from,
  * whether it is current, and what is missing.
  */
-export default async function AboutMyBusinessPage() {
+export default async function AboutMyBusinessPage({
+  searchParams = {},
+}: {
+  /** `?ask=<field>`: another page sent the person here for exactly this. */
+  searchParams?: { ask?: string };
+}) {
   const user = await requireUser();
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
@@ -40,6 +45,7 @@ export default async function AboutMyBusinessPage() {
     context,
     limit: 3,
     markAsked: canEdit,
+    focusField: searchParams.ask,
   });
 
   const visual = context.identity.visual;

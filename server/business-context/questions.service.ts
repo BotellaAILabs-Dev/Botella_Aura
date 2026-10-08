@@ -159,6 +159,11 @@ export async function getQuestions(
     now?: Date;
     /** An already-loaded full context, to avoid a second read. */
     context?: BusinessContext;
+    /**
+     * Ask about this field first (`/dashboard/business?ask=<field>`): another
+     * page sent the person here because Aura needs exactly this.
+     */
+    focusField?: string;
   } = {},
 ): Promise<QuestionsResult | null> {
   const now = options.now ?? new Date();
@@ -174,9 +179,20 @@ export async function getQuestions(
   await sync(companyId, allGaps, rows);
 
   const byKey = new Map(rows.map((r) => [r.questionKey, r]));
-  const askable = relevant(allGaps, options.workflow).filter((g) =>
-    isAskable(g, byKey.get(g.key), now),
-  );
+  const askable = relevant(allGaps, options.workflow)
+    // The field a person was sent here to answer is shown even if it is
+    // resting or snoozed — they came for it. A dismissal still holds.
+    .filter((g) =>
+      g.field === options.focusField
+        ? byKey.get(g.key)?.status !== 'DISMISSED'
+        : isAskable(g, byKey.get(g.key), now),
+    )
+    // Stable: only the focused field moves to the front.
+    .sort(
+      (a, b) =>
+        Number(b.field === options.focusField) -
+        Number(a.field === options.focusField),
+    );
   const chosen = askable.slice(0, options.limit ?? 3);
 
   if (options.markAsked && chosen.length) {
