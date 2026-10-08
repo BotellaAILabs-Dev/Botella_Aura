@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "node scripts/package-extension.mjs && prisma generate && next build",
-    "vercel-build": "node scripts/package-extension.mjs && prisma generate && DIRECT_URL=\"${DIRECT_URL:-$DATABASE_URL}\" prisma migrate deploy && next build",
+    "vercel-build": "node scripts/package-extension.mjs && prisma generate && DIRECT_URL=\"${DIRECT_URL:-$DATABASE_URL}\" node scripts/migrate-deploy.mjs && next build",
     "netlify:build": "node scripts/package-extension.mjs && prisma generate && prisma migrate deploy && next build",
     "start": "next start",
     "start:prod": "prisma migrate deploy && next start",
