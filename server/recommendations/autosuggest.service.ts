@@ -1,7 +1,11 @@
 import { db } from '@/lib/db';
+import { ACTIVE_STATUSES } from '@/lib/opportunities';
 import { logger } from '@/lib/logger';
 import { LIVE_RECOMMENDATION_STATUSES } from '@/lib/recommendations';
 import { generateRecommendation } from './engine.service';
+import { repeatHolds } from './history.service';
+import { getRecommendationQuality } from './quality.service';
+import { transitionRecommendation } from './recommendation.service';
 
 /**
  * Aura suggests on its own.
@@ -16,16 +20,29 @@ import { generateRecommendation } from './engine.service';
  * recommendation or exceed the daily / per-channel limits is skipped, with
  * the engine's reason. Nothing is forced through.
  *
+ * History is respected (lib/recommendation-history.ts repeatHold): an
+ * opportunity whose suggestion was just skipped is not suggested again until
+ * its hold ends. A person pressing "Recommend" is never held back.
+ *
  * Runs after every detection (POST /api/opportunities/detect) and from the
  * "Get Aura's suggestions" button (POST /api/recommendations/generate).
  */
 
-/** Opportunities that could get a suggestion: open, and none in play for them. */
-export async function openOpportunitiesWithoutSuggestion(companyId: string) {
-  return db.opportunity.findMany({
+/**
+ * Opportunities that could get a suggestion: open, none in play for them, and
+ * not held back by what happened to their last one (repeatHold — a skip waits
+ * 14 days, so it is not answered by the same suggestion tomorrow).
+ */
+export async function openOpportunitiesWithoutSuggestion(
+  companyId: string,
+  now: Date = new Date(),
+) {
+  const open = await db.opportunity.findMany({
     where: {
       companyId,
-      status: { in: ['DETECTED', 'REVIEWED'] },
+      // RECOMMENDED with none in play: its suggestion was skipped, withdrawn
+      // or expired — eligible again once its repeat hold ends.
+      status: { in: ACTIVE_STATUSES },
       recommendations: {
         none: { status: { in: LIVE_RECOMMENDATION_STATUSES } },
       },
@@ -33,6 +50,12 @@ export async function openOpportunitiesWithoutSuggestion(companyId: string) {
     orderBy: [{ priorityScore: 'desc' }, { detectedAt: 'desc' }],
     select: { id: true, title: true },
   });
+  const holds = await repeatHolds(
+    companyId,
+    open.map((o) => o.id),
+    now,
+  );
+  return open.filter((o) => !holds.get(o.id)?.held);
 }
 
 export interface AutoSuggestReport {
@@ -57,7 +80,7 @@ export async function suggestFromOpportunities(
   const limit = options.limit ?? 5;
   const budgetMs = options.budgetMs ?? 40_000;
   const started = Date.now();
-  const open = await openOpportunitiesWithoutSuggestion(companyId);
+  const open = await openOpportunitiesWithoutSuggestion(companyId, options.now);
   const report: AutoSuggestReport = { created: [], skipped: [], remaining: 0 };
 
   let tried = 0;
@@ -75,7 +98,42 @@ export async function suggestFromOpportunities(
         templatesOnly: options.templatesOnly,
         now: options.now,
       });
-      if (g.recommendationId && g.status !== 'rejected') {
+      // Quality check straight after writing: a suggestion that fails one is
+      // withdrawn — never shown — with the reasons in its history, and the
+      // repeat hold stops it being made again tomorrow.
+      const quality =
+        g.recommendationId && g.status !== 'rejected'
+          ? await getRecommendationQuality(
+              companyId,
+              g.recommendationId,
+              options.now,
+            )
+          : null;
+      if (g.recommendationId && quality?.verdict === 'blocked') {
+        await transitionRecommendation({
+          companyId,
+          recommendationId: g.recommendationId,
+          to: 'WITHDRAWN',
+          actorId: null,
+          source: 'system',
+          note: `Failed Aura’s quality checks: ${quality.problems.join('; ')}`.slice(
+            0,
+            2000,
+          ),
+          metadata: {
+            qualityCheck: {
+              verdict: quality.verdict,
+              problems: quality.problems,
+            },
+          },
+          now: options.now,
+        }).catch(() => undefined);
+        report.skipped.push({
+          opportunityId: o.id,
+          title: o.title,
+          reasons: quality.problems.map((p) => `quality check: ${p}`),
+        });
+      } else if (g.recommendationId && g.status !== 'rejected') {
         report.created.push({
           opportunityId: o.id,
           recommendationId: g.recommendationId,

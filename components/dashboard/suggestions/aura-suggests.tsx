@@ -201,6 +201,18 @@ function SuggestionCard({
           <Badge variant={s.rank === 1 ? 'default' : 'muted'}>{s.place}</Badge>
           {s.timing && <Badge variant="warning">{s.timing}</Badge>}
           {s.resurfaced && <Badge variant="outline">Back from “Not now”</Badge>}
+          {s.quality?.verdict === 'trusted' && (
+            <span
+              className="inline-flex items-center gap-1 text-muted-foreground"
+              title="Passed Aura’s quality checks: evidence, opportunity, business context, channel, outcome."
+            >
+              <CheckCircle2 className="h-3.5 w-3.5 text-primary" aria-hidden />
+              Checked
+            </span>
+          )}
+          {s.quality?.verdict === 'needs_review' && (
+            <Badge variant="warning">Needs your review</Badge>
+          )}
         </div>
 
         {editing ? (
@@ -345,6 +357,20 @@ function SuggestionCard({
                 {s.caution}
               </p>
             )}
+
+            {s.quality?.verdict === 'needs_review' &&
+              s.quality.warnings.length > 0 && (
+                <div className="rounded-md border border-warning/40 p-2.5 text-xs">
+                  <p className="font-medium text-foreground">
+                    Check before you act on it:
+                  </p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-muted-foreground">
+                    {s.quality.warnings.slice(0, 4).map((w) => (
+                      <li key={w}>{w.charAt(0).toUpperCase() + w.slice(1)}.</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
             {canAct && (
               <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">

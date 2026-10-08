@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { Sparkles, Telescope } from 'lucide-react';
+import { History, Sparkles, Telescope } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
@@ -28,7 +28,7 @@ export default async function SuggestionsPage() {
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const [membership, { suggestions, accepted }, waiting, ctx] =
+  const [membership, { suggestions, accepted, heldBack }, waiting, ctx] =
     await Promise.all([
       getMembership(user.id, active.id),
       getSuggestions(active.id),
@@ -48,11 +48,18 @@ export default async function SuggestionsPage() {
         title="Aura Suggests"
         description={`What Aura thinks ${active.name} should consider doing next — and why.`}
         actions={
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/dashboard/opportunities">
-              <Telescope className="h-4 w-4" /> Opportunities
-            </Link>
-          </Button>
+          <>
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/dashboard/suggestions/history">
+                <History className="h-4 w-4" /> History
+              </Link>
+            </Button>
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/dashboard/opportunities">
+                <Telescope className="h-4 w-4" /> Opportunities
+              </Link>
+            </Button>
+          </>
         }
       />
       {suggestions.length === 0 && accepted.length === 0 && noChannels ? (
@@ -116,6 +123,25 @@ export default async function SuggestionsPage() {
           canRecord={canRecord}
           surface="suggestions"
         />
+      )}
+      {canAct && heldBack.length > 0 && (
+        <details className="mt-6 rounded-md border border-dashed border-border p-4 text-sm">
+          <summary className="cursor-pointer font-medium text-foreground">
+            Held back by Aura’s quality checks ({heldBack.length})
+          </summary>
+          <p className="mt-2 text-xs text-muted-foreground">
+            These failed a check — unsupported, contradicted, or claiming
+            something no evidence shows — so Aura is not presenting them.
+          </p>
+          <ul className="mt-2 space-y-2">
+            {heldBack.map((h) => (
+              <li key={h.id} className="text-xs">
+                <span className="font-medium text-foreground">{h.title}</span>
+                <span className="text-muted-foreground"> — {h.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </div>
   );

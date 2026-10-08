@@ -342,8 +342,11 @@ export async function getAuraHome(
     activity,
     whatMatters,
   ] = await Promise.all([
-    part('suggestions', companyId, { suggestions: [], accepted: [] }, () =>
-      getSuggestions(companyId, { now }),
+    part(
+      'suggestions',
+      companyId,
+      { suggestions: [], accepted: [], heldBack: [] },
+      () => getSuggestions(companyId, { now }),
     ),
     part<HomeCounts>(
       'counts',

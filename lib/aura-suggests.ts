@@ -170,6 +170,12 @@ export interface SuggestionView {
     /** Other modules that help, each carrying the recommendation. */
     related: { label: string; href: string }[];
   };
+  /**
+   * The quality check it passed right before being shown
+   * (lib/recommendation-quality.ts): trusted, or needs review with what to
+   * check. Blocked ones are never shown.
+   */
+  quality?: { verdict: 'trusted' | 'needs_review'; warnings: string[] };
   /** Editable fields as they are now, to prefill Edit. */
   editable: {
     title: string;
@@ -333,9 +339,7 @@ export function toSuggestion(
         ? plainBlocker(LOW_CONFIDENCE_BLOCKER)
         : null,
     next: {
-      label: otherBlockers.length
-        ? 'See what’s needed'
-        : brief.verb,
+      label: otherBlockers.length ? 'See what’s needed' : brief.verb,
       href: brief.href,
       accepts: open && otherBlockers.length === 0,
       blocked: otherBlockers.length ? plainBlocker(otherBlockers[0]!) : null,
