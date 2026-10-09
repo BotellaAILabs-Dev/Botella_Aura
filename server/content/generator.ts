@@ -20,6 +20,7 @@ import {
   provenancePrompt,
   type CreationProvenance,
 } from '@/lib/recommendation-creation';
+import { briefPrompt, type ContentBrief } from '@/lib/content-brief';
 import {
   bodySchemaFor,
   type ContentTone,
@@ -183,6 +184,11 @@ interface GenerateArgs {
      * given to the writer.
      */
     provenance?: CreationProvenance | null;
+    /**
+     * The validated Content Brief (lib/content-brief.ts) — the source of
+     * truth for this piece. The writer is held to it, and the draft keeps it.
+     */
+    brief?: ContentBrief | null;
   } | null;
 }
 
@@ -246,9 +252,11 @@ export async function generateDraft({
       : '',
     '',
     `TOPIC / BRIEF:\n${brief.text}`,
-    recommendation?.provenance
-      ? `\n${provenancePrompt(recommendation.provenance)}`
-      : '',
+    recommendation?.brief
+      ? `\n${briefPrompt(recommendation.brief)}`
+      : recommendation?.provenance
+        ? `\n${provenancePrompt(recommendation.provenance)}`
+        : '',
     reference
       ? `\nREFERENCE PAGE (fetched live from a link in your brief — use these REAL facts, product names, and positioning; do not go generic):\n${reference}`
       : '',
@@ -328,6 +336,11 @@ export async function generateDraft({
             id: recommendation.id,
             title: recommendation.title,
           },
+          // The brief it was written from, as it was — the record of what
+          // Aura was asked to create.
+          ...(recommendation.brief
+            ? { brief: recommendation.brief as unknown as Prisma.InputJsonObject }
+            : {}),
         }
       : {}),
     // Recorded from the client rather than hardcoded, so the metadata stays

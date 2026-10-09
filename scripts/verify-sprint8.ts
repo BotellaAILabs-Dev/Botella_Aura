@@ -571,8 +571,8 @@ async function main() {
         .primary.href,
     );
     check(
-      'opening Content Studio from it: the brief is filled in, with the context panel',
-      cs.status === 200 && cs.text.includes('Context from Aura’s suggestion'),
+      'opening Content Studio from it: the brief is filled in, with the Content brief panel',
+      cs.status === 200 && cs.text.includes('Content brief') && cs.text.includes('Key message'),
     );
 
     // ------------------------------------------------------- AI quality (live)

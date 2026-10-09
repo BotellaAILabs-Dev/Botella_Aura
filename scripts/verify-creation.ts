@@ -335,7 +335,7 @@ async function main() {
     check(
       'Content Studio opens filled in from the suggestion, with its context, offering “Say yes and generate”',
       studio.status === 200 &&
-        studio.text.includes('Context from Aura’s suggestion') &&
+        studio.text.includes('Content brief') &&
         studio.text.includes('Say yes and generate') &&
         studio.text.includes(contentRec.title.slice(0, 30)),
     );

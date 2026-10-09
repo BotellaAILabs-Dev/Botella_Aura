@@ -82,6 +82,12 @@ export default async function DraftDetailPage({
      * (lib/recommendation-creation.ts). Older drafts have only id and title.
      */
     recommendation?: Partial<CreationProvenance> & { id?: string; title?: string };
+    /** The Content Brief it was written from (lib/content-brief.ts). */
+    brief?: {
+      keyMessage?: { value?: string } | null;
+      contentType?: { label?: string } | null;
+      channel?: { name?: string | null } | null;
+    };
   };
   const sourceKind = meta.source?.kind;
   const copyOnly = isCopyOnlyType(type);
@@ -211,7 +217,15 @@ export default async function DraftDetailPage({
             </CardContent>
           </Card>
           {meta.recommendation?.id && (
-            <CreatedFromSuggestion recommendation={meta.recommendation} />
+            <CreatedFromSuggestion
+              recommendation={meta.recommendation}
+              keyMessage={meta.brief?.keyMessage?.value ?? null}
+              made={
+                meta.brief?.contentType?.label
+                  ? `${meta.brief.contentType.label}${meta.brief.channel?.name ? ` for ${meta.brief.channel.name}` : ''}`
+                  : null
+              }
+            />
           )}
           <Card>
             <CardContent className="space-y-3 p-4 text-sm">

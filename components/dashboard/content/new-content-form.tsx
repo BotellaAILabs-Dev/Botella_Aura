@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Sparkles } from 'lucide-react';
@@ -18,10 +18,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toaster';
 import type { ContentTypeKey } from '@/lib/validations/content';
 import {
-  handoffBrief,
-  type ContextHandoff,
-} from '@/lib/recommendation-context-handoff';
-import { HandoffPanel } from '@/components/dashboard/content/handoff-panel';
+  briefText,
+  buildContentBrief,
+  validateContentBrief,
+  type BuildBriefInput,
+} from '@/lib/content-brief';
+import { NOT_ACCEPTED_BLOCKER } from '@/lib/recommendation-context-handoff';
+import { ContentBriefPanel } from '@/components/dashboard/content/content-brief-panel';
 import { CreationNotice } from '@/components/dashboard/content/creation-notice';
 import type { CreationPlan } from '@/lib/recommendation-creation';
 import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
@@ -49,13 +52,18 @@ import {
  */
 export function NewContentForm({
   types,
-  handoff = null,
+  briefInput = null,
   creation = null,
   recUnavailable = false,
 }: {
   types: ContentTypeKey[];
-  /** The recommendation's Context Handoff, when opened with `?rec=`. */
-  handoff?: ContextHandoff | null;
+  /**
+   * What the recommendation's Content Brief is built from, when opened with
+   * `?rec=` (lib/content-brief.ts). The brief itself is rebuilt here as the
+   * person picks a format and network, so it always describes what will be
+   * made.
+   */
+  briefInput?: Omit<BuildBriefInput, 'choice'> | null;
   /**
    * What writing from that recommendation means (lib/recommendation-creation.ts):
    * ready, say-yes-first, missing something required, or nothing to write.
@@ -67,12 +75,17 @@ export function NewContentForm({
   const router = useRouter();
   const params = useSearchParams();
   const trendId = params.get('trendId') ?? undefined;
-  // From a recommendation, the brief and format come from its handoff: the
-  // full context, with what is missing stated instead of invented.
-  const initialBrief = handoff
-    ? handoffBrief(handoff)
+  const handoff = briefInput?.handoff ?? null;
+  // From a recommendation, the text, format and network come from its
+  // Content Brief — the source of truth for what is to be made.
+  const initialContentBrief = useMemo(
+    () => (briefInput ? buildContentBrief({ ...briefInput, choice: null }) : null),
+    [briefInput],
+  );
+  const initialBrief = initialContentBrief
+    ? briefText(initialContentBrief)
     : (params.get('brief') ?? '');
-  const initialType = (handoff?.channel?.contentType ??
+  const initialType = (initialContentBrief?.contentType?.key ??
     params.get('type')) as ContentTypeKey | null;
   const campaignId = params.get('campaignId') ?? undefined;
   // From an Aura recommendation (lib/aura-modules.ts): the draft remembers it.
@@ -87,8 +100,33 @@ export function NewContentForm({
     initialType && types.includes(initialType) ? initialType : types[0]!,
   );
   const [brief, setBrief] = useState(initialBrief);
-  const [choices, setChoices] = useState<GenerationChoices>(DEFAULT_CHOICES);
+  const [choices, setChoices] = useState<GenerationChoices>({
+    ...DEFAULT_CHOICES,
+    // The network the recommendation named, so it is not lost to the default.
+    platform:
+      initialContentBrief?.channel?.source === 'recommendation'
+        ? (initialContentBrief.channel.platform ?? null)
+        : null,
+  });
   const [loading, setLoading] = useState(false);
+
+  // The brief for exactly what is about to be made, and the same check the
+  // server runs before generating from it.
+  const contentBrief = useMemo(
+    () =>
+      briefInput
+        ? buildContentBrief({
+            ...briefInput,
+            choice: { type, ...(choices.platform ? { platform: choices.platform } : {}) },
+          })
+        : null,
+    [briefInput, type, choices.platform],
+  );
+  const briefErrors = contentBrief
+    ? validateContentBrief(contentBrief).errors.filter(
+        (e) => !(creation?.acceptsOnCreate && e === NOT_ACCEPTED_BLOCKER),
+      )
+    : [];
 
   async function generate() {
     setLoading(true);
@@ -200,9 +238,9 @@ export function NewContentForm({
           .
         </p>
       )}
-      {handoff && (
-        <HandoffPanel
-          handoff={handoff}
+      {contentBrief && (
+        <ContentBriefPanel
+          brief={contentBrief}
           acceptsOnCreate={creation?.acceptsOnCreate ?? false}
         />
       )}
@@ -255,10 +293,15 @@ export function NewContentForm({
               )}
             </p>
           )}
+          {!needsInfo && briefErrors.length > 0 && (
+            <p className="text-xs text-foreground" role="status">
+              The brief isn’t complete yet: {briefErrors[0]}
+            </p>
+          )}
           <Button
             onClick={generate}
             loading={loading}
-            disabled={needsInfo}
+            disabled={needsInfo || briefErrors.length > 0}
             className="w-full"
           >
             <Sparkles className="h-4 w-4" />{' '}

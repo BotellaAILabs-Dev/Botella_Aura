@@ -15,8 +15,13 @@ import type { CreationProvenance } from '@/lib/recommendation-creation';
  */
 export function CreatedFromSuggestion({
   recommendation: p,
+  keyMessage = null,
+  made = null,
 }: {
   recommendation: Partial<CreationProvenance> & { id?: string; title?: string };
+  /** From the Content Brief it was written from, when it kept one. */
+  keyMessage?: string | null;
+  made?: string | null;
 }) {
   return (
     <Card className="border-primary/30">
@@ -32,6 +37,18 @@ export function CreatedFromSuggestion({
           {p.title ?? 'Aura’s suggestion'}
         </Link>
         {p.why && <p className="text-xs text-muted-foreground">{p.why}</p>}
+        {keyMessage && (
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground/80">Key message:</span>{' '}
+            {keyMessage}
+          </p>
+        )}
+        {made && (
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground/80">Brief asked for:</span>{' '}
+            {made}
+          </p>
+        )}
         {p.goal && (
           <p className="text-xs text-muted-foreground">
             <span className="font-medium text-foreground/80">Serves:</span>{' '}

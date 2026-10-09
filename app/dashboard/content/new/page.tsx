@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
 import { getEnabledContentTypes } from '@/server/company/profile.service';
 import { getCreation } from '@/server/recommendations/creation.service';
+import { getBriefInput } from '@/server/content/content-brief.service';
 import { NewContentForm } from '@/components/dashboard/content/new-content-form';
 
 export const metadata: Metadata = { title: 'Generate content' };
@@ -35,18 +36,20 @@ export default async function NewFromSourcePage({
   // Context Handoff (lib/recommendation-context-handoff.ts), with what is
   // missing stated rather than filled in; whether it can be written from at
   // all comes from lib/recommendation-creation.ts.
-  const [types, creation] = await Promise.all([
+  const [types, creation, briefInput] = await Promise.all([
     getEnabledContentTypes(active.id),
     searchParams.rec
       ? getCreation(active.id, searchParams.rec, 'content-studio')
       : null,
+    // What its Content Brief is built from (lib/content-brief.ts).
+    searchParams.rec ? getBriefInput(active.id, searchParams.rec) : null,
   ]);
 
   return (
     <Suspense>
       <NewContentForm
         types={types}
-        handoff={creation?.handoff ?? null}
+        briefInput={creation ? briefInput : null}
         creation={creation?.plan ?? null}
         recUnavailable={Boolean(searchParams.rec) && !creation}
       />

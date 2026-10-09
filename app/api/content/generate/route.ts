@@ -10,6 +10,8 @@ import {
   getCreation,
   recordCreation,
 } from '@/server/recommendations/creation.service';
+import { validateContentBrief } from '@/lib/content-brief';
+import { getContentBrief } from '@/server/content/content-brief.service';
 
 /**
  * POST /api/content/generate — generate a new draft from a trend/brief/campaign.
@@ -59,6 +61,28 @@ export async function POST(req: Request) {
         409,
       );
     }
+    // The Content Brief (lib/content-brief.ts) for exactly what is being
+    // made — the person's format and network — checked before anything is
+    // written. It is what the writer is held to and what the draft keeps.
+    const brief = creation
+      ? await getContentBrief(company.id, creation.plan.recommendationId, {
+          type: input.type,
+          ...(input.platform ? { platform: input.platform } : {}),
+        })
+      : null;
+    if (brief) {
+      const check = validateContentBrief(brief);
+      if (!check.ok) {
+        return jsonOk(
+          {
+            error: `The brief isn’t complete: ${check.errors[0]}`,
+            errors: check.errors,
+            fix: brief.missing.find((m) => m.requirement === 'required')?.fix ?? null,
+          },
+          409,
+        );
+      }
+    }
     // Everything it carries, from the server's record rather than the
     // editable brief: opportunity, reason, evidence, goal, audience, business.
     const recommendation = creation?.provenance
@@ -66,6 +90,7 @@ export async function POST(req: Request) {
           id: creation.provenance.recommendationId,
           title: creation.provenance.title,
           provenance: creation.provenance,
+          brief,
         }
       : null;
     const draft = await generateDraft({

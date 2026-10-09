@@ -52,6 +52,7 @@
     "verify:sprint8": "tsx scripts/verify-sprint8.ts",
     "verify:planner": "tsx scripts/verify-planner.ts",
     "verify:creation": "tsx scripts/verify-creation.ts",
+    "verify:content-brief": "tsx scripts/verify-content-brief.ts",
     "verify:content-studio": "tsx scripts/verify-content-studio.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
