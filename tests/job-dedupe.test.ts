@@ -12,19 +12,34 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const state = {
   active: null as Record<string, unknown> | null,
   created: [] as Array<Record<string, unknown>>,
+  calls: [] as string[],
 };
 
-vi.mock('@/lib/db', () => ({
-  db: {
+vi.mock('@/lib/db', () => {
+  const tx = {
+    // The advisory lock taken before the check (see enqueueJob).
+    $queryRaw: vi.fn(async () => {
+      state.calls.push('lock');
+      return [];
+    }),
     generationJob: {
-      findFirst: vi.fn(async () => state.active),
+      findFirst: vi.fn(async () => {
+        state.calls.push('find');
+        return state.active;
+      }),
+      updateMany: vi.fn(async () => ({ count: 1 })),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         state.created.push(data);
         return { id: 'job_new', status: 'QUEUED', progress: {}, ...data };
       }),
     },
-  },
-}));
+  };
+  return {
+    db: {
+      $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+    },
+  };
+});
 
 import { enqueueJob } from '@/server/jobs/job.service';
 
@@ -48,6 +63,7 @@ function activeJobWith(inputs: Record<string, unknown>) {
 beforeEach(() => {
   state.active = null;
   state.created = [];
+  state.calls = [];
 });
 
 describe('enqueueJob reuse', () => {
@@ -60,6 +76,25 @@ describe('enqueueJob reuse', () => {
     });
     expect(reused).toBe(false);
     expect(inputsDiffer).toBe(false);
+    expect(job.id).toBe('job_new');
+  });
+
+  it('takes the lock before looking, so simultaneous requests cannot both create', async () => {
+    await enqueueJob({ companyId: 'c1', kind: 'MARKETING_PLAN', inputs: {} });
+    expect(state.calls).toEqual(['lock', 'find']);
+  });
+
+  it('replaces a run past its fuse instead of reattaching to it', async () => {
+    state.active = {
+      ...activeJobWith({}),
+      createdAt: new Date(Date.now() - 3 * 60 * 1000), // plan fuse is 2 minutes
+    };
+    const { job, reused } = await enqueueJob({
+      companyId: 'c1',
+      kind: 'MARKETING_PLAN',
+      inputs: {},
+    });
+    expect(reused).toBe(false);
     expect(job.id).toBe('job_new');
   });
 

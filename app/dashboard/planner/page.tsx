@@ -58,6 +58,7 @@ export default async function PlannerPage({
         weeks: payload.weeks ?? [],
         items: payload.items ?? [],
         groundedOn: payload.groundedOn ?? [],
+        ...(payload.outline ? { outline: payload.outline } : {}),
       }
     : null;
 

@@ -18,6 +18,23 @@ import { logger } from '@/lib/logger';
 
 /** A RUNNING job older than this was almost certainly killed mid-flight. */
 const STUCK_AFTER_MS = 10 * 60 * 1000;
+
+/**
+ * Kinds that finish well inside the runner's limit get a shorter fuse.
+ *
+ * The monthly plan drafts against a 45-second budget inside a 60-second
+ * function, so a plan run still "RUNNING" after two minutes is dead — its
+ * instance was killed. With the generic ten minutes, the user watched a frozen
+ * progress bar for that long, and pressing Generate again reattached them to
+ * the same dead run instead of starting a fresh one.
+ */
+const STUCK_AFTER_MS_BY_KIND: Partial<Record<GenerationJobKind, number>> = {
+  MARKETING_PLAN: 2 * 60 * 1000,
+};
+
+export function stuckAfterMs(kind: GenerationJobKind): number {
+  return STUCK_AFTER_MS_BY_KIND[kind] ?? STUCK_AFTER_MS;
+}
 /** How long a QUEUED job may wait before the cron picks it up itself. */
 const ORPHAN_AFTER_MS = 60 * 1000;
 const MAX_ATTEMPTS = 3;
@@ -79,39 +96,67 @@ export async function enqueueJob(args: {
 }> {
   const { companyId, userId, kind, inputs, dedupeOn } = args;
 
-  const active = await db.generationJob.findFirst({
-    where: {
-      companyId,
-      kind,
-      status: { in: ['QUEUED', 'RUNNING'] },
-      ...(dedupeOn
-        ? {
-            AND: Object.entries(dedupeOn).map(([key, value]) => ({
-              inputs: { path: [key], equals: value },
-            })),
-          }
-        : {}),
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-  if (active && Date.now() - active.createdAt.getTime() < STUCK_AFTER_MS) {
-    return {
-      job: active,
-      reused: true,
-      inputsDiffer: !sameInputs(active.inputs, inputs),
-    };
-  }
+  /**
+   * Check-then-create under a lock.
+   *
+   * Without it, two requests landing in the same instant (two tabs, a
+   * double-submit that beats the button's disabled state) both find nothing
+   * running and both create a run. A transaction-scoped advisory lock on
+   * company + kind (+ the dedupe scope) makes the second request wait for the
+   * first, then find its job and attach to it. The lock is released when the
+   * transaction ends, and only same-scope requests ever wait on it.
+   */
+  const scope = `job:${companyId}:${kind}:${dedupeOn ? stableStringify(dedupeOn) : ''}`;
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${scope}))::text AS locked`;
 
-  const job = await db.generationJob.create({
-    data: {
-      companyId,
-      userId: userId ?? null,
-      kind,
-      inputs: inputs ?? {},
-      progress: { step: 'queued', message: 'Queued…', percent: 0 },
-    },
+    const active = await tx.generationJob.findFirst({
+      where: {
+        companyId,
+        kind,
+        status: { in: ['QUEUED', 'RUNNING'] },
+        ...(dedupeOn
+          ? {
+              AND: Object.entries(dedupeOn).map(([key, value]) => ({
+                inputs: { path: [key], equals: value },
+              })),
+            }
+          : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (active && Date.now() - active.createdAt.getTime() < stuckAfterMs(kind)) {
+      return {
+        job: active,
+        reused: true,
+        inputsDiffer: !sameInputs(active.inputs, inputs),
+      };
+    }
+    if (active) {
+      // Past its fuse: the run is dead. Close it out so the sweep does not later
+      // revive it and overwrite the result of the run starting now.
+      await tx.generationJob.updateMany({
+        where: { id: active.id, status: { in: ['QUEUED', 'RUNNING'] } },
+        data: {
+          status: 'FAILED',
+          error: 'Replaced by a new run.',
+          finishedAt: new Date(),
+          progress: { step: 'failed', message: 'Replaced by a new run.', percent: 100 },
+        },
+      });
+    }
+
+    const job = await tx.generationJob.create({
+      data: {
+        companyId,
+        userId: userId ?? null,
+        kind,
+        inputs: inputs ?? {},
+        progress: { step: 'queued', message: 'Queued…', percent: 0 },
+      },
+    });
+    return { job, reused: false, inputsDiffer: false };
   });
-  return { job, reused: false, inputsDiffer: false };
 }
 
 /**
@@ -291,13 +336,20 @@ export async function reapStuckJobs(): Promise<{
 }> {
   const now = Date.now();
 
-  const stuck = await db.generationJob.findMany({
+  const shortest = Math.min(
+    STUCK_AFTER_MS,
+    ...Object.values(STUCK_AFTER_MS_BY_KIND),
+  );
+  const candidates = await db.generationJob.findMany({
     where: {
       status: 'RUNNING',
-      startedAt: { lt: new Date(now - STUCK_AFTER_MS) },
+      startedAt: { lt: new Date(now - shortest) },
     },
-    select: { id: true, attempts: true },
+    select: { id: true, attempts: true, kind: true, startedAt: true },
   });
+  const stuck = candidates.filter(
+    (j) => j.startedAt && now - j.startedAt.getTime() >= stuckAfterMs(j.kind),
+  );
   for (const job of stuck) {
     await db.generationJob.update({
       where: { id: job.id },

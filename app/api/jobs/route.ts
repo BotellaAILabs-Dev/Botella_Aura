@@ -43,6 +43,7 @@ export async function POST(req: Request) {
         kind: job.kind,
         status: job.status,
         progress: readProgress(job),
+        createdAt: job.createdAt,
         // Tells the client to attach to a run already in flight rather than
         // reporting a second one it did not start.
         reused,
@@ -72,6 +73,8 @@ export async function GET(req: Request) {
         progress: readProgress(job),
         result: job.result,
         error: job.error,
+        createdAt: job.createdAt,
+        startedAt: job.startedAt,
         finishedAt: job.finishedAt,
       },
     });

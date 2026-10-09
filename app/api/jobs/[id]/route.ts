@@ -22,6 +22,8 @@ export async function GET(
       result: job.result,
       error: job.error,
       attempts: job.attempts,
+      createdAt: job.createdAt,
+      startedAt: job.startedAt,
       finishedAt: job.finishedAt,
     });
   } catch (error) {

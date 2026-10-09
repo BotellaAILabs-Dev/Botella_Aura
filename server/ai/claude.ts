@@ -151,6 +151,13 @@ export interface CompleteOptions {
   /** Hard per-attempt ceiling in ms. Default 120s. */
   timeoutMs?: number;
   /**
+   * How many tries a transient failure gets. Default 3. Callers working to a
+   * deadline (the monthly planner) pass 1 and decide themselves whether there
+   * is time left for another go, rather than waiting out a backoff loop they
+   * cannot afford.
+   */
+  maxAttempts?: number;
+  /**
    * The answer must be JSON. Set by completeJson / completeStructured. Gemini
    * then returns bare JSON (no fences, no prose) — Anthropic follows the
    * prompt, and parseJson() tolerates either.
@@ -182,7 +189,7 @@ export class EmptyCompletionError extends Error {
 }
 
 /** Nothing about a bad key or a malformed request improves by trying again. */
-function isRetryable(err: unknown): boolean {
+export function isRetryable(err: unknown): boolean {
   if (err instanceof ClaudeNotConfiguredError) return false;
   const status = (err as { status?: number } | null)?.status;
   if (typeof status === 'number') {
@@ -228,6 +235,7 @@ export async function complete(options: CompleteOptions): Promise<string> {
     tier = 'premium',
     timeoutMs = DEFAULT_TIMEOUT_MS,
     json = false,
+    maxAttempts = MAX_ATTEMPTS,
   } = options;
 
   const run = async (): Promise<string> => {
@@ -239,12 +247,12 @@ export async function complete(options: CompleteOptions): Promise<string> {
   };
 
   let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return await run();
     } catch (err) {
       lastError = err;
-      if (!isRetryable(err) || attempt === MAX_ATTEMPTS) break;
+      if (!isRetryable(err) || attempt >= maxAttempts) break;
       logger.warn(`AI: attempt ${attempt} failed, retrying`, {
         error: err instanceof Error ? err.message : String(err),
       });
