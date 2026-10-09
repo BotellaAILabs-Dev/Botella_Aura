@@ -7,6 +7,7 @@ import {
   brandVoiceProfileSchema,
   type BrandVoiceProfile,
 } from '@/lib/validations/content';
+import { redactSensitive } from '@/lib/generation-context';
 
 /**
  * Brand Voice Profile — the single most important quality lever in Content
@@ -57,7 +58,12 @@ export async function generateBrandVoiceProfile({
           'and notes, then produce a structured brand voice profile that a ' +
           'writer could follow to sound exactly like this company. Respond with ' +
           'ONLY JSON matching the schema.',
-        prompt: buildPrompt(company, chunksToContext(chunks)),
+        // The business's own material, with personal and secret data removed
+        // before a model sees it (lib/generation-context.ts).
+        prompt: buildPrompt(
+          company,
+          redactSensitive(chunksToContext(chunks), { personal: true }).text,
+        ),
         maxTokens: 1500,
         effort: 'medium',
         tier: 'standard',

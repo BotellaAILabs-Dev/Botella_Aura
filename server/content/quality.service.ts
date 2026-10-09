@@ -49,8 +49,17 @@ const ALCOHOL_PROMPT = [
 
 export async function loadWritingContext(
   companyId: string,
-  options: { campaignId?: string | null } = {},
+  options: {
+    campaignId?: string | null;
+    /**
+     * Put the business context in the system prompt (the default). A first
+     * draft passes false: its context arrives as the assembled generation
+     * package (lib/generation-context.ts), current and trimmed to the piece.
+     */
+    includeBusinessContext?: boolean;
+  } = {},
 ): Promise<WritingContext> {
+  const withContext = options.includeBusinessContext ?? true;
   const company = await db.company.findUnique({ where: { id: companyId } });
   if (!company) throw new Error('Company not found');
   const [context, campaign] = await Promise.all([
@@ -89,19 +98,23 @@ export async function loadWritingContext(
 
   const system = [
     `You are the senior copywriter for ${company.name}. You know the business inside out and write copy its own team would be proud to publish.`,
-    businessContextToPrompt(context, {
-      ...WORKFLOW_PRESETS.content,
-      knowledge: false,
-      // Recent content, so a new piece does not repeat a recent one.
-      history: true,
-    }),
-    campaignBlock,
+    withContext
+      ? businessContextToPrompt(context, {
+          ...WORKFLOW_PRESETS.content,
+          knowledge: false,
+          // Recent content, so a new piece does not repeat a recent one.
+          history: true,
+        })
+      : '',
+    withContext ? campaignBlock : '',
     '',
     'HOW TO WRITE:',
     ...HUMAN_WRITING_RULES.map((r) => `- ${r}`),
     alcohol ? `\n${ALCOHOL_PROMPT}` : '',
     '',
-    'Ground every fact in the business context and company knowledge provided. Do not invent product names, prices, awards or claims.',
+    withContext
+      ? 'Ground every fact in the business context and company knowledge provided. Do not invent product names, prices, awards or claims.'
+      : 'Ground every fact in the context provided with the task. Do not invent product names, prices, awards or claims.',
     'Respond with ONLY valid JSON matching the requested shape. No markdown, no prose.',
   ]
     .filter((l) => l !== '')

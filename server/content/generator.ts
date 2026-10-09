@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { recordAudit } from '@/server/services/audit.service';
 import { completeStructured, getModel } from '@/server/ai/claude';
-import { retrieve, chunksToContext } from '@/server/knowledge/retrieve';
 import { politeFetchHtml } from '@/server/knowledge/robots';
 import { htmlToText } from '@/server/knowledge/extract';
 import { logger } from '@/lib/logger';
@@ -16,11 +15,14 @@ import {
 } from '@/lib/content-playbook';
 import { issuesAsFeedback, type QualityReport } from '@/lib/content-quality';
 import { platformsForType, type SocialPlatformKey } from '@/lib/platforms';
+import type { CreationProvenance } from '@/lib/recommendation-creation';
+import type { ContentBrief } from '@/lib/content-brief';
 import {
-  provenancePrompt,
-  type CreationProvenance,
-} from '@/lib/recommendation-creation';
-import { briefPrompt, type ContentBrief } from '@/lib/content-brief';
+  generationContextRecord,
+  generationContextToPrompt,
+  redactSensitive,
+} from '@/lib/generation-context';
+import { assembleDraftContext } from '@/server/content/generation-context.service';
 import {
   bodySchemaFor,
   type ContentTone,
@@ -215,7 +217,6 @@ export async function generateDraft({
   }
 
   const brief = await resolveBrief(company, source);
-  const chunks = await retrieve(companyId, brief.query, { limit: 8 });
   // If the brief mentions a URL ("write about our flagship product: <url>"),
   // fetch that page LIVE and ground the post in its real content. This is what
   // makes "look at my website" actually work — the model can't browse on its own.
@@ -227,18 +228,36 @@ export async function generateDraft({
   await generateBrandVoiceProfile({ company, userId });
   const campaignRef =
     campaignId ?? (source.kind === 'CAMPAIGN' ? source.ref : undefined);
-  const w = await loadWritingContext(companyId, { campaignId: campaignRef });
+  // The business context arrives in the generation package below, not here.
+  const w = await loadWritingContext(companyId, {
+    campaignId: campaignRef,
+    includeBusinessContext: false,
+  });
 
   const platform = writingPlatform(type, requested);
   const playbook = playbookFor(type, platform);
   // A blog is one long piece; variations of it are not a useful choice.
   const n = type === 'BLOG' ? 1 : Math.max(1, Math.min(3, variations));
-  const knowledge = chunksToContext(chunks);
+
+  // The context package (lib/generation-context.ts): the current business
+  // snapshot, the recommendation's Content Brief, matching material and
+  // earlier posts — relevant parts only, sensitive data removed, within a
+  // token budget, and traceable back to the recommendation.
+  const context = await assembleDraftContext({
+    companyId,
+    type,
+    platform,
+    brief: brief.text,
+    query: brief.query,
+    contentBrief: recommendation?.brief ?? null,
+    campaignId: campaignRef ?? null,
+    reference,
+  });
+  const contextText = generationContextToPrompt(context);
 
   const prompt = [
     `TASK: Write ${n > 1 ? `${n} different versions of ` : ''}a ${playbook.label} for ${company.name}.`,
     '',
-    `HOW THIS FORMAT WORKS:\n${playbook.rules.map((r) => `- ${r}`).join('\n')}`,
     tone
       ? `\nTONE FOR THIS PIECE (within the brand voice): ${TONE_GUIDANCE[tone]}`
       : '',
@@ -251,17 +270,7 @@ export async function generateDraft({
           .join('\n')}`
       : '',
     '',
-    `TOPIC / BRIEF:\n${brief.text}`,
-    recommendation?.brief
-      ? `\n${briefPrompt(recommendation.brief)}`
-      : recommendation?.provenance
-        ? `\n${provenancePrompt(recommendation.provenance)}`
-        : '',
-    reference
-      ? `\nREFERENCE PAGE (fetched live from a link in your brief — use these REAL facts, product names, and positioning; do not go generic):\n${reference}`
-      : '',
-    '',
-    `COMPANY KNOWLEDGE:\n${knowledge}`,
+    contextText,
     '',
     n > 1
       ? `Return JSON: { "variations": [ { "angle": string (a few words), "body": ${TYPE_SPECS[type].schemaText} } ] } with exactly ${n} items.`
@@ -307,7 +316,8 @@ export async function generateDraft({
           },
         ];
 
-  const sources = groundingSources(brief.text, reference, knowledge);
+  // What the copy may draw facts from: exactly what the writer was given.
+  const sources = groundingSources(contextText, '', '');
   // Each version checked (and repaired if needed) on its own, in parallel.
   const checked = await Promise.all(
     written.map(async (v, i) => ({
@@ -348,10 +358,13 @@ export async function generateDraft({
     model: getModel('premium'),
     promptVersion: PROMPT_VERSION,
     // Which state of the business this draft was written from.
-    contextRevision: w.context?.meta.revision ?? null,
-    knowledgeChunkIds: chunks.map((c) => c.id),
+    contextRevision: context.trace.snapshot.revision ?? w.context?.meta.revision ?? null,
+    knowledgeChunkIds: context.trace.knowledgeChunkIds,
+    // The package it was written from: trace, sections, what was left out
+    // and redacted — the record behind "why did it say that".
+    context: generationContextRecord(context) as unknown as Prisma.InputJsonObject,
     brandVoiceApplied: true,
-    referenceUsed: reference.length > 0,
+    referenceUsed: context.trace.referenceUrls.length > 0,
     writtenFor: platform,
     tone: tone ?? null,
     campaignId: w.campaign?.id ?? null,
@@ -463,7 +476,10 @@ export async function refineDraft({
   const meta = (draft.aiMetadata ?? {}) as Record<string, unknown>;
   const platform = writingPlatform(type, draft.platform);
   const playbook = playbookFor(type, platform);
-  const knowledge = await chunkText(draft.companyId, meta.knowledgeChunkIds);
+  const knowledge = redactSensitive(
+    await chunkText(draft.companyId, meta.knowledgeChunkIds),
+    { personal: true },
+  ).text;
   const brief = ((meta.source ?? {}) as { brief?: string | null }).brief ?? '';
   const currentIssues = (((meta.quality ?? {}) as QualityReport).issues ?? [])
     .map((i) => `- ${i.message}`)
@@ -636,20 +652,22 @@ const URL_RE = /https?:\/\/[^\s)\]}"'<>]+/gi;
  * return extracted page text as extra grounding. Best-effort — returns '' on
  * failure so generation still proceeds. Bounded to 2 pages / ~4k chars each.
  */
-async function fetchReferenceContext(text: string): Promise<string> {
+async function fetchReferenceContext(
+  text: string,
+): Promise<{ url: string; text: string }[]> {
   const urls = Array.from(
     new Set((text.match(URL_RE) ?? []).map((u) => u.replace(/[.,;)]+$/, ''))),
   ).slice(0, 2);
-  if (urls.length === 0) return '';
+  if (urls.length === 0) return [];
 
-  const parts: string[] = [];
+  const parts: { url: string; text: string }[] = [];
   for (const url of urls) {
     try {
       const html = await politeFetchHtml(url);
       if (!html) continue;
       const { title, text: body } = htmlToText(html);
       const snippet = `${title}\n${body}`.trim().slice(0, 4000);
-      if (snippet.length > 40) parts.push(`Source: ${url}\n${snippet}`);
+      if (snippet.length > 40) parts.push({ url, text: snippet });
     } catch (err) {
       logger.info('generator: reference fetch failed (non-fatal)', {
         url,
@@ -657,7 +675,7 @@ async function fetchReferenceContext(text: string): Promise<string> {
       });
     }
   }
-  return parts.join('\n\n');
+  return parts;
 }
 
 // ---- Brief resolution ------------------------------------------------------
