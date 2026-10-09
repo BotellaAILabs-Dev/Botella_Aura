@@ -7,10 +7,9 @@ import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
 import { ClaudeNotConfiguredError } from '@/server/ai/claude';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 import {
-  linkRecommendation,
-  ownRecommendation,
-} from '@/server/recommendations/context.service';
-import { getContextHandoff } from '@/server/recommendations/context-handoff.service';
+  getCreation,
+  recordCreation,
+} from '@/server/recommendations/creation.service';
 
 /**
  * POST /api/content/generate — generate a new draft from a trend/brief/campaign.
@@ -36,21 +35,37 @@ export async function POST(req: Request) {
     }
 
     // Only this workspace's recommendation is remembered; anything else is
-    // ignored rather than trusted.
-    const owned = await ownRecommendation(company.id, input.recommendationId);
-    // What the recommendation handed over, and what it could not: kept on the
-    // draft so the gaps stay visible after it is written.
-    const handoff = owned ? await getContextHandoff(company.id, owned.id) : null;
-    const recommendation = owned
+    // ignored rather than trusted (lib/recommendation-creation.ts).
+    const creation = input.recommendationId
+      ? await getCreation(company.id, input.recommendationId, 'content-studio')
+      : null;
+    if (creation && !creation.plan.canCreate) {
+      // Nothing to write (connect a channel), already closed, or missing
+      // something required — said plainly, with where to go instead.
+      return jsonOk(
+        {
+          error:
+            creation.plan.message ?? 'There is nothing to write from this suggestion.',
+          fix: creation.plan.fix,
+        },
+        409,
+      );
+    }
+    if (creation?.plan.acceptsOnCreate) {
+      // The page says yes first (POST /api/recommendations/:id/creation); a
+      // draft is never written for a suggestion nobody has agreed to.
+      return jsonError(
+        'Say yes to this suggestion first — then Aura writes it.',
+        409,
+      );
+    }
+    // Everything it carries, from the server's record rather than the
+    // editable brief: opportunity, reason, evidence, goal, audience, business.
+    const recommendation = creation?.provenance
       ? {
-          ...owned,
-          handoff: handoff
-            ? {
-                version: handoff.version,
-                readiness: handoff.readiness,
-                missing: handoff.missing.map((m) => m.field),
-              }
-            : null,
+          id: creation.provenance.recommendationId,
+          title: creation.provenance.title,
+          provenance: creation.provenance,
         }
       : null;
     const draft = await generateDraft({
@@ -65,7 +80,7 @@ export async function POST(req: Request) {
       recommendation,
     });
     if (recommendation) {
-      await linkRecommendation({
+      await recordCreation({
         companyId: company.id,
         recommendationId: recommendation.id,
         module: 'content-studio',

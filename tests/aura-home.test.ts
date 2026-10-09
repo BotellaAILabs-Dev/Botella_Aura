@@ -58,6 +58,7 @@ function suggestion(o: Partial<SuggestionView> = {}): SuggestionView {
       module: 'content-studio',
       moduleLabel: 'Content Studio',
       related: [],
+      outcome: 'Creates a content draft in Content Studio, written from this suggestion.',
     },
     editable: {
       title: 'Promote your fall bourbon selection',

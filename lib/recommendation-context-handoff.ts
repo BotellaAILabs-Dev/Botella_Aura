@@ -307,6 +307,10 @@ export interface HandoffInput {
 
 const ACCEPTED = ['ACCEPTED', 'EDITED', 'IN_PROGRESS'];
 
+/** Why an open recommendation is not handed over yet: nobody said yes. */
+export const NOT_ACCEPTED_BLOCKER =
+  'It has not been accepted yet. Accept or edit it first.';
+
 const CHANNEL_PLATFORM: Record<string, SocialPlatformKey> = {
   LinkedIn: 'LINKEDIN',
   Instagram: 'INSTAGRAM',
@@ -502,7 +506,7 @@ export function buildContextHandoff(input: HandoffInput): ContextHandoff {
   if (!accepted) {
     blockedBy.push(
       r.status === 'GENERATED' || r.status === 'PRESENTED'
-        ? 'It has not been accepted yet. Accept or edit it first.'
+        ? NOT_ACCEPTED_BLOCKER
         : `It is ${r.status.toLowerCase().replace('_', ' ')} — there is nothing to hand over.`,
     );
   }

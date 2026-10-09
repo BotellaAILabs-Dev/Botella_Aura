@@ -411,6 +411,11 @@ function SuggestionCard({
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                {!s.next.blocked && (
+                  <p className="w-full text-xs text-muted-foreground">
+                    {s.next.outcome}
+                  </p>
+                )}
               </div>
             )}
             {s.next.related.length > 0 && !s.next.blocked && (

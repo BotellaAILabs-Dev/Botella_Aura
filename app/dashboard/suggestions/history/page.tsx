@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { ArrowLeft, Brain, History, Telescope } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Brain, History, Telescope } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
@@ -204,6 +204,19 @@ function HistoryCard({ e }: { e: HistoryEntry }) {
               </span>
             ))}
           </p>
+        )}
+
+        {e.create && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild size="sm">
+              <Link href={e.create.href}>
+                {e.create.label} <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {`Creates ${e.create.creates}, filled in from this suggestion.`}
+            </span>
+          </div>
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2 text-xs">

@@ -1,4 +1,5 @@
 import { AURA_MODULES, type AuraModuleId } from '@/lib/aura-modules';
+import { creationPlan } from '@/lib/recommendation-creation';
 import { DUPLICATE_RULES } from '@/lib/recommendation-rules';
 import {
   recommendationOutcome,
@@ -98,6 +99,13 @@ export interface HistorySource {
   status: RecommendationStatus;
   channel: string | null;
   details: unknown;
+  /** The rest of the recommendation, when loaded — for the Create action. */
+  steps?: string[];
+  rationale?: string;
+  expectedOutcome?: string;
+  contentType?: string | null;
+  audience?: string | null;
+  blockers?: string[];
   createdAt: Date;
   decidedAt: Date | null;
   decisionNote: string | null;
@@ -142,6 +150,11 @@ export interface HistoryEntry {
   changedFields: string[];
   /** What Aura's modules made from it (a draft, a campaign). */
   made: { module: string; label: string; href: string | null }[];
+  /**
+   * Create from it (lib/recommendation-creation.ts) — on a suggestion said yes
+   * to that makes something, so it can be picked up from the history too.
+   */
+  create: { label: string; href: string; creates: string } | null;
   /** The opportunity it came from, linkable. */
   opportunity: {
     id: string;
@@ -198,12 +211,43 @@ function made(
       ? `/dashboard/content/${c.id}`
       : c.type === 'campaign' && c.id
         ? `/dashboard/campaigns/${c.id}`
-        : null;
+        : c.type === 'content-plan' && c.id
+          ? `/dashboard/planner?month=${c.id}`
+          : null;
   return {
     module: AURA_MODULES[meta.module as AuraModuleId].label,
     label: c.label ?? c.type ?? 'Created',
     href,
   };
+}
+
+/** The Create action for a said-yes suggestion that makes something; null otherwise. */
+function createAction(r: HistorySource): HistoryEntry['create'] {
+  if (
+    r.steps === undefined ||
+    r.rationale === undefined ||
+    r.expectedOutcome === undefined
+  ) {
+    return null;
+  }
+  const plan = creationPlan({
+    id: r.id,
+    type: r.type as Parameters<typeof creationPlan>[0]['type'],
+    title: r.title,
+    action: r.action,
+    steps: r.steps,
+    rationale: r.rationale,
+    expectedOutcome: r.expectedOutcome,
+    channel: r.channel,
+    contentType: r.contentType ?? null,
+    audience: r.audience ?? null,
+    details: r.details,
+    status: r.status,
+    blockers: r.blockers ?? [],
+  });
+  return plan.state === 'ready' && plan.creates
+    ? { label: plan.label, href: plan.href, creates: plan.creates }
+    : null;
 }
 
 export function toHistoryEntry(
@@ -255,6 +299,7 @@ export function toHistoryEntry(
       .filter((e) => e.action === 'link')
       .map((e) => made(e.metadata))
       .filter((x): x is NonNullable<typeof x> => Boolean(x)),
+    create: createAction(r),
     opportunity: {
       ...r.opportunity,
       href: `/dashboard/opportunities?focus=${r.opportunity.id}`,

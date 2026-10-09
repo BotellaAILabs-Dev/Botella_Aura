@@ -21,6 +21,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useGenerationJob } from '@/components/dashboard/jobs/use-generation-job';
 import { JobProgressBar } from '@/components/dashboard/jobs/job-progress';
 import { CONTENT_CHANNELS } from '@/lib/validations/planner';
+import type { CreationPlan } from '@/lib/recommendation-creation';
 import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
 import type { ContentTypeKey } from '@/lib/validations/content';
 import { DATE_LOCALE } from '@/lib/dates';
@@ -84,6 +85,7 @@ export function PlannerView({
   savedInputs,
   defaults,
   canGenerate,
+  fromSuggestion = null,
 }: {
   plan: PlanView | null;
   savedInputs: PlannerInputsView | null;
@@ -99,14 +101,30 @@ export function PlannerView({
    */
   defaults: Partial<PlannerInputsView> | null;
   canGenerate: boolean;
+  /**
+   * Opened from an Aura recommendation (`?rec=`): the brief is prefilled from
+   * what it already knows, and the plan is linked back to it.
+   */
+  fromSuggestion?: {
+    id: string;
+    title: string;
+    plan: CreationPlan;
+    prefill: Partial<PlannerInputsView> | null;
+  } | null;
 }) {
   const router = useRouter();
-  const [form, setForm] = useState<PlannerInputsView>(
-    savedInputs ?? { ...EMPTY, ...(defaults ?? {}) },
-  );
+  const prefill = fromSuggestion?.prefill ?? null;
+  const hasPrefill = prefill !== null;
+  const [form, setForm] = useState<PlannerInputsView>({
+    ...(savedInputs ?? { ...EMPTY, ...(defaults ?? {}) }),
+    ...(prefill ?? {}),
+  });
   const [topicsText, setTopicsText] = useState(
-    (savedInputs?.topics ?? []).join(', '),
+    (prefill?.topics ?? savedInputs?.topics ?? []).join(', '),
   );
+  // Only a suggestion that can be planned from travels with the plan.
+  const recommendationId =
+    fromSuggestion?.plan.canCreate ? fromSuggestion.id : undefined;
   const draftKey = 'aura.planner.brief';
 
   function toggleChannel(ch: string) {
@@ -124,7 +142,8 @@ export function PlannerView({
    * them too, so a reload mid-run doesn't wipe the form either.
    */
   useEffect(() => {
-    if (savedInputs) return;
+    // A saved plan, or a suggestion's prefill, wins over a local draft.
+    if (savedInputs || hasPrefill) return;
     try {
       const raw = window.localStorage.getItem(draftKey);
       if (!raw) return;
@@ -134,7 +153,7 @@ export function PlannerView({
     } catch {
       // A corrupt draft is not worth surfacing — just start clean.
     }
-  }, [savedInputs]);
+  }, [savedInputs, hasPrefill]);
 
   const { job, start, attach, running } = useGenerationJob('MARKETING_PLAN', {
     // Matches the server's fuse for a plan run (stuckAfterMs): past this the
@@ -167,6 +186,7 @@ export function PlannerView({
         .filter(Boolean),
       brandGuidelines: form.brandGuidelines || undefined,
       audience: form.audience || undefined,
+      ...(recommendationId ? { recommendationId } : {}),
     };
   }
 
@@ -182,6 +202,19 @@ export function PlannerView({
     if (form.channels.length === 0) {
       toast.error('Pick at least one channel.');
       return;
+    }
+    // Planning from a suggestion that is still open says yes to it first.
+    if (recommendationId && fromSuggestion?.plan.acceptsOnCreate) {
+      const yes = await fetch(`/api/recommendations/${recommendationId}/creation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ module: 'content-plan' }),
+      });
+      if (!yes.ok) {
+        const b = (await yes.json().catch(() => ({}))) as { error?: string };
+        toast.error(b.error ?? 'Could not say yes to this suggestion.');
+        return;
+      }
     }
     const inputs = buildInputs();
     try {
@@ -211,6 +244,40 @@ export function PlannerView({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {fromSuggestion && (
+            <div
+              className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground"
+              role="status"
+            >
+              <span className="flex items-center gap-1.5 font-medium text-foreground">
+                <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden />
+                From Aura’s suggestion: “{fromSuggestion.title}”
+              </span>
+              {fromSuggestion.plan.canCreate ? (
+                <span>
+                  The goal, objective, topic
+                  {prefill?.audience ? ', audience' : ''}
+                  {prefill?.channels ? ' and channel' : ''} are filled in from
+                  it — change anything before generating.
+                  {fromSuggestion.plan.acceptsOnCreate
+                    ? ' Generating the plan also says yes to the suggestion.'
+                    : ''}
+                </span>
+              ) : (
+                <span>
+                  {fromSuggestion.plan.message}{' '}
+                  {fromSuggestion.plan.fix && (
+                    <Link
+                      href={fromSuggestion.plan.fix.href}
+                      className="text-primary hover:underline"
+                    >
+                      {fromSuggestion.plan.fix.label}
+                    </Link>
+                  )}
+                </span>
+              )}
+            </div>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="month">Month</Label>

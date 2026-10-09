@@ -45,6 +45,8 @@ export const planInputsSchema = z.object({
   postsPerWeek: z.number().int().min(1).max(14),
   /** Optional campaign to file the generated drafts under. */
   campaignId: z.string().optional().or(z.literal('')),
+  /** Planned for an Aura recommendation: the plan is linked back to it. */
+  recommendationId: z.string().max(64).optional(),
 });
 
 export type PlanInputs = z.infer<typeof planInputsSchema>;

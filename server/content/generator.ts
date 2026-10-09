@@ -17,6 +17,10 @@ import {
 import { issuesAsFeedback, type QualityReport } from '@/lib/content-quality';
 import { platformsForType, type SocialPlatformKey } from '@/lib/platforms';
 import {
+  provenancePrompt,
+  type CreationProvenance,
+} from '@/lib/recommendation-creation';
+import {
   bodySchemaFor,
   type ContentTone,
   type ContentTypeKey,
@@ -172,8 +176,13 @@ interface GenerateArgs {
   recommendation?: {
     id: string;
     title: string;
-    /** The Context Handoff it was written from: version, readiness, what was missing. */
-    handoff?: { version: number; readiness: string; missing: string[] } | null;
+    /**
+     * What the recommendation carries (lib/recommendation-creation.ts):
+     * opportunity, reason, evidence, goal, audience, business, and the
+     * Context Handoff's version, readiness and gaps. Kept on the draft, and
+     * given to the writer.
+     */
+    provenance?: CreationProvenance | null;
   } | null;
 }
 
@@ -237,6 +246,9 @@ export async function generateDraft({
       : '',
     '',
     `TOPIC / BRIEF:\n${brief.text}`,
+    recommendation?.provenance
+      ? `\n${provenancePrompt(recommendation.provenance)}`
+      : '',
     reference
       ? `\nREFERENCE PAGE (fetched live from a link in your brief — use these REAL facts, product names, and positioning; do not go generic):\n${reference}`
       : '',
@@ -310,9 +322,11 @@ export async function generateDraft({
     ...(recommendation
       ? {
           recommendation: {
+            ...(recommendation.provenance
+              ? (recommendation.provenance as unknown as Prisma.InputJsonObject)
+              : {}),
             id: recommendation.id,
             title: recommendation.title,
-            ...(recommendation.handoff ? { handoff: recommendation.handoff } : {}),
           },
         }
       : {}),

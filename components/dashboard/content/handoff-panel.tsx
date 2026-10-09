@@ -3,7 +3,10 @@ import { AlertTriangle, CheckCircle2, Sparkles } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import type { ContextHandoff } from '@/lib/recommendation-context-handoff';
+import {
+  NOT_ACCEPTED_BLOCKER,
+  type ContextHandoff,
+} from '@/lib/recommendation-context-handoff';
 
 /**
  * What an Aura recommendation hands Content Studio
@@ -31,8 +34,30 @@ const FIELD_LABEL: Record<string, string> = {
   memory: 'What has worked before',
 };
 
-export function HandoffPanel({ handoff: h }: { handoff: ContextHandoff }) {
-  const r = READINESS[h.readiness];
+export function HandoffPanel({
+  handoff: h,
+  acceptsOnCreate = false,
+}: {
+  handoff: ContextHandoff;
+  /**
+   * Generating here says yes to it (lib/recommendation-creation.ts), so
+   * "accept it first" is what the button does — not something in the way.
+   */
+  acceptsOnCreate?: boolean;
+}) {
+  const blockedBy = acceptsOnCreate
+    ? h.blockedBy.filter((b) => b !== NOT_ACCEPTED_BLOCKER)
+    : h.blockedBy;
+  const r =
+    READINESS[
+      blockedBy.length
+        ? 'blocked'
+        : h.readiness === 'blocked'
+          ? h.missing.length
+            ? 'ready_with_gaps'
+            : 'ready'
+          : h.readiness
+    ];
   const passed = [
     h.goal && `Goal (${h.goal.source.replace('_', ' ')})`,
     h.audience && `Audience (${h.audience.source.replace('_', ' ')})`,
@@ -56,9 +81,9 @@ export function HandoffPanel({ handoff: h }: { handoff: ContextHandoff }) {
           <Badge variant={r.variant}>{r.label}</Badge>
         </div>
 
-        {h.blockedBy.length > 0 && (
+        {blockedBy.length > 0 && (
           <ul className="space-y-1 text-xs text-foreground">
-            {h.blockedBy.map((b) => (
+            {blockedBy.map((b) => (
               <li key={b} className="flex gap-1.5">
                 <AlertTriangle
                   className="mt-0.5 h-3.5 w-3.5 shrink-0"

@@ -8,6 +8,10 @@ import { generateIntelligenceSnapshot } from '@/server/intelligence/intelligence
 import { getDraft } from '@/server/content/content.service';
 import { generateGraphics } from '@/server/media/generation.service';
 import { reportProgress, type JobProgress } from '@/server/jobs/job.service';
+import {
+  getCreation,
+  recordCreation,
+} from '@/server/recommendations/creation.service';
 
 /**
  * The actual work behind each job kind.
@@ -55,6 +59,28 @@ const RUNNERS: Record<GenerationJobKind, Runner> = {
       inputs,
       onProgress: report,
     });
+    // Planned for an Aura recommendation: its history leads to this plan, and
+    // it moves to in progress (only when it can be planned from at all).
+    if (inputs.recommendationId) {
+      const creation = await getCreation(
+        job.companyId,
+        inputs.recommendationId,
+        'content-plan',
+      );
+      if (creation?.plan.canCreate && !creation.plan.acceptsOnCreate) {
+        await recordCreation({
+          companyId: job.companyId,
+          recommendationId: inputs.recommendationId,
+          module: 'content-plan',
+          created: {
+            type: 'content-plan',
+            id: plan.month,
+            label: `Content plan for ${plan.month}`,
+          },
+          actorId: job.userId,
+        });
+      }
+    }
     return {
       month: plan.month,
       items: plan.items.length,

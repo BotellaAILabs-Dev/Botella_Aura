@@ -1,7 +1,11 @@
 import type { OpportunityConfidence, SignalKind } from '@/lib/opportunities';
 import type { Band, RankingFactor } from '@/lib/recommendation-ranking';
 import { LOW_CONFIDENCE_BLOCKER } from '@/lib/recommendation-rules';
-import { AURA_MODULES, type AuraModuleId } from '@/lib/aura-modules';
+import {
+  AURA_MODULES,
+  CREATION_KIND,
+  type AuraModuleId,
+} from '@/lib/aura-modules';
 import {
   ACCEPTED_RECOMMENDATION_STATUSES,
   OPEN_RECOMMENDATION_STATUSES,
@@ -169,6 +173,12 @@ export interface SuggestionView {
     moduleLabel: string;
     /** Other modules that help, each carrying the recommendation. */
     related: { label: string; href: string }[];
+    /**
+     * What taking the action makes, in a line: "Creates a content draft in
+     * Content Studio", or "Nothing to write — it's done in Connections."
+     * (lib/recommendation-creation.ts has the full rules.)
+     */
+    outcome: string;
   };
   /**
    * The quality check it passed right before being shown
@@ -270,6 +280,16 @@ function ago(at: Date | null, now: Date): string | null {
   return `${Math.floor(d / 30)} months ago`;
 }
 
+const CREATION_OUTCOME: Record<
+  'content' | 'workflow' | 'action',
+  (label: string, module: AuraModuleId) => string
+> = {
+  content: (label) => `Creates a content draft in ${label}, written from this suggestion.`,
+  workflow: (label, m) =>
+    `Creates ${m === 'campaigns' ? 'a campaign plan' : 'a month’s content plan'} in ${label}, filled in from this suggestion.`,
+  action: (label) => `Nothing to write — this one is done in ${label}.`,
+};
+
 export function toSuggestion(
   r: SuggestionSource,
   ranking: SuggestionRanking,
@@ -349,6 +369,10 @@ export function toSuggestion(
         label: d.label,
         href: d.href,
       })),
+      outcome: CREATION_OUTCOME[CREATION_KIND[brief.module]](
+        AURA_MODULES[brief.module].label,
+        brief.module,
+      ),
     },
     editable: {
       title: r.title,

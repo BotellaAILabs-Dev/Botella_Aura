@@ -5,9 +5,10 @@ import { createCampaign } from '@/server/campaigns/campaign.service';
 import { requireEntitlement } from '@/server/billing/entitlements';
 import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 import {
-  linkRecommendation,
-  ownRecommendation,
-} from '@/server/recommendations/context.service';
+  getCreation,
+  recordCreation,
+  startCreation,
+} from '@/server/recommendations/creation.service';
 
 export const maxDuration = 60;
 
@@ -25,10 +26,39 @@ export async function POST(req: Request) {
     await requireEntitlement(company.id, 'campaigns');
 
     const input = createCampaignSchema.parse(await req.json());
-    const recommendation = await ownRecommendation(
-      company.id,
-      input.recommendationId,
-    );
+    // Planned for an Aura recommendation (lib/recommendation-creation.ts):
+    // one that cannot be planned from is refused with the reason; an open one
+    // is said yes to by planning it — a decision, so owners and admins only.
+    const creation = input.recommendationId
+      ? await getCreation(company.id, input.recommendationId, 'campaigns')
+      : null;
+    if (creation && !creation.plan.canCreate) {
+      return jsonOk(
+        {
+          error:
+            creation.plan.message ?? 'There is nothing to plan from this suggestion.',
+          fix: creation.plan.fix,
+        },
+        409,
+      );
+    }
+    if (creation?.plan.acceptsOnCreate) {
+      if (!can(membership.role, 'company:update')) {
+        return jsonError(
+          'Only owners and admins can say yes to a suggestion. Ask one to accept it — then plan from it.',
+          403,
+        );
+      }
+      await startCreation({
+        companyId: company.id,
+        recommendationId: creation.plan.recommendationId,
+        actorId: user.id,
+        module: 'campaigns',
+      });
+    }
+    const recommendation = creation
+      ? { id: creation.plan.recommendationId }
+      : null;
     const campaign = await createCampaign({
       companyId: company.id,
       userId: user.id,
@@ -37,7 +67,7 @@ export async function POST(req: Request) {
     });
     // Planned for an Aura recommendation: its history leads to the campaign.
     if (recommendation) {
-      await linkRecommendation({
+      await recordCreation({
         companyId: company.id,
         recommendationId: recommendation.id,
         module: 'campaigns',

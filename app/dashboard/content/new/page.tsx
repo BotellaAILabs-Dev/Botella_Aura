@@ -4,7 +4,7 @@ import type { Metadata } from 'next';
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
 import { getEnabledContentTypes } from '@/server/company/profile.service';
-import { getContextHandoff } from '@/server/recommendations/context-handoff.service';
+import { getCreation } from '@/server/recommendations/creation.service';
 import { NewContentForm } from '@/components/dashboard/content/new-content-form';
 
 export const metadata: Metadata = { title: 'Generate content' };
@@ -33,15 +33,23 @@ export default async function NewFromSourcePage({
 
   // `?rec=`: written for an Aura recommendation — the brief comes from its
   // Context Handoff (lib/recommendation-context-handoff.ts), with what is
-  // missing stated rather than filled in.
-  const [types, handoff] = await Promise.all([
+  // missing stated rather than filled in; whether it can be written from at
+  // all comes from lib/recommendation-creation.ts.
+  const [types, creation] = await Promise.all([
     getEnabledContentTypes(active.id),
-    searchParams.rec ? getContextHandoff(active.id, searchParams.rec) : null,
+    searchParams.rec
+      ? getCreation(active.id, searchParams.rec, 'content-studio')
+      : null,
   ]);
 
   return (
     <Suspense>
-      <NewContentForm types={types} handoff={handoff} />
+      <NewContentForm
+        types={types}
+        handoff={creation?.handoff ?? null}
+        creation={creation?.plan ?? null}
+        recUnavailable={Boolean(searchParams.rec) && !creation}
+      />
     </Suspense>
   );
 }

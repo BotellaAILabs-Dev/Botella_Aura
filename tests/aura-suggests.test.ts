@@ -155,6 +155,8 @@ describe('What, Why, Expected outcome, Based on, Next step', () => {
       module: 'content-studio',
       moduleLabel: 'Content Studio',
       related: [],
+      outcome:
+        'Creates a content draft in Content Studio, written from this suggestion.',
     });
     expect(s.editable.title).toBe(s.what);
     expect(s.stage).toBe('open');
@@ -302,6 +304,8 @@ describe('a clear next action, whatever the situation', () => {
       module: 'content-studio',
       moduleLabel: 'Content Studio',
       related: [],
+      outcome:
+        'Creates a content draft in Content Studio, written from this suggestion.',
     });
     expect(s.caution).toBe(s.next.blocked);
   });

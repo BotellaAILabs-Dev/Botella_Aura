@@ -13,6 +13,8 @@ import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DATE_LOCALE } from '@/lib/dates';
+import { planBriefFrom } from '@/lib/recommendation-creation';
+import { getCreation } from '@/server/recommendations/creation.service';
 import {
   PlannerView,
   type PlanView,
@@ -29,17 +31,29 @@ function monthKey(d: Date): string {
 export default async function PlannerPage({
   searchParams,
 }: {
-  searchParams: { month?: string };
+  searchParams: { month?: string; rec?: string };
 }) {
   const user = await requireUser();
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const [membership, plans, { marketing }] = await Promise.all([
+  const [membership, plans, { marketing }, creation] = await Promise.all([
     getMembership(user.id, active.id),
     listPlans(active.id),
     getWorkspaceProfile(active.id),
+    // `?rec=`: planning for an Aura recommendation (lib/recommendation-creation.ts).
+    searchParams.rec
+      ? getCreation(active.id, searchParams.rec, 'content-plan')
+      : null,
   ]);
+  const fromSuggestion = creation
+    ? {
+        id: creation.plan.recommendationId,
+        title: creation.handoff.action.title,
+        plan: creation.plan,
+        prefill: creation.plan.canCreate ? planBriefFrom(creation.handoff) : null,
+      }
+    : null;
   const canGenerate = membership ? can(membership.role, 'content:create') : false;
 
   const selected =
@@ -127,6 +141,7 @@ export default async function PlannerPage({
         savedInputs={savedInputs}
         defaults={plannerDefaults}
         canGenerate={canGenerate}
+        fromSuggestion={fromSuggestion}
       />
     </div>
   );

@@ -34,6 +34,8 @@ import { PageHeader } from '@/components/dashboard/page-header';
 import { Badge, statusBadgeVariant } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { DraftPreview } from '@/components/dashboard/content/draft-preview';
+import { CreatedFromSuggestion } from '@/components/dashboard/content/created-from-suggestion';
+import type { CreationProvenance } from '@/lib/recommendation-creation';
 import { DraftActions } from '@/components/dashboard/content/draft-actions';
 import { GraphicStudio } from '@/components/dashboard/content/graphic-studio';
 import { AgnesImageGenerator } from '@/components/dashboard/content/agnes-image-generator';
@@ -75,8 +77,11 @@ export default async function DraftDetailPage({
     history?: unknown[];
     writtenFor?: string | null;
     tone?: string | null;
-    /** The Aura recommendation it was written for (lib/aura-modules.ts). */
-    recommendation?: { id?: string; title?: string };
+    /**
+     * The Aura recommendation it was written for, with the context it carried
+     * (lib/recommendation-creation.ts). Older drafts have only id and title.
+     */
+    recommendation?: Partial<CreationProvenance> & { id?: string; title?: string };
   };
   const sourceKind = meta.source?.kind;
   const copyOnly = isCopyOnlyType(type);
@@ -205,6 +210,9 @@ export default async function DraftDetailPage({
               />
             </CardContent>
           </Card>
+          {meta.recommendation?.id && (
+            <CreatedFromSuggestion recommendation={meta.recommendation} />
+          )}
           <Card>
             <CardContent className="space-y-3 p-4 text-sm">
               <Row label="Type" value={CONTENT_TYPE_LABELS[type]} />
@@ -224,7 +232,7 @@ export default async function DraftDetailPage({
                 <div className="flex justify-between gap-3">
                   <span className="text-muted-foreground">Written for</span>
                   <Link
-                    href={`/dashboard/suggestions?rec=${meta.recommendation.id}`}
+                    href="/dashboard/suggestions/history"
                     className="text-right font-medium text-primary hover:underline"
                   >
                     {meta.recommendation.title ?? 'Aura’s suggestion'}

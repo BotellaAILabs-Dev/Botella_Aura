@@ -22,6 +22,8 @@ import {
   type ContextHandoff,
 } from '@/lib/recommendation-context-handoff';
 import { HandoffPanel } from '@/components/dashboard/content/handoff-panel';
+import { CreationNotice } from '@/components/dashboard/content/creation-notice';
+import type { CreationPlan } from '@/lib/recommendation-creation';
 import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
 import {
   DEFAULT_CHOICES,
@@ -48,10 +50,19 @@ import {
 export function NewContentForm({
   types,
   handoff = null,
+  creation = null,
+  recUnavailable = false,
 }: {
   types: ContentTypeKey[];
   /** The recommendation's Context Handoff, when opened with `?rec=`. */
   handoff?: ContextHandoff | null;
+  /**
+   * What writing from that recommendation means (lib/recommendation-creation.ts):
+   * ready, say-yes-first, missing something required, or nothing to write.
+   */
+  creation?: CreationPlan | null;
+  /** `?rec=` named a suggestion this workspace does not have. */
+  recUnavailable?: boolean;
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -65,7 +76,9 @@ export function NewContentForm({
     params.get('type')) as ContentTypeKey | null;
   const campaignId = params.get('campaignId') ?? undefined;
   // From an Aura recommendation (lib/aura-modules.ts): the draft remembers it.
-  const recommendationId = params.get('rec') ?? undefined;
+  // A suggestion that is not this workspace's is not sent at all.
+  const recommendationId = creation?.recommendationId ?? undefined;
+  const needsInfo = creation?.state === 'needs_info';
 
   // A ?type= deep link for a format this workspace disabled falls back to the
   // first one it does allow, rather than pre-selecting something the generate
@@ -80,6 +93,20 @@ export function NewContentForm({
   async function generate() {
     setLoading(true);
     try {
+      // Writing from a suggestion that is still open says yes to it first —
+      // the same decision as Accept, recorded as made from Content Studio.
+      if (recommendationId && creation?.acceptsOnCreate) {
+        const yes = await fetch(`/api/recommendations/${recommendationId}/creation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ module: 'content-studio' }),
+        });
+        if (!yes.ok) {
+          const b = (await yes.json().catch(() => ({}))) as { error?: string };
+          toast.error(b.error ?? 'Could not say yes to this suggestion.');
+          return;
+        }
+      }
       const res = await fetch('/api/content/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -107,10 +134,36 @@ export function NewContentForm({
           ? `${choices.variations} versions written — pick your favourite on the draft.`
           : 'Draft generated.',
       );
-      router.push(`/dashboard/content/${data.id}`);
+      // Carry the suggestion, so the context bar on the draft is this one's.
+      router.push(
+        `/dashboard/content/${data.id}${recommendationId ? `?rec=${recommendationId}` : ''}`,
+      );
     } finally {
       setLoading(false);
     }
+  }
+
+  // Nothing to write from this suggestion: say so, and where it IS done.
+  if (
+    creation &&
+    handoff &&
+    (creation.state === 'not_creatable' || creation.state === 'closed')
+  ) {
+    return (
+      <div className="mx-auto max-w-xl">
+        <Link
+          href="/dashboard/suggestions"
+          className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" /> Aura Suggests
+        </Link>
+        <PageHeader
+          title="Generate content"
+          description="From Aura’s suggestion."
+        />
+        <CreationNotice plan={creation} title={handoff.action.title} />
+      </div>
+    );
   }
 
   return (
@@ -134,7 +187,25 @@ export function NewContentForm({
               : 'Pick a type to generate.'
         }
       />
-      {handoff && <HandoffPanel handoff={handoff} />}
+      {recUnavailable && (
+        <p
+          className="mb-4 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+          role="status"
+        >
+          That suggestion isn’t available any more, so nothing is filled in —
+          write from your own brief below, or pick another in{' '}
+          <Link href="/dashboard/suggestions" className="text-primary hover:underline">
+            Aura Suggests
+          </Link>
+          .
+        </p>
+      )}
+      {handoff && (
+        <HandoffPanel
+          handoff={handoff}
+          acceptsOnCreate={creation?.acceptsOnCreate ?? false}
+        />
+      )}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Choose a format</CardTitle>
@@ -174,9 +245,30 @@ export function NewContentForm({
             />
           </div>
           <GenerationOptions type={type} value={choices} onChange={setChoices} />
-          <Button onClick={generate} loading={loading} className="w-full">
-            <Sparkles className="h-4 w-4" /> Generate draft
+          {needsInfo && creation && (
+            <p className="text-xs text-foreground" role="status">
+              Aura can’t write this one yet: {creation.message}{' '}
+              {creation.fix && (
+                <Link href={creation.fix.href} className="text-primary hover:underline">
+                  {creation.fix.label}
+                </Link>
+              )}
+            </p>
+          )}
+          <Button
+            onClick={generate}
+            loading={loading}
+            disabled={needsInfo}
+            className="w-full"
+          >
+            <Sparkles className="h-4 w-4" />{' '}
+            {creation?.acceptsOnCreate ? 'Say yes and generate' : 'Generate draft'}
           </Button>
+          {creation?.acceptsOnCreate && (
+            <p className="text-center text-xs text-muted-foreground">
+              Generating from this suggestion also says yes to it.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

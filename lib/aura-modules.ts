@@ -192,6 +192,32 @@ export const AURA_MODULES: Record<AuraModuleId, AuraModule> = {
   },
 };
 
+/**
+ * What carrying a recommendation out in each module amounts to:
+ *
+ *   content   it creates content — Content Studio writes the piece
+ *   workflow  it creates through another Aura workflow — a campaign plan, a
+ *             month's content plan — which may then produce content
+ *   action    nothing is created — connect a channel, add an audience, look
+ *             at results or a competitor
+ *
+ * lib/recommendation-creation.ts turns this into what a person can do.
+ */
+export type CreationKind = 'content' | 'workflow' | 'action';
+
+export const CREATION_KIND: Record<AuraModuleId, CreationKind> = {
+  'content-studio': 'content',
+  campaigns: 'workflow',
+  'content-plan': 'workflow',
+  outreach: 'action',
+  analytics: 'action',
+  memory: 'action',
+  competitors: 'action',
+  'lead-discovery': 'action',
+  connectors: 'action',
+  'business-profile': 'action',
+};
+
 // ---------------------------------------------------------------------------
 // Which module carries a recommendation out
 // ---------------------------------------------------------------------------
