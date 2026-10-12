@@ -192,8 +192,17 @@ export async function assessDraft(
   });
   const meta = (draft.aiMetadata ?? {}) as Record<string, unknown>;
   const src = (meta.source ?? {}) as { brief?: string | null };
+  // The recommendation's evidence counts as material too, so a figure the
+  // evidence states is not flagged as unsupported (the fact check agrees).
+  const evidence = (
+    ((meta.brief ?? {}) as { evidence?: { label?: string; detail?: string }[] })
+      .evidence ?? []
+  )
+    .map((e) => `${e.label ?? ''} ${e.detail ?? ''}`)
+    .join('\n');
   const qc = qualityContextFor(type, writingPlatform(type, draft.platform), w, [
     src.brief ?? '',
+    evidence,
     await chunkText(draft.companyId, meta.knowledgeChunkIds),
   ]);
   return { ...checkQuality(type, body, qc), fixes: [] };

@@ -37,6 +37,9 @@ import { DraftPreview } from '@/components/dashboard/content/draft-preview';
 import { availableVariations } from '@/lib/content-variations';
 import type { SocialPlatformKey } from '@/lib/platforms';
 import { CreatedFromSuggestion } from '@/components/dashboard/content/created-from-suggestion';
+import { FactCheckPanel } from '@/components/dashboard/content/fact-check-panel';
+import { claimsToReview } from '@/lib/fact-check';
+import { factCheckDraft } from '@/server/content/fact-check.service';
 import { VisualBriefPanel } from '@/components/dashboard/content/visual-brief-panel';
 import { visualBriefForDraft } from '@/server/media/visual-brief.service';
 import type { CreationProvenance } from '@/lib/recommendation-creation';
@@ -153,7 +156,7 @@ export default async function DraftDetailPage({
 
   // Graphics and attachments are loaded server-side so the panel renders with
   // its history already present — no spinner on a page that has been visited.
-  const [assets, attached, media, activeJob, visual] = await Promise.all([
+  const [assets, attached, media, activeJob, visual, factCheck] = await Promise.all([
     listAssets(active.id, { draftId: draft.id }),
     attachedAssetIds(active.id, draft.id),
     getAttachedMedia({
@@ -167,7 +170,10 @@ export default async function DraftDetailPage({
     findActiveImageJob(active.id, draft.id),
     // What the image is for (lib/visual-brief.ts).
     visualBriefForDraft(draft, platform),
+    // Every claim, against what Aura trusts now (lib/fact-check.ts).
+    factCheckDraft(draft),
   ]);
+  const toReview = claimsToReview(factCheck).length;
 
   return (
     <div>
@@ -181,9 +187,16 @@ export default async function DraftDetailPage({
         title={draft.title ?? CONTENT_TYPE_LABELS[type]}
         description={`${CONTENT_TYPE_LABELS[type]} · created ${draft.createdAt.toLocaleDateString()}`}
         actions={
-          <Badge variant={statusBadgeVariant(draft.status)}>
-            {CONTENT_STATUS_LABELS[draft.status]}
-          </Badge>
+          <span className="flex flex-wrap items-center gap-1.5">
+            <Badge variant={statusBadgeVariant(draft.status)}>
+              {CONTENT_STATUS_LABELS[draft.status]}
+            </Badge>
+            {(factCheck.status === 'needs_review' || factCheck.status === 'contradicted') && (
+              <Badge variant={factCheck.status === 'contradicted' ? 'destructive' : 'warning'}>
+                {factCheck.status === 'contradicted' ? 'Contradiction' : 'Needs fact review'}
+              </Badge>
+            )}
+          </span>
         }
       />
 
@@ -191,6 +204,7 @@ export default async function DraftDetailPage({
         {/* Preview + actions */}
         <div className="space-y-5">
           <DraftPreview type={type} body={draft.body} />
+          <FactCheckPanel report={factCheck} />
 
           {/* Content → graphic → post → queue, in the order the user works. */}
           <VisualBriefPanel
@@ -249,6 +263,7 @@ export default async function DraftDetailPage({
                 canPublish={canPublish && !copyOnly}
                 canUndo={(meta.history?.length ?? 0) > 0}
                 copyOnly={copyOnly}
+                factCheck={{ status: factCheck.status, toReview, mustFix: factCheck.mustFix }}
               />
             </CardContent>
           </Card>

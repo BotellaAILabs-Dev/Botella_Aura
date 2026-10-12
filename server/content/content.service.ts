@@ -14,6 +14,8 @@ import {
 } from '@/lib/validations/content';
 import type { QualityReport } from '@/lib/content-quality';
 import { assessDraft } from '@/server/content/quality.service';
+import { claimsToReview, type FactCheckReport } from '@/lib/fact-check';
+import { factCheckDraft } from '@/server/content/fact-check.service';
 
 /** Undo steps kept per draft (matches server/content/generator.ts). */
 const HISTORY_LIMIT = 5;
@@ -75,6 +77,12 @@ interface TransitionArgs {
   to: ContentStatus;
   reason?: string;
   requestMeta?: { ipAddress?: string | null; userAgent?: string | null };
+  /**
+   * The approver has checked the claims the fact check could not verify
+   * (lib/fact-check.ts). Required to approve a draft that needs review;
+   * recorded in the audit trail.
+   */
+  factsReviewed?: boolean;
 }
 
 /** Validated status transition + audit. The backbone of the approval loop. */
@@ -85,6 +93,7 @@ export async function transition({
   to,
   reason,
   requestMeta,
+  factsReviewed = false,
 }: TransitionArgs): Promise<ContentDraft> {
   const draft = await loadOwned(companyId, draftId);
   if (!isValidTransition(draft.status, to)) {
@@ -107,7 +116,53 @@ export async function transition({
     }
   }
 
+  // Factual validation before approval (lib/fact-check.ts), against what Aura
+  // trusts now: a claim that contradicts it cannot be approved; claims it
+  // cannot verify need the approver to say they checked them — an
+  // unsupported business claim is never approved as if verified.
+  let factCheck: FactCheckReport | null = null;
+  if (to === 'APPROVED') {
+    factCheck = await factCheckDraft(draft);
+    const review = claimsToReview(factCheck);
+    if (factCheck.status === 'contradicted') {
+      const c = factCheck.claims.find((x) => x.status === 'contradicted')!;
+      throw Object.assign(
+        new Error(`Fix before approving — this contradicts what Aura knows: “${c.text}” ${c.reason}`),
+        { status: 409, code: 'facts_contradicted' },
+      );
+    }
+    const mustFix = factCheck.claims.find((x) => x.mustFix);
+    if (mustFix) {
+      throw Object.assign(
+        new Error(`Fix before approving — “${mustFix.text}” ${mustFix.reason}`),
+        { status: 409, code: 'facts_must_fix' },
+      );
+    }
+    if (factCheck.status === 'needs_review' && !factsReviewed) {
+      throw Object.assign(
+        new Error(
+          `${review.length} claim${review.length === 1 ? '' : 's'} could not be verified against your business details or evidence. Check ${review.length === 1 ? 'it' : 'them'}, then confirm to approve.`,
+        ),
+        { status: 409, code: 'facts_need_review' },
+      );
+    }
+  }
+
   const data: Prisma.ContentDraftUpdateInput = { status: to };
+  if (factCheck) {
+    // What was checked when it was approved, and whether a person vouched
+    // for what Aura could not verify.
+    data.aiMetadata = {
+      ...((draft.aiMetadata ?? {}) as object),
+      factCheck: {
+        status: factCheck.status,
+        counts: factCheck.counts,
+        checkedAt: factCheck.checkedAt,
+        reviewedBy: factCheck.status === 'needs_review' ? userId : null,
+        unverified: claimsToReview(factCheck).map((c) => ({ text: c.text, status: c.status })),
+      },
+    } as Prisma.InputJsonObject;
+  }
   if (to === 'REJECTED') data.rejectionReason = reason ?? null;
   if (to === 'DRAFT') data.rejectionReason = null;
 
@@ -117,7 +172,19 @@ export async function transition({
     action: ACTION_FOR[to] ?? 'CONTENT_DRAFT_CREATED',
     userId,
     companyId,
-    metadata: { draftId: draft.id, from: draft.status, to, reason: reason ?? undefined },
+    metadata: {
+      draftId: draft.id,
+      from: draft.status,
+      to,
+      reason: reason ?? undefined,
+      ...(factCheck
+        ? {
+            factCheck: factCheck.status,
+            claimsReviewedByApprover:
+              factCheck.status === 'needs_review' ? claimsToReview(factCheck).length : 0,
+          }
+        : {}),
+    },
     ...requestMeta,
   });
   return updated;

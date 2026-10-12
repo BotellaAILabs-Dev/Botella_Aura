@@ -43,6 +43,11 @@ interface Props {
   canUndo?: boolean;
   /** Email / ad copy: copied out, never scheduled or published. */
   copyOnly?: boolean;
+  /**
+   * The fact check (lib/fact-check.ts): a contradiction blocks approval;
+   * claims it could not verify need the approver to confirm they checked them.
+   */
+  factCheck?: { status: string; toReview: number; mustFix: number } | null;
 }
 
 export function DraftActions({
@@ -55,7 +60,13 @@ export function DraftActions({
   canPublish,
   canUndo = false,
   copyOnly = false,
+  factCheck = null,
 }: Props) {
+  const [factsReviewed, setFactsReviewed] = useState(false);
+  // Claims a person cannot vouch for (contradictions, unsupported figures
+  // and absolutes) block approval; the rest need the approver to confirm.
+  const contradicted = (factCheck?.mustFix ?? 0) > 0;
+  const needsReview = !contradicted && factCheck?.status === 'needs_review';
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -92,7 +103,11 @@ export function DraftActions({
   async function transition(action: string, reason?: string) {
     const res = await call(
       `/api/content/drafts/${draftId}/status`,
-      { action, reason },
+      {
+        action,
+        reason,
+        ...(action === 'approve' && needsReview ? { factsReviewed } : {}),
+      },
       action,
     );
     if (res) {
@@ -232,7 +247,33 @@ export function DraftActions({
         )}
         {status === 'PENDING_APPROVAL' && (
           <>
-            <Button onClick={() => transition('approve')} loading={loading('approve')}>
+            {needsReview && (
+              <label className="flex w-full items-start gap-2 rounded-md border border-amber-300/60 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={factsReviewed}
+                  onChange={(e) => setFactsReviewed(e.target.checked)}
+                />
+                <span>
+                  I’ve checked the {factCheck!.toReview} claim
+                  {factCheck!.toReview === 1 ? '' : 's'} Aura could not verify (see Fact check) and
+                  they are true.
+                </span>
+              </label>
+            )}
+            {contradicted && (
+              <p className="w-full text-xs text-destructive">
+                {factCheck?.status === 'contradicted'
+                  ? 'A claim contradicts what Aura knows — fix it (see Fact check) before approving.'
+                  : 'A figure or claim nothing supports must be fixed (see Fact check) before approving.'}
+              </p>
+            )}
+            <Button
+              onClick={() => transition('approve')}
+              loading={loading('approve')}
+              disabled={contradicted || (needsReview && !factsReviewed)}
+            >
               <Check className="h-4 w-4" /> Approve
             </Button>
             <Button
