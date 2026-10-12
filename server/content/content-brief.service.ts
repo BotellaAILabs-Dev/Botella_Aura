@@ -11,7 +11,11 @@ import {
 } from '@/lib/opportunities';
 import type { SocialPlatformKey } from '@/lib/platforms';
 import type { ContentTypeKey } from '@/lib/validations/content';
-import { getEnabledContentTypes } from '@/server/company/profile.service';
+import {
+  getEnabledContentTypes,
+  readBrandAssets,
+  readMarketingProfile,
+} from '@/server/company/profile.service';
 import { getContextHandoff } from '@/server/recommendations/context-handoff.service';
 
 /**
@@ -28,13 +32,21 @@ export async function getBriefInput(
 ): Promise<Omit<BuildBriefInput, 'choice'> | null> {
   const handoff = await getContextHandoff(companyId, recommendationId);
   if (!handoff) return null;
-  const [o, enabledTypes] = await Promise.all([
+  const [o, enabledTypes, company] = await Promise.all([
     db.opportunity.findFirst({
       where: { id: handoff.opportunityId, companyId },
       select: { id: true, title: true, type: true, summary: true, angle: true },
     }),
     getEnabledContentTypes(companyId),
+    db.company.findUnique({
+      where: { id: companyId },
+      select: { preferences: true },
+    }),
   ]);
+  // For the visual brief: the brand's colours and logo, and whether it sells
+  // to consumers or businesses.
+  const assets = company ? readBrandAssets(company) : null;
+  const marketing = company ? readMarketingProfile(company) : null;
   const opportunity: BriefOpportunity | null = o
     ? {
         id: o.id,
@@ -45,7 +57,18 @@ export async function getBriefInput(
         angle: o.angle,
       }
     : null;
-  return { handoff, opportunity, enabledTypes };
+  return {
+    handoff,
+    opportunity,
+    enabledTypes,
+    brand: {
+      colors: [assets?.primaryColor, assets?.secondaryColor, assets?.accentColor].filter(
+        (c): c is string => Boolean(c),
+      ),
+      hasLogo: Boolean(assets?.logoAssetId),
+    },
+    marketMode: marketing?.marketMode ?? null,
+  };
 }
 
 export async function getContentBrief(

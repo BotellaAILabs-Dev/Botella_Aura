@@ -7,6 +7,7 @@ import { recordAudit } from '@/server/services/audit.service';
 import { resolvePlatform, type AspectRatioKey } from '@/lib/platforms';
 import type { ContentTypeKey } from '@/lib/validations/content';
 import { resolveFormat } from '@/server/media/aspect';
+import { visualBriefForDraft } from '@/server/media/visual-brief.service';
 import { resolveProvider, alternativeProviders } from '@/server/media/providers';
 import {
   ImageProviderError,
@@ -91,8 +92,18 @@ export async function generateGraphics(
     draft.type as ContentTypeKey,
     draft.platform,
   );
+  // No shape asked for: the one the visual brief names for this format and
+  // channel (lib/visual-brief.ts), rather than the network's default alone.
+  const briefRatio =
+    args.aspectRatio || args.custom
+      ? null
+      : (await visualBriefForDraft(draft, platform)).brief.format.aspectRatio;
   const format = resolveFormat({
-    ...(args.aspectRatio ? { requested: args.aspectRatio } : {}),
+    ...(args.aspectRatio
+      ? { requested: args.aspectRatio }
+      : briefRatio
+        ? { requested: briefRatio }
+        : {}),
     ...(args.custom ? { custom: args.custom } : {}),
     platform,
     providerRatios: provider.supportedRatios,

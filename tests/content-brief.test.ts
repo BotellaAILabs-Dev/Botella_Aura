@@ -316,6 +316,13 @@ describe('content type and channel', () => {
     expect(picked.readiness).not.toBe('blocked');
   });
 
+  it('the channel follows the network chosen — not the one the recommendation named', () => {
+    const b = brief({ choice: { type: 'IMAGE_POST', platform: 'INSTAGRAM' } });
+    expect(b.channel).toMatchObject({ name: 'Instagram', platform: 'INSTAGRAM' });
+    const email = brief({ choice: { type: 'EMAIL' } });
+    expect(email.channel?.name ?? null).toBeNull();
+  });
+
   it('a network the format cannot run on is not used', () => {
     const b = brief({ choice: { type: 'TWEET_THREAD', platform: 'LINKEDIN' } });
     expect(b.channel?.platform).toBe('X');

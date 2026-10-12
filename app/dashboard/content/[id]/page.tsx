@@ -35,6 +35,8 @@ import { Badge, statusBadgeVariant } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { DraftPreview } from '@/components/dashboard/content/draft-preview';
 import { CreatedFromSuggestion } from '@/components/dashboard/content/created-from-suggestion';
+import { VisualBriefPanel } from '@/components/dashboard/content/visual-brief-panel';
+import { visualBriefForDraft } from '@/server/media/visual-brief.service';
 import type { CreationProvenance } from '@/lib/recommendation-creation';
 import { DraftActions } from '@/components/dashboard/content/draft-actions';
 import { GraphicStudio } from '@/components/dashboard/content/graphic-studio';
@@ -118,7 +120,7 @@ export default async function DraftDetailPage({
 
   // Graphics and attachments are loaded server-side so the panel renders with
   // its history already present — no spinner on a page that has been visited.
-  const [assets, attached, media, activeJob] = await Promise.all([
+  const [assets, attached, media, activeJob, visual] = await Promise.all([
     listAssets(active.id, { draftId: draft.id }),
     attachedAssetIds(active.id, draft.id),
     getAttachedMedia({
@@ -130,6 +132,8 @@ export default async function DraftDetailPage({
     // A generation still running for this draft, so a reload reattaches to it
     // rather than showing an idle panel while images are still being made.
     findActiveImageJob(active.id, draft.id),
+    // What the image is for (lib/visual-brief.ts).
+    visualBriefForDraft(draft, platform),
   ]);
 
   return (
@@ -156,11 +160,18 @@ export default async function DraftDetailPage({
           <DraftPreview type={type} body={draft.body} />
 
           {/* Content → graphic → post → queue, in the order the user works. */}
+          <VisualBriefPanel
+            brief={visual.brief}
+            fromRecommendation={visual.source === 'content_brief'}
+            hasImage={media.length > 0}
+          />
           <GraphicStudio
             draftId={draft.id}
             platform={platform}
             platformLabel={platformSpec(platform).label}
-            defaultRatio={platformSpec(platform).defaultRatio}
+            // The shape the visual brief names for this format and channel
+            // (an email header is landscape), else the network's default.
+            defaultRatio={visual.brief.format.aspectRatio ?? platformSpec(platform).defaultRatio}
             initialAssets={assets.map((a) => toAssetView(a, attached))}
             attachedAssetIds={[...attached]}
             activeJobId={activeJob?.id ?? null}

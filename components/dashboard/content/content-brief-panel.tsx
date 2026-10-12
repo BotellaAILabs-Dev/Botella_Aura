@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, Circle, FileText } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { NOT_ACCEPTED_BLOCKER } from '@/lib/recommendation-context-handoff';
+import type { VisualField } from '@/lib/visual-brief';
 import type {
   BriefField,
   ContentBrief,
@@ -43,6 +44,15 @@ export const BRIEF_FIELD_LABEL: Record<BriefField, string> = {
   relevantMemory: 'What has worked before',
   contentType: 'Content type',
   assetRequirements: 'Asset requirements',
+};
+
+/** Visual gaps, as the person reads them (lib/visual-brief.ts). */
+const VISUAL_GAP: Record<VisualField, string> = {
+  subject: 'what it shows',
+  product: 'your product',
+  audience: 'the audience',
+  palette: 'brand colours',
+  mood: 'brand mood',
 };
 
 const REQUIREMENT_LABEL: Record<FieldRequirement, string> = {
@@ -168,6 +178,11 @@ export function ContentBriefPanel({
                         : '1 image'
                     }${a.visual.aspectRatio ? ` at ${a.visual.aspectRatio}` : ''}`
               }`}
+            </Line>
+          )}
+          {b.visual && b.visual.need !== 'none' && b.visual.missing.length > 0 && (
+            <Line label="Image brief">
+              {`missing ${b.visual.missing.map((m) => VISUAL_GAP[m.field]).join(', ')} — the image is made without it, nothing invented.`}
             </Line>
           )}
         </div>

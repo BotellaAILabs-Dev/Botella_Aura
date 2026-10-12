@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { playbookFor } from '@/lib/content-playbook';
 import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
 import { FORMAT_SPECS } from '@/lib/content-formats';
+import { buildVisualBrief, visualBriefSchema } from '@/lib/visual-brief';
 import {
   ASPECT_RATIOS,
   platformSpec,
@@ -331,6 +332,13 @@ export const contentBriefSchema = z.object({
    */
   readiness: z.enum(['ready', 'ready_with_gaps', 'blocked']),
   blockedBy: z.array(text),
+  /**
+   * What the image-generation workflow needs (lib/visual-brief.ts): whether
+   * an image is required, its subject, product, setting, brand palette and
+   * mood, the channel's shape and size, and what is missing. Null until a
+   * format is chosen; absent on briefs saved before it existed.
+   */
+  visual: visualBriefSchema.nullable().optional(),
   generatedAt: z.string(),
 });
 
@@ -360,6 +368,10 @@ export interface BuildBriefInput {
   choice?: { type?: ContentTypeKey; platform?: SocialPlatformKey } | null;
   /** Formats this workspace has turned on; a disabled one is not usable. */
   enabledTypes?: ContentTypeKey[];
+  /** Brand colours and whether a logo is on file — for the visual brief. */
+  brand?: { colors: string[]; hasLogo: boolean } | null;
+  /** Consumer or business — decides what kind of imagery fits. */
+  marketMode?: 'B2B' | 'B2C' | null;
 }
 
 const PLATFORM_CHANNEL: Record<SocialPlatformKey, string> = {
@@ -377,7 +389,7 @@ type VisualRequirements = NonNullable<
   ContentBrief['assetRequirements']
 >['visual'];
 
-function visualFor(
+export function visualFor(
   type: ContentTypeKey,
   platform: SocialPlatformKey | null,
 ): VisualRequirements {
@@ -497,15 +509,29 @@ export function buildContentBrief(
         : 'platform';
 
   const playbook = type ? playbookFor(type.key, platform) : null;
-  const channelName =
-    h.channel?.channel ?? (platform ? PLATFORM_CHANNEL[platform] : null);
+  // The channel follows the network actually chosen: a recommendation for
+  // LinkedIn written as an Instagram post runs on Instagram, and a copied-out
+  // format (email, campaign copy, promotion) runs on no network at all.
+  const offNetwork = type ? OFF_NETWORK.includes(type.key) : false;
+  const channelName = platform
+    ? PLATFORM_CHANNEL[platform]
+    : offNetwork
+      ? null
+      : (h.channel?.channel ?? null);
   const channel: ContentBrief['channel'] =
     channelName || platform || playbook
       ? {
           name: channelName,
           platform,
           publishing: h.channel?.publishing ?? null,
-          source: h.channel?.channel ? 'recommendation' : platformSource,
+          source:
+            platform && platform === h.channel?.platform
+              ? 'recommendation'
+              : platform
+                ? platformSource
+                : h.channel?.channel && !offNetwork
+                  ? 'recommendation'
+                  : platformSource,
           requirements: playbook?.rules ?? [],
         }
       : null;
@@ -647,6 +673,26 @@ export function buildContentBrief(
         }
       : null,
     assetRequirements,
+    visual:
+      type && assetRequirements
+        ? buildVisualBrief({
+            need: assetRequirements.visual.need,
+            count: assetRequirements.visual.count,
+            formatLabel: CONTENT_TYPE_LABELS[type.key],
+            aspectRatio: assetRequirements.visual.aspectRatio,
+            platform,
+            channel: channelName,
+            keyMessage,
+            offerings: h.business.offerings,
+            description: h.business.description,
+            audience: h.audience?.value ?? null,
+            marketMode: input.marketMode ?? null,
+            brand: input.brand ?? { colors: [], hasLogo: false },
+            voice: h.brandVoice
+              ? { tone: h.brandVoice.tone, avoid: h.brandVoice.avoid }
+              : null,
+          })
+        : null,
     fields: BRIEF_FIELDS.map((field) => ({
       field,
       requirement: requirementOf(field),

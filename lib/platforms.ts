@@ -27,6 +27,17 @@ export type SocialPlatformKey = (typeof SOCIAL_PLATFORMS)[number];
 export const ASPECT_RATIOS = ['1:1', '4:5', '16:9', '9:16'] as const;
 export type AspectRatioKey = (typeof ASPECT_RATIOS)[number];
 
+/**
+ * Canonical size per ratio. Chosen to sit at or just above what the platforms
+ * actually display, so nothing is upscaled on the way out.
+ */
+export const RATIO_DIMENSIONS: Record<AspectRatioKey, { width: number; height: number }> = {
+  '1:1': { width: 1024, height: 1024 },
+  '4:5': { width: 1024, height: 1280 },
+  '16:9': { width: 1344, height: 768 },
+  '9:16': { width: 768, height: 1344 },
+};
+
 export interface PlatformSpec {
   key: SocialPlatformKey;
   label: string;

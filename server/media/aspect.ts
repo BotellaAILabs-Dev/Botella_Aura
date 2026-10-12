@@ -1,5 +1,5 @@
 import type { AspectRatioKey, SocialPlatformKey } from '@/lib/platforms';
-import { ASPECT_RATIOS, platformSpec } from '@/lib/platforms';
+import { ASPECT_RATIOS, platformSpec, RATIO_DIMENSIONS } from '@/lib/platforms';
 
 /**
  * Aspect-ratio to pixel-size resolution, plus the "nearest supported" fallback.
@@ -15,16 +15,9 @@ export interface Dimensions {
   height: number;
 }
 
-/**
- * Canonical size per ratio. Chosen to sit at or just above what the platforms
- * actually display, so nothing is upscaled on the way out.
- */
-export const RATIO_DIMENSIONS: Record<AspectRatioKey, Dimensions> = {
-  '1:1': { width: 1024, height: 1024 },
-  '4:5': { width: 1024, height: 1280 },
-  '16:9': { width: 1344, height: 768 },
-  '9:16': { width: 768, height: 1344 },
-};
+// Canonical size per ratio — defined with the platforms (lib/platforms.ts) so
+// client-safe code (the visual brief) reads the same sizes the generator uses.
+export { RATIO_DIMENSIONS } from '@/lib/platforms';
 
 // The human-facing names for these ratios ("Square", "Story / Reel") live in
 // lib/graphics-ui.ts with the rest of the presentation strings — this module is

@@ -1,20 +1,16 @@
 import { z } from 'zod';
-import type { Company, ContentDraft } from '@prisma/client';
+import type { ContentDraft } from '@prisma/client';
 
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { completeStructured, isClaudeConfigured } from '@/server/ai/claude';
 import { recordAudit } from '@/server/services/audit.service';
 import { renderForManual } from '@/server/content/render';
-import { brandVoiceProfileSchema } from '@/lib/validations/content';
 import { platformSpec, type SocialPlatformKey } from '@/lib/platforms';
 import { STYLE_DIRECTION } from '@/server/media/types';
 import { isImageStyle, type ImageStyleKey } from '@/lib/graphics-ui';
-import { readBrandAssets } from '@/server/company/profile.service';
-import {
-  getBusinessContext,
-  toAudienceProfile,
-} from '@/server/business-context/business-context.service';
+import { visualBriefToPrompt, type VisualBrief } from '@/lib/visual-brief';
+import { visualBriefForDraft } from '@/server/media/visual-brief.service';
 
 /**
  * Content to image prompt.
@@ -48,6 +44,11 @@ const imagePromptSchema = z.object({
 export type ImagePromptResult = z.infer<typeof imagePromptSchema> & {
   /** 'ai' when a model wrote it, 'heuristic' when composed without one. */
   source: 'ai' | 'heuristic';
+  /**
+   * The visual brief it was written from (lib/visual-brief.ts) — returned so
+   * the studio can show what the image is for and what is missing.
+   */
+  visual?: VisualBrief;
 };
 
 /**
@@ -81,11 +82,17 @@ export async function generateImagePrompt(
   const contentText = renderForManual(draft).slice(0, 3000);
   const spec = platformSpec(platform);
   const styleDirection = STYLE_DIRECTION[style];
+  // What the image is for: from the recommendation's brief when the draft has
+  // one, else from the business context and the post (lib/visual-brief.ts).
+  const visual = await visualBriefForDraft(draft, platform);
 
   let result: ImagePromptResult;
   if (isClaudeConfigured() && contentText.length > 0) {
     try {
-      result = { ...(await askModel(draft, contentText, spec.artDirection, styleDirection, guidance)), source: 'ai' };
+      result = {
+        ...(await askModel(draft, contentText, visual.brief, styleDirection, guidance)),
+        source: 'ai',
+      };
     } catch (err) {
       // A failed prompt call must not cost the user their content. Fall back to
       // the deterministic composer and let them edit it by hand.
@@ -93,11 +100,12 @@ export async function generateImagePrompt(
         draftId: draft.id,
         error: err instanceof Error ? err.message : String(err),
       });
-      result = heuristicPrompt(contentText, spec.artDirection, styleDirection, guidance);
+      result = heuristicPrompt(contentText, spec.artDirection, styleDirection, guidance, visual.brief);
     }
   } else {
-    result = heuristicPrompt(contentText, spec.artDirection, styleDirection, guidance);
+    result = heuristicPrompt(contentText, spec.artDirection, styleDirection, guidance, visual.brief);
   }
+  result = { ...result, visual: visual.brief };
 
   await recordAudit({
     action: 'GRAPHIC_PROMPT_GENERATED',
@@ -109,6 +117,10 @@ export async function generateImagePrompt(
       style,
       source: result.source,
       promptVersion: PROMPT_VERSION,
+      // Where the image's context came from, and what it lacked.
+      visualSource: visual.source,
+      visualReadiness: visual.brief.readiness,
+      visualMissing: visual.brief.missing.map((m) => m.field),
     },
   });
 
@@ -118,65 +130,14 @@ export async function generateImagePrompt(
 async function askModel(
   draft: ContentDraft,
   contentText: string,
-  platformDirection: string,
+  visual: VisualBrief,
   styleDirection: string,
   guidance?: string,
 ): Promise<z.infer<typeof imagePromptSchema>> {
   const company = await db.company.findUnique({
     where: { id: draft.companyId },
-    select: { name: true, industry: true, brandVoiceProfile: true, preferences: true },
+    select: { name: true, industry: true },
   });
-
-  // Reuse the brand voice profile already generated for the text side, but
-  // translated into VISUAL direction — brandVoiceToPrompt() phrases it as
-  // writing instructions ("write exactly in this voice"), which would steer an
-  // art director badly. safeParse because a profile stored before a schema
-  // change must not break generation.
-  /**
-   * What the company sells, and who looks at the picture.
-   *
-   * The art director was briefed with a company name and an industry label.
-   * Those decide almost nothing visually: a small-batch coffee roastery and a
-   * payroll platform are both "a company in an industry", and an image brief
-   * built from that lands on whatever the model finds generically attractive —
-   * the stock-photo failure this prompt explicitly tries to avoid.
-   *
-   * Market mode matters here as much as it does in copy. Consumer imagery
-   * shows the thing itself and the moment of using it; business imagery shows
-   * the work and the outcome. Nothing else in this prompt carried that.
-   */
-  // Read from the Business Context layer. The rendering below stays visual:
-  // the shared writing presets would brief an art director like a copywriter.
-  const context = await getBusinessContext(draft.companyId, {
-    sections: ['targeting'],
-  });
-  const business = context?.identity ?? null;
-  const audience = context ? toAudienceProfile(context) : null;
-
-  const businessBlock = business?.description
-    ? [
-        'WHAT THIS COMPANY DOES:',
-        business.description,
-        ...(business.offerings ? [`What they sell: ${business.offerings}`] : []),
-      ].join('\n')
-    : '';
-
-  const audienceBlock = audience
-    ? [
-        'WHO WILL SEE THIS:',
-        audience.stated ?? 'Not described in detail.',
-        audience.mode === 'B2C'
-          ? 'They are choosing this for themselves — show the thing and the moment of using it, not a workplace.'
-          : 'They are buying for their company — show the work and its outcome, not lifestyle imagery.',
-      ].join('\n')
-    : '';
-
-  const voiceBlock = brandVoiceToVisualDirection(company?.brandVoiceProfile);
-
-  // The workspace's own palette, when it has given one. An art director told
-  // the actual brand colours produces creatives that look like they came from
-  // this company; without it every image is whatever the model finds pretty.
-  const paletteBlock = company ? brandPaletteDirection(company) : '';
 
   const system = [
     'You are an art director briefing an image-generation model for a social post.',
@@ -192,17 +153,16 @@ async function askModel(
     'Respond with ONLY valid JSON. No markdown, no prose.',
   ].join('\n');
 
+  // The structured visual brief (lib/visual-brief.ts): the idea, the product,
+  // who sees it, the setting, the brand's palette and mood, what never to
+  // show, and the channel's shape — instead of guessing from the post alone.
   const prompt = [
     `COMPANY: ${company?.name ?? 'the company'}${company?.industry ? ` (${company.industry})` : ''}`,
-    businessBlock,
-    audienceBlock,
-    voiceBlock,
-    paletteBlock,
+    '',
+    visualBriefToPrompt(visual),
     '',
     'THE POST THIS IMAGE ACCOMPANIES:',
     contentText,
-    '',
-    `PLATFORM ART DIRECTION:\n${platformDirection}`,
     '',
     `STYLE:\n${styleDirection}`,
     '',
@@ -231,55 +191,6 @@ async function askModel(
 }
 
 /**
- * The workspace's brand colours, as palette direction.
- *
- * Stated as a constraint on the dominant colours rather than "use these
- * colours": an image-generation model handed a hex list tends to produce a
- * swatch board. What is wanted is a picture that happens to sit in the brand's
- * palette, which is what an art director would actually ask for.
- */
-function brandPaletteDirection(company: Pick<Company, 'preferences'>): string {
-  const brand = readBrandAssets(company);
-  const colors = [
-    brand?.primaryColor,
-    brand?.secondaryColor,
-    brand?.accentColor,
-  ].filter((c): c is string => Boolean(c));
-  if (colors.length === 0) return '';
-
-  return [
-    'BRAND PALETTE:',
-    `- Build the image around these colours: ${colors.join(', ')}.`,
-    '- They should dominate the composition — lighting, surfaces, background.',
-    '- Do NOT render them as swatches, charts, or blocks of flat colour.',
-  ].join('\n');
-}
-
-/**
- * Turn the stored brand voice profile into art direction.
- *
- * Tone descriptors ("candid", "precise", "warm") transfer to visuals well;
- * vocabulary and hashtag rules do not, so they are dropped. Topics the brand
- * avoids DO carry over — a company that never talks about a subject does not
- * want a picture of it either.
- */
-function brandVoiceToVisualDirection(profile: unknown): string {
-  const parsed = brandVoiceProfileSchema.safeParse(profile);
-  if (!parsed.success) return '';
-  const voice = parsed.data;
-
-  const lines = ['BRAND CHARACTER (translate into visual mood, not text):'];
-  if (voice.toneDescriptors.length) {
-    lines.push(`- The brand reads as: ${voice.toneDescriptors.join(', ')}.`);
-  }
-  if (voice.summary) lines.push(`- In short: ${voice.summary}`);
-  if (voice.topicsToAvoid.length) {
-    lines.push(`- Never depict: ${voice.topicsToAvoid.join(', ')}.`);
-  }
-  return lines.length > 1 ? lines.join('\n') : '';
-}
-
-/**
  * Deterministic prompt composition, used when no AI provider is configured or
  * the model call fails.
  *
@@ -292,14 +203,23 @@ export function heuristicPrompt(
   platformDirection: string,
   styleDirection: string,
   guidance?: string,
+  visual?: VisualBrief,
 ): ImagePromptResult {
+  // The brief's subject (the recommendation's key message) when there is one;
+  // else the post's own opening line.
   const hook = firstMeaningfulLine(contentText);
-  const subject = hook || 'the theme of this post';
+  const subject = visual?.subject?.value || hook || 'the theme of this post';
 
   const prompt = [
     `A premium social-media graphic representing: ${subject}.`,
     'Interpret the idea visually as a single striking scene — a metaphor or a',
     'concrete situation, not an abstract pattern.',
+    visual?.product ? `Where it fits, show: ${visual.product.value}.` : '',
+    visual?.setting ?? '',
+    visual?.brand.palette.length
+      ? `Colour: built around ${visual.brand.palette.join(', ')} in light and surfaces, not as flat blocks.`
+      : '',
+    visual?.brand.avoid.length ? `Never depict: ${visual.brand.avoid.join(', ')}.` : '',
     styleDirection,
     platformDirection,
     guidance ? `Additional direction: ${guidance}` : '',
