@@ -103,8 +103,9 @@ describe('resolvePlatform', () => {
 describe('platformsForType', () => {
   it('always includes the type’s own default', () => {
     for (const type of CONTENT_TYPES) {
-      // An email is never aimed at a network (copy-only, never published).
-      if (type === 'EMAIL') {
+      // Email, campaign copy and promotional copy are never aimed at a
+      // network (copied out, never published).
+      if (['EMAIL', 'CAMPAIGN_COPY', 'PROMO'].includes(type)) {
         expect(platformsForType(type)).toEqual([]);
         continue;
       }

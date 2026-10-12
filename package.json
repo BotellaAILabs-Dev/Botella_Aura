@@ -54,6 +54,7 @@
     "verify:creation": "tsx scripts/verify-creation.ts",
     "verify:content-brief": "tsx scripts/verify-content-brief.ts",
     "verify:generation-context": "tsx scripts/verify-generation-context.ts",
+    "verify:contextual-generation": "tsx scripts/verify-contextual-generation.ts",
     "verify:content-studio": "tsx scripts/verify-content-studio.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

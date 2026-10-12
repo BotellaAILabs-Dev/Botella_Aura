@@ -8,6 +8,8 @@ import {
   type BlogBody,
   type EmailBody,
   type AdBody,
+  type CampaignCopyBody,
+  type PromoBody,
 } from '@/lib/validations/content';
 
 /** Shared, client-safe content-type presentation helpers (no React). */
@@ -20,6 +22,8 @@ export const CONTENT_TYPE_LABELS: Record<ContentTypeKey, string> = {
   BLOG: 'Blog draft',
   EMAIL: 'Email',
   AD: 'Ad copy',
+  CAMPAIGN_COPY: 'Campaign copy',
+  PROMO: 'Promotional copy',
 };
 
 export type ContentStatusKey =
@@ -56,5 +60,9 @@ export function draftSnippet(type: ContentTypeKey, body: unknown): string {
       return (parsed.data as EmailBody).subjectLine;
     case 'AD':
       return (parsed.data as AdBody).headline;
+    case 'CAMPAIGN_COPY':
+      return (parsed.data as CampaignCopyBody).tagline;
+    case 'PROMO':
+      return (parsed.data as PromoBody).headline;
   }
 }

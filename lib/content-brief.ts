@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { playbookFor } from '@/lib/content-playbook';
 import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
+import { FORMAT_SPECS } from '@/lib/content-formats';
 import {
   ASPECT_RATIOS,
   platformSpec,
@@ -369,7 +370,7 @@ const PLATFORM_CHANNEL: Record<SocialPlatformKey, string> = {
 };
 
 /** Formats published without a network: their copy rules do not depend on one. */
-const OFF_NETWORK: ContentTypeKey[] = ['BLOG', 'EMAIL'];
+const OFF_NETWORK: ContentTypeKey[] = ['BLOG', 'EMAIL', 'CAMPAIGN_COPY', 'PROMO'];
 
 /** How many images each format takes, and whether it needs them. */
 type VisualRequirements = NonNullable<
@@ -417,6 +418,16 @@ function visualFor(
       };
     case 'AD':
       return { need: 'required', count: { min: 1, max: 1 }, ...base };
+    // A messaging kit: words, adapted per channel; any visual is made there.
+    case 'CAMPAIGN_COPY':
+      return { need: 'none', count: { min: 0, max: 0 }, ...base, aspectRatio: null };
+    case 'PROMO':
+      return {
+        need: 'recommended',
+        count: { min: 0, max: 1 },
+        ...base,
+        aspectRatio: '1:1',
+      };
     default:
       return {
         need: spec?.requiresMedia ? 'required' : 'recommended',
@@ -552,16 +563,28 @@ export function buildContentBrief(
     assetRequirements: assetRequirements !== null,
   };
 
+  // What this format needs beyond every brief's own required fields
+  // (lib/content-formats.ts): an email's button needs a destination, an ad an
+  // audience, campaign copy a goal. Those fields become required here.
+  const formatNeeds = type ? FORMAT_SPECS[type.key].requiredFields : [];
+  const requirementOf = (field: BriefField): FieldRequirement =>
+    formatNeeds.some((n) => n.field === field)
+      ? 'required'
+      : BRIEF_FIELD_POLICY[field].requirement;
+
   const missing: ContentBrief['missing'] = BRIEF_FIELDS.filter(
     (f) => !values[f],
   ).map((field) => {
     const p = BRIEF_FIELD_POLICY[field];
+    const need = formatNeeds.find((n) => n.field === field);
     // A format the workspace turned off says so, rather than "none chosen".
     const whenMissing =
       field === 'contentType' && typeDisabled
         ? `${CONTENT_TYPE_LABELS[wanted!.key]} is turned off for this workspace — pick another format, or turn it on in Settings → Content formats.`
-        : p.whenMissing;
-    return { field, requirement: p.requirement, whenMissing, fix: p.fix };
+        : need
+          ? `${CONTENT_TYPE_LABELS[type!.key]}: ${need.why}`
+          : p.whenMissing;
+    return { field, requirement: requirementOf(field), whenMissing, fix: p.fix };
   });
 
   const blockedBy: string[] = [];
@@ -626,7 +649,7 @@ export function buildContentBrief(
     assetRequirements,
     fields: BRIEF_FIELDS.map((field) => ({
       field,
-      requirement: BRIEF_FIELD_POLICY[field].requirement,
+      requirement: requirementOf(field),
       provided: values[field],
     })),
     missing,

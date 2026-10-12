@@ -180,6 +180,54 @@ const section = (
   key: string,
 ) => c.sections.find((s) => s.key === key);
 
+describe('brand voice is always applied', () => {
+  it('an Aura-built voice profile is used when the snapshot holds none as fact — said for what it is', () => {
+    const noVoice = {
+      ...SNAPSHOT,
+      voice: null,
+    } as unknown as BusinessContextSnapshot;
+    const c = assembleGenerationContext(
+      input({
+        snapshot: noVoice,
+        brandVoice: {
+          summary: 'Friendly, plain and curious.',
+          tone: ['friendly'],
+          avoid: ['jargon'],
+          vocabulary: ['brew'],
+          phrases: ['pour yourself a good one'],
+          formatting: 'emoji: rare; hashtags: few',
+        },
+      }),
+    );
+    const v = c.sections.find((s) => s.key === 'voice')!;
+    expect(v.text).toMatch(
+      /Friendly, plain and curious\. \(Aura’s profile of your voice/,
+    );
+    expect(v.text).toMatch(/Never mention: jargon/);
+    expect(v.text).toMatch(/Phrases they use: pour yourself a good one/);
+    expect(v.from).toBe('brand_voice_profile');
+  });
+
+  it('the business’s own stated voice wins over the profile', () => {
+    const c = assembleGenerationContext(
+      input({
+        brandVoice: {
+          summary: 'Other.',
+          tone: ['loud'],
+          avoid: [],
+          vocabulary: [],
+          phrases: [],
+          formatting: null,
+        },
+      }),
+    );
+    const v = c.sections.find((s) => s.key === 'voice')!;
+    expect(v.text).toMatch(/^Warm and plain-spoken\./);
+    expect(v.text).toMatch(/Tone: warm/);
+    expect(v.from).toBe('business_snapshot');
+  });
+});
+
 describe('generation receives relevant business context', () => {
   const c = assembleGenerationContext(input());
 

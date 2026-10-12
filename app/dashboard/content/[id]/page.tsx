@@ -44,6 +44,24 @@ import { agnesImageProvider } from '@/server/media/providers/agnes';
 import { PostComposer } from '@/components/dashboard/content/post-composer';
 import type { ContentTypeKey } from '@/lib/validations/content';
 
+/** Where each copied-out format is used, and its copy button. */
+const COPY_OUT: Partial<
+  Record<ContentTypeKey, { what: string; where: string; button: string }>
+> = {
+  EMAIL: { what: 'Emails are', where: 'your email tool', button: 'Copy email' },
+  AD: { what: 'Ads are', where: 'your ad manager', button: 'Copy ad' },
+  CAMPAIGN_COPY: {
+    what: 'Campaign copy is',
+    where: 'the channels your campaign runs on',
+    button: 'Copy campaign copy',
+  },
+  PROMO: {
+    what: 'Promotional copy is',
+    where: 'your site, newsletter or posts',
+    button: 'Copy promotion',
+  },
+};
+
 export const metadata: Metadata = { title: 'Content draft' };
 
 export default async function DraftDetailPage({
@@ -207,7 +225,9 @@ export default async function DraftDetailPage({
                     ? platformSpec(meta.writtenFor as typeof platform).label
                     : type === 'EMAIL'
                       ? 'email'
-                      : null
+                      : type === 'CAMPAIGN_COPY' || type === 'PROMO'
+                        ? CONTENT_TYPE_LABELS[type].toLowerCase()
+                        : null
                 }
                 tone={meta.tone ?? null}
                 quality={meta.quality ?? null}
@@ -233,7 +253,11 @@ export default async function DraftDetailPage({
               <Row label="Status" value={CONTENT_STATUS_LABELS[draft.status]} />
               <Row
                 label={type === 'AD' ? 'Placement' : 'Platform'}
-                value={type === 'EMAIL' ? 'Email (copied out)' : platformSpec(platform).label}
+                value={
+                  type === 'EMAIL' || type === 'CAMPAIGN_COPY' || type === 'PROMO'
+                    ? `${CONTENT_TYPE_LABELS[type]} (copied out)`
+                    : platformSpec(platform).label
+                }
               />
               <Row
                 label="Graphic"
@@ -271,12 +295,11 @@ export default async function DraftDetailPage({
               <p>
                 {copyOnly ? (
                   <>
-                    {type === 'EMAIL' ? 'Emails are' : 'Ads are'} written here
-                    and sent from{' '}
-                    {type === 'EMAIL' ? 'your email tool' : 'your ad manager'} —
-                    approve it, then use{' '}
+                    {COPY_OUT[type]?.what ?? 'This is'} written here and used
+                    in {COPY_OUT[type]?.where ?? 'your own tools'} — approve
+                    it, then use{' '}
                     <span className="font-medium text-foreground">
-                      “{type === 'EMAIL' ? 'Copy email' : 'Copy ad'}”
+                      “{COPY_OUT[type]?.button ?? 'Copy'}”
                     </span>
                     . Aura never posts it to a social network.
                   </>

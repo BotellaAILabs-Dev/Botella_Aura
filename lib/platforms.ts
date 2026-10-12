@@ -160,6 +160,11 @@ export function defaultPlatformFor(type: ContentTypeKey): SocialPlatformKey {
     // header best.
     case 'EMAIL':
       return 'LINKEDIN';
+    // Copied out like an email: the platform only shapes an optional image.
+    case 'CAMPAIGN_COPY':
+      return 'LINKEDIN';
+    case 'PROMO':
+      return 'INSTAGRAM';
   }
 }
 
@@ -201,6 +206,8 @@ export function platformsForType(type: ContentTypeKey): SocialPlatformKey[] {
       return ['FACEBOOK', 'INSTAGRAM', 'LINKEDIN', 'X'];
     // Not aimed at a network at all.
     case 'EMAIL':
+    case 'CAMPAIGN_COPY':
+    case 'PROMO':
       return [];
   }
 }

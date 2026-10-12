@@ -10,22 +10,22 @@ a context package assembled per draft, so Aura writes from what is true about
 
 ## What goes in
 
-| Section                           | From                                                                                                                                       | Required             |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
-| The brief                         | the person's brief text (secrets removed, their words kept)                                                                                | yes                  |
-| The business                      | the **current Business Context Snapshot** (content view): what it does and sells, website, and the product highlights that match the topic | yes                  |
-| How this format works             | the format's and network's playbook                                                                                                        | yes                  |
-| Written for Aura's recommendation | the Content Brief: key message, why now, expected outcome, evidence to cite (and only that), CTA, length, gaps not to invent               | when written for one |
-| The opportunity behind it         | its title, type and summary                                                                                                                | when written for one |
-| Marketing goal                    | the brief's goal, else the snapshot's; the campaign the piece is for (always), and running campaigns whose themes match                    | —                    |
-| Audience                          | the brief's audience, else the snapshot's                                                                                                  | —                    |
-| Brand voice                       | the snapshot's voice: summary, tone, words to avoid, vocabulary, emoji/hashtag habits                                                      | —                    |
-| What has worked                   | learned patterns that bear on this piece (topic, format or channel)                                                                        | —                    |
-| Reference page                    | a page the person linked in the brief, fetched live                                                                                        | —                    |
-| The business's own material       | knowledge passages that match the topic                                                                                                    | —                    |
-| Earlier posts on this topic       | approved or published posts from the last 120 days sharing at least two topic words — "do not repeat; stay consistent"                     | —                    |
-| Recently published topics         | from the snapshot                                                                                                                          | —                    |
-| Not confirmed                     | the snapshot's assumptions, marked as background only                                                                                      | —                    |
+| Section                           | From                                                                                                                                                                                                | Required             |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| The brief                         | the person's brief text (secrets removed, their words kept)                                                                                                                                         | yes                  |
+| The business                      | the **current Business Context Snapshot** (content view): what it does and sells, website, and the product highlights that match the topic                                                          | yes                  |
+| How this format works             | the format's and network's playbook                                                                                                                                                                 | yes                  |
+| Written for Aura's recommendation | the Content Brief: key message, why now, expected outcome, evidence to cite (and only that), CTA, length, gaps not to invent                                                                        | when written for one |
+| The opportunity behind it         | its title, type and summary                                                                                                                                                                         | when written for one |
+| Marketing goal                    | the brief's goal, else the snapshot's; the campaign the piece is for (always), and running campaigns whose themes match                                                                             | —                    |
+| Audience                          | the brief's audience, else the snapshot's                                                                                                                                                           | —                    |
+| Brand voice                       | the business's stated voice from the snapshot; else Aura's brand voice profile (built from its content, labelled as such): summary, tone, words to avoid, vocabulary, phrases, emoji/hashtag habits | —                    |
+| What has worked                   | learned patterns that bear on this piece (topic, format or channel)                                                                                                                                 | —                    |
+| Reference page                    | a page the person linked in the brief, fetched live                                                                                                                                                 | —                    |
+| The business's own material       | knowledge passages that match the topic                                                                                                                                                             | —                    |
+| Earlier posts on this topic       | approved or published posts from the last 120 days sharing at least two topic words — "do not repeat; stay consistent"                                                                              | —                    |
+| Recently published topics         | from the snapshot                                                                                                                                                                                   | —                    |
+| Not confirmed                     | the snapshot's assumptions, marked as background only                                                                                                                                               | —                    |
 
 ## Current, not stale
 

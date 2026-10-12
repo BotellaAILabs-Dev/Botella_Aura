@@ -70,8 +70,9 @@ describe('every content type stays wired end to end', () => {
     expect(bodySchemaFor(type as ContentTypeKey)).toBeDefined();
     expect(CONTENT_TYPE_LABELS[type as ContentTypeKey]).toBeTruthy();
     const platforms = platformsForType(type as ContentTypeKey);
-    // An email is never aimed at a network (copy-only); every other type is.
-    if (type === 'EMAIL') {
+    // Email, campaign copy and promotional copy are never aimed at a network
+    // (copied out to another tool); every other type is.
+    if (['EMAIL', 'CAMPAIGN_COPY', 'PROMO'].includes(type)) {
       expect(platforms).toEqual([]);
       return;
     }

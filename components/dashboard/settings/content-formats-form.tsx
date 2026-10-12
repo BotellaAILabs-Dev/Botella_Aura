@@ -28,6 +28,10 @@ const FORMAT_BLURBS: Record<ContentTypeKey, string> = {
   EMAIL:
     'A marketing email: subject line, preview text, body and one clear call to action. Sent from your own email tool.',
   AD: 'Ad copy — headline, primary text and button — shaped for the placement it runs in.',
+  CAMPAIGN_COPY:
+    'Campaign copy — a tagline, key message, short and long versions, proof points and one action, to use across a campaign.',
+  PROMO:
+    'Promotional copy — an offer announced for a banner, newsletter or post. Never invents a price, discount or deadline.',
 };
 
 /**

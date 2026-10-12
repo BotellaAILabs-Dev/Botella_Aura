@@ -211,7 +211,11 @@ export function DraftActions({
         ? 'Copied — paste it into your email tool.'
         : type === 'AD'
           ? 'Copied — paste it into your ad manager.'
-          : 'Copied — paste it into LinkedIn / X.',
+          : type === 'CAMPAIGN_COPY'
+            ? 'Copied — use it across your campaign’s channels.'
+            : type === 'PROMO'
+              ? 'Copied — paste it into your site, newsletter or post.'
+              : 'Copied — paste it into LinkedIn / X.',
     );
   }
 
@@ -413,7 +417,11 @@ export function DraftActions({
             ? 'Copy email'
             : type === 'AD'
               ? 'Copy ad'
-              : 'Copy for manual posting'}
+              : type === 'CAMPAIGN_COPY'
+                ? 'Copy campaign copy'
+                : type === 'PROMO'
+                  ? 'Copy promotion'
+                  : 'Copy for manual posting'}
         </Button>
       </div>
 

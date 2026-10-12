@@ -1,5 +1,6 @@
 import type { SocialPlatformKey } from '@/lib/platforms';
 import type { ContentTone, ContentTypeKey } from '@/lib/validations/content';
+import { FORMAT_SPECS } from '@/lib/content-formats';
 
 /**
  * The content playbook: how copy should be written for where it will run.
@@ -76,47 +77,14 @@ const PLATFORM_STYLE: Record<
   },
 };
 
-/** How each format is built, on top of the network's style. */
-const FORMAT_RULES: Record<ContentTypeKey, string[]> = {
-  LINKEDIN_POST: [
-    '`hook`: one line, the scroll-stopper.',
-    '`paragraphs`: 3–5 short paragraphs that deliver on the hook.',
-    '`cta`: one sentence — the single thing to do next. Not "Thoughts?" on its own.',
-  ],
-  IMAGE_POST: [
-    '`caption`: the whole post, reading as one piece — it adds what the image cannot say.',
-    '`cta`: one short, specific action.',
-    '`altText`: one plain sentence describing the image for screen readers.',
-  ],
-  CAROUSEL: [
-    'Slide 1 is the cover: a title that promises something specific.',
-    'One idea per slide: a short headline and one supporting line.',
-    'The last slide pays off the cover. `cta` is the action after the last slide.',
-  ],
-  TWEET_THREAD: [
-    'Tweet 1 is the hook; each following tweet earns its place.',
-    'The last tweet closes the loop and carries the call to action.',
-    'Do not number the tweets — the order is the number.',
-  ],
-  BLOG: [
-    'A headline that says what the reader gets, a one-line subtitle, then 2–10 sections with clear headings.',
-    'Each section makes one point with a concrete example. No filler introduction, no "In conclusion".',
-  ],
-  EMAIL: [
-    '`subjectLine`: under 50 characters, specific, no ALL CAPS or spam words ("FREE!!!", "Act now").',
-    '`previewText`: complements the subject — it is the second line in the inbox, not a repeat.',
-    '`paragraphs`: 1–4 short paragraphs; one idea; write to one person.',
-    '`cta`: the button text — a verb and an outcome ("Book your tasting"), under 5 words.',
-    '`signOff`: from a real person or the team, in the brand’s voice.',
-  ],
-  AD: [
-    '`primaryText`: the first 125 characters must make the case on their own (the rest is hidden).',
-    '`headline`: under 40 characters, the benefit or offer — not the brand name alone.',
-    '`description`: optional supporting line, under 30 characters.',
-    '`cta`: a standard ad button label ("Shop now", "Learn more", "Sign up", "Book now", "Get offer").',
-    'No hashtags in ads. One message, one action.',
-  ],
-};
+/**
+ * How each format is built, on top of the network's style — its template in
+ * the format registry (lib/content-formats.ts), the one definition of every
+ * format.
+ */
+const FORMAT_RULES: Record<ContentTypeKey, string[]> = Object.fromEntries(
+  Object.values(FORMAT_SPECS).map((f) => [f.key, f.template]),
+) as Record<ContentTypeKey, string[]>;
 
 /** Limits per format, tightened per network where the network is stricter. */
 function limitsFor(
@@ -152,6 +120,22 @@ function limitsFor(
       return {
         hardMaxChars: 1200,
         softMaxChars: 400,
+        hashtagMin: 0,
+        hashtagMax: 0,
+        ctaExpected: true,
+      };
+    case 'CAMPAIGN_COPY':
+      return {
+        hardMaxChars: 2400,
+        softMaxChars: 1600,
+        hashtagMin: 0,
+        hashtagMax: 0,
+        ctaExpected: true,
+      };
+    case 'PROMO':
+      return {
+        hardMaxChars: 1300,
+        softMaxChars: 700,
         hashtagMin: 0,
         hashtagMax: 0,
         ctaExpected: true,
@@ -204,6 +188,8 @@ const FORMAT_LABEL: Record<ContentTypeKey, string> = {
   BLOG: 'blog article',
   EMAIL: 'marketing email',
   AD: 'ad',
+  CAMPAIGN_COPY: 'campaign copy kit',
+  PROMO: 'promotional copy',
 };
 
 /**
@@ -214,7 +200,8 @@ export function playbookFor(
   type: ContentTypeKey,
   platform: SocialPlatformKey | null,
 ): Playbook {
-  const social = type !== 'EMAIL' && type !== 'BLOG' && platform !== null;
+  const social =
+    !['EMAIL', 'BLOG', 'CAMPAIGN_COPY', 'PROMO'].includes(type) && platform !== null;
   const style = social ? PLATFORM_STYLE[platform!] : null;
   return {
     label: style ? `${style.name} ${FORMAT_LABEL[type]}` : FORMAT_LABEL[type],

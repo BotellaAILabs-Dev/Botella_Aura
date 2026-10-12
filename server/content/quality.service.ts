@@ -128,7 +128,8 @@ export function writingPlatform(
   type: ContentTypeKey,
   platform: SocialPlatformKey | null | undefined,
 ): SocialPlatformKey | null {
-  if (type === 'EMAIL') return null;
+  // Copied out, not posted to a network: no network's rules apply.
+  if (type === 'EMAIL' || type === 'CAMPAIGN_COPY' || type === 'PROMO') return null;
   return resolvePlatform(type, platform ?? null);
 }
 
@@ -138,12 +139,14 @@ export function qualityContextFor(
   platform: SocialPlatformKey | null,
   w: WritingContext,
   sources: string[],
+  options: { ctaRequired?: boolean } = {},
 ): QualityContext {
   return {
     limits: playbookFor(type, platform).limits,
     sources: [w.system, ...sources].join('\n'),
     avoid: w.avoid,
     alcohol: w.alcohol,
+    ...(options.ctaRequired ? { ctaRequired: true } : {}),
   };
 }
 

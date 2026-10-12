@@ -230,6 +230,24 @@ export function copyParts(type: ContentTypeKey, body: unknown): CopyParts {
         str(b.cta),
       ];
       break;
+    case 'CAMPAIGN_COPY':
+      units = [
+        str(b.tagline),
+        str(b.keyMessage),
+        str(b.shortCopy),
+        str(b.longCopy),
+        ...arr(b.proofPoints).map(str),
+        str(b.cta),
+      ];
+      break;
+    case 'PROMO':
+      units = [
+        str(b.headline),
+        [str(b.offer), str(b.body), str(b.urgency), str(b.terms), str(b.cta)]
+          .filter(Boolean)
+          .join('\n\n'),
+      ];
+      break;
   }
   const hashtags = arr(b.hashtags ?? b.tags)
     .map(str)
@@ -259,6 +277,12 @@ export interface QualityContext {
   /** Topics the brand never mentions. */
   avoid: string[];
   alcohol: boolean;
+  /**
+   * The format or the brief requires a call to action
+   * (lib/content-formats.ts): a missing one blocks approval, so the writer is
+   * asked to add it, instead of being a warning that can ship.
+   */
+  ctaRequired?: boolean;
   now?: Date;
 }
 
@@ -413,8 +437,10 @@ export function checkQuality(
   ) {
     push({
       code: 'no-cta',
-      severity: 'warn',
-      message: 'No call to action — say what the reader should do next.',
+      severity: ctx.ctaRequired ? 'block' : 'warn',
+      message: ctx.ctaRequired
+        ? 'No call to action, and this format needs one — say what the reader should do next.'
+        : 'No call to action — say what the reader should do next.',
     });
   }
 

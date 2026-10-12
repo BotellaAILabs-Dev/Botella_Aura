@@ -357,6 +357,18 @@ export interface AssembleInput {
   /** Text of a page the person linked, already fetched. */
   reference: { url: string; text: string }[];
   previous: PreviousPiece[];
+  /**
+   * The brand voice profile Aura applies to every draft, when there is one
+   * (it may be Aura-built, which the snapshot does not count as a fact).
+   */
+  brandVoice?: {
+    summary: string | null;
+    tone: string[];
+    avoid: string[];
+    vocabulary: string[];
+    phrases: string[];
+    formatting: string | null;
+  } | null;
   budgetTokens?: number;
   now?: Date;
 }
@@ -586,23 +598,43 @@ export function assembleGenerationContext(
       : 'business_snapshot',
   );
 
-  // --- Voice.
+  // --- Voice. The snapshot keeps an Aura-built voice profile out of its
+  // trusted facts (it is inferred, not stated) — but the profile exists to be
+  // applied to every draft, so it is used here, said for what it is. The
+  // business's own words about its voice are always kept.
   const v = s.voice;
+  const profile = input.brandVoice ?? null;
+  const voiceFrom = v?.summary
+    ? 'business_snapshot'
+    : profile
+      ? 'brand_voice_profile'
+      : 'business_snapshot';
+  const tone = v?.tone.length ? v.tone : (profile?.tone ?? []);
+  const avoidList = v?.avoid.length ? v.avoid : (profile?.avoid ?? []);
+  const vocabulary = v?.vocabulary.length
+    ? v.vocabulary
+    : (profile?.vocabulary ?? []);
   add(
     'voice',
     lines(
-      v?.summary,
-      v?.tone.length ? `Tone: ${v.tone.join(', ')}` : null,
-      v?.avoid.length ? `Never mention: ${v.avoid.join(', ')}` : null,
-      v?.vocabulary.length
-        ? `Their vocabulary: ${v.vocabulary.join(', ')}`
+      v?.summary ??
+        (profile?.summary
+          ? `${profile.summary} (Aura’s profile of your voice, from your own content)`
+          : null),
+      tone.length ? `Tone: ${tone.join(', ')}` : null,
+      avoidList.length ? `Never mention: ${avoidList.join(', ')}` : null,
+      vocabulary.length ? `Their vocabulary: ${vocabulary.join(', ')}` : null,
+      profile?.phrases.length
+        ? `Phrases they use: ${profile.phrases.slice(0, 5).join('; ')}`
         : null,
       v?.emoji || v?.hashtags
         ? `Emoji: ${v.emoji ?? 'unspecified'}. Hashtags: ${v.hashtags ?? 'unspecified'}.`
-        : null,
+        : profile?.formatting
+          ? `Formatting: ${profile.formatting}`
+          : null,
       v?.notes && `In their own words: ${clean(v.notes, false)}`,
     ),
-    'business_snapshot',
+    voiceFrom,
   );
 
   // --- Memory: only patterns that bear on this piece.

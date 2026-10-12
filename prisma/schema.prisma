@@ -80,6 +80,12 @@ enum ContentType {
   /// Ad copy (headline, primary text, description, CTA button) shaped for the
   /// placement it targets. Copy only — set up in the ad platform by hand.
   AD
+  /// A campaign's messaging kit: tagline, key message, short and long copy,
+  /// proof points and the action. Copied out, never published.
+  CAMPAIGN_COPY
+  /// An offer, announced: headline, offer, body, terms, urgency, action.
+  /// Copied out, never published.
+  PROMO
 }
 
 /// Approval lifecycle for generated content. The core human-in-the-loop

@@ -9,6 +9,8 @@ import {
   type BlogBody,
   type EmailBody,
   type AdBody,
+  type CampaignCopyBody,
+  type PromoBody,
 } from '@/lib/validations/content';
 
 const tags = (list: string[]) =>
@@ -98,6 +100,32 @@ export function renderForManual(draft: ContentDraft): string {
         `Headline: ${b.headline}`,
         b.description && `Description: ${b.description}`,
         `Button: ${b.cta}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+    }
+    case 'CAMPAIGN_COPY': {
+      const b = parsed.data as CampaignCopyBody;
+      return [
+        `Tagline: ${b.tagline}`,
+        `Key message: ${b.keyMessage}`,
+        `Short copy:\n${b.shortCopy}`,
+        `Long copy:\n${b.longCopy}`,
+        b.proofPoints.length && `Proof points:\n${b.proofPoints.map((p) => `- ${p}`).join('\n')}`,
+        b.cta && `Call to action: ${b.cta}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+    }
+    case 'PROMO': {
+      const b = parsed.data as PromoBody;
+      return [
+        b.headline,
+        b.offer,
+        b.body,
+        b.urgency,
+        b.terms && `Terms: ${b.terms}`,
+        b.cta && `[ ${b.cta} ]`,
       ]
         .filter(Boolean)
         .join('\n\n');

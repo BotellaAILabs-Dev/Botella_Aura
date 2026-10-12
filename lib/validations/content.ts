@@ -18,6 +18,8 @@ export const CONTENT_TYPES = [
   'BLOG',
   'EMAIL',
   'AD',
+  'CAMPAIGN_COPY',
+  'PROMO',
 ] as const;
 export type ContentTypeKey = (typeof CONTENT_TYPES)[number];
 
@@ -26,7 +28,12 @@ export type ContentTypeKey = (typeof CONTENT_TYPES)[number];
  * the business's email tool, an ad from the ad platform. They are copied out,
  * never published to a social network.
  */
-export const COPY_ONLY_TYPES: readonly ContentTypeKey[] = ['EMAIL', 'AD'];
+export const COPY_ONLY_TYPES: readonly ContentTypeKey[] = [
+  'EMAIL',
+  'AD',
+  'CAMPAIGN_COPY',
+  'PROMO',
+];
 export function isCopyOnlyType(type: ContentTypeKey): boolean {
   return COPY_ONLY_TYPES.includes(type);
 }
@@ -118,6 +125,39 @@ export const adSchema = z.object({
   cta: z.string().max(40).default('Learn more'),
 });
 
+/**
+ * Campaign copy: the messaging kit a campaign runs on — one line to remember,
+ * the message it carries, a short and a long version to adapt to any channel,
+ * proof points, and the action. Copied into whatever the campaign uses.
+ */
+export const campaignCopySchema = z.object({
+  tagline: z.string().min(1).max(80),
+  keyMessage: z.string().min(1).max(300),
+  /** Fits a social post, an ad or a banner. */
+  shortCopy: z.string().min(1).max(280),
+  /** Fits an email, a landing page section or a longer post. */
+  longCopy: z.string().min(1).max(1200),
+  /** Only what the evidence or the business's material supports. */
+  proofPoints: z.array(z.string().min(1).max(200)).max(4).default([]),
+  cta: ctaField,
+});
+
+/**
+ * Promotional copy: an offer, announced — for a site banner, a newsletter
+ * block, a shop window or a post. Never invents a price, discount or date.
+ */
+export const promoSchema = z.object({
+  headline: z.string().min(1).max(80),
+  /** What is on offer, in the business's own terms. */
+  offer: z.string().min(1).max(200),
+  body: z.string().min(1).max(800),
+  /** Conditions the business stated; empty when none were given. */
+  terms: z.string().max(300).default(''),
+  /** A real deadline or limit; empty when there is none. */
+  urgency: z.string().max(120).default(''),
+  cta: ctaField,
+});
+
 // ---- Brand Voice Profile ---------------------------------------------------
 
 export const brandVoiceProfileSchema = z.object({
@@ -146,6 +186,8 @@ export type ThreadBody = z.infer<typeof threadSchema>;
 export type BlogBody = z.infer<typeof blogSchema>;
 export type EmailBody = z.infer<typeof emailSchema>;
 export type AdBody = z.infer<typeof adSchema>;
+export type CampaignCopyBody = z.infer<typeof campaignCopySchema>;
+export type PromoBody = z.infer<typeof promoSchema>;
 export type ContentBody =
   | LinkedInPostBody
   | ImagePostBody
@@ -153,7 +195,9 @@ export type ContentBody =
   | ThreadBody
   | BlogBody
   | EmailBody
-  | AdBody;
+  | AdBody
+  | CampaignCopyBody
+  | PromoBody;
 
 /** Map a content type to its body schema. */
 export function bodySchemaFor(type: ContentTypeKey) {
@@ -172,6 +216,10 @@ export function bodySchemaFor(type: ContentTypeKey) {
       return emailSchema;
     case 'AD':
       return adSchema;
+    case 'CAMPAIGN_COPY':
+      return campaignCopySchema;
+    case 'PROMO':
+      return promoSchema;
   }
 }
 

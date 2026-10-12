@@ -1,4 +1,12 @@
-import { Image as ImageIcon, Linkedin, Mail, Megaphone, Twitter } from 'lucide-react';
+import {
+  Image as ImageIcon,
+  Linkedin,
+  Mail,
+  Megaphone,
+  Tag,
+  Target,
+  Twitter,
+} from 'lucide-react';
 import {
   bodySchemaFor,
   type ContentTypeKey,
@@ -9,6 +17,8 @@ import {
   type BlogBody,
   type EmailBody,
   type AdBody,
+  type CampaignCopyBody,
+  type PromoBody,
 } from '@/lib/validations/content';
 
 /**
@@ -47,7 +57,65 @@ export function DraftPreview({
       return <EmailPreview b={parsed.data as EmailBody} />;
     case 'AD':
       return <AdPreview b={parsed.data as AdBody} />;
+    case 'CAMPAIGN_COPY':
+      return <CampaignCopyPreview b={parsed.data as CampaignCopyBody} />;
+    case 'PROMO':
+      return <PromoPreview b={parsed.data as PromoBody} />;
   }
+}
+
+/** Campaign copy: the kit, part by part, as it will be used. */
+function CampaignCopyPreview({ b }: { b: CampaignCopyBody }) {
+  const Part = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div className="space-y-1">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <div className="whitespace-pre-wrap text-sm text-foreground">{children}</div>
+    </div>
+  );
+  return (
+    <div className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-sm">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Target className="h-4 w-4 text-primary" /> Campaign copy
+      </div>
+      <p className="text-xl font-semibold text-foreground">{b.tagline}</p>
+      <Part label="Key message">{b.keyMessage}</Part>
+      <Part label="Short copy">{b.shortCopy}</Part>
+      <Part label="Long copy">{b.longCopy}</Part>
+      {b.proofPoints.length > 0 && (
+        <Part label="Proof points">
+          <ul className="list-disc space-y-0.5 pl-5">
+            {b.proofPoints.map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+        </Part>
+      )}
+      <Cta text={b.cta} />
+    </div>
+  );
+}
+
+/** Promotional copy: as a banner block would show it. */
+function PromoPreview({ b }: { b: PromoBody }) {
+  return (
+    <div className="mx-auto max-w-md space-y-3 rounded-lg border border-border bg-card p-5 shadow-sm">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Tag className="h-4 w-4 text-primary" /> Promotion
+      </div>
+      <p className="text-lg font-semibold text-foreground">{b.headline}</p>
+      <p className="text-sm font-medium text-primary">{b.offer}</p>
+      <p className="whitespace-pre-wrap text-sm text-foreground">{b.body}</p>
+      {b.urgency && <p className="text-xs font-medium text-foreground">{b.urgency}</p>}
+      {b.terms && <p className="text-xs text-muted-foreground">Terms: {b.terms}</p>}
+      {b.cta && (
+        <span className="inline-block rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground">
+          {b.cta}
+        </span>
+      )}
+    </div>
+  );
 }
 
 /** The call to action, shown as its own line so it is obvious there is one. */

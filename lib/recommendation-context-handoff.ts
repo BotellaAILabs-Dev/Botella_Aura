@@ -337,6 +337,8 @@ const FORMAT_WORDS: Record<string, string[]> = {
   EMAIL: ['email', 'newsletter'],
   IMAGE_POST: ['image', 'photo', 'visual'],
   AD: [' ad ', ' ads ', 'advert'],
+  CAMPAIGN_COPY: ['campaign', 'tagline', 'messaging'],
+  PROMO: ['promotion', 'promo', 'offer', 'discount', 'sale'],
 };
 
 /** Words in any recommendation that say nothing about its topic. */

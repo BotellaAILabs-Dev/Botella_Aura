@@ -13,6 +13,8 @@ import { platformSpec, type SocialPlatformKey } from '@/lib/platforms';
 import type { ContentTypeKey } from '@/lib/validations/content';
 import { getContextSnapshot } from '@/server/business-context/snapshot.service';
 import { retrieve } from '@/server/knowledge/retrieve';
+import { getBrandVoiceProfile } from '@/server/content/brand-voice.service';
+import type { BrandVoiceProfile } from '@/lib/validations/content';
 
 /**
  * Gathers what a draft's generation context is assembled from
@@ -27,6 +29,43 @@ import { retrieve } from '@/server/knowledge/retrieve';
  *
  * Nothing about leads, contacts, connections or credentials is read here.
  */
+
+/**
+ * The voice to apply: the Content Brief's (which carries the profile with its
+ * source), else the saved profile. Null when the business has neither yet.
+ */
+function brandVoiceFor(
+  cb: ContentBrief | null,
+  profile: BrandVoiceProfile | null,
+): NonNullable<
+  Parameters<typeof assembleGenerationContext>[0]['brandVoice']
+> | null {
+  if (cb?.brandVoice) {
+    return {
+      summary: cb.brandVoice.summary,
+      tone: cb.brandVoice.tone,
+      avoid: cb.brandVoice.avoid,
+      vocabulary: [],
+      phrases: cb.brandVoice.phrases,
+      formatting: cb.brandVoice.formatting,
+    };
+  }
+  if (!profile) return null;
+  return {
+    summary: profile.summary || null,
+    tone: profile.toneDescriptors,
+    avoid: profile.topicsToAvoid,
+    vocabulary: profile.vocabulary,
+    phrases: profile.commonPhrases,
+    formatting: [
+      `emoji: ${profile.formatting.emojiUsage}`,
+      `hashtags: ${profile.formatting.hashtagStyle}`,
+      profile.formatting.notes,
+    ]
+      .filter(Boolean)
+      .join('; '),
+  };
+}
 
 /** How far back earlier posts are considered. */
 const PREVIOUS_WINDOW_DAYS = 120;
@@ -54,7 +93,7 @@ export async function assembleDraftContext(args: {
     .filter(Boolean)
     .join(' ');
 
-  const [snap, knowledge, previous, campaign] = await Promise.all([
+  const [snap, knowledge, previous, campaign, company] = await Promise.all([
     getContextSnapshot(args.companyId, { view: 'content', now }),
     retrieve(args.companyId, query, { limit: 8 }).catch((err: unknown) => {
       logger.warn(
@@ -94,8 +133,13 @@ export async function assembleDraftContext(args: {
           },
         })
       : null,
+    db.company.findUnique({
+      where: { id: args.companyId },
+      select: { brandVoiceProfile: true },
+    }),
   ]);
   if (!snap) throw new Error('Company not found');
+  const profile = company ? getBrandVoiceProfile(company) : null;
 
   const passages: KnowledgePassage[] = knowledge.map((k) => ({
     id: k.id,
@@ -134,6 +178,7 @@ export async function assembleDraftContext(args: {
     knowledge: passages,
     reference: args.reference,
     previous: pieces,
+    brandVoice: brandVoiceFor(args.contentBrief, profile),
     now,
   });
 }

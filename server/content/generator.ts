@@ -14,9 +14,14 @@ import {
   playbookFor,
 } from '@/lib/content-playbook';
 import { issuesAsFeedback, type QualityReport } from '@/lib/content-quality';
-import { platformsForType, type SocialPlatformKey } from '@/lib/platforms';
+import {
+  platformSpec,
+  platformsForType,
+  type SocialPlatformKey,
+} from '@/lib/platforms';
 import type { CreationProvenance } from '@/lib/recommendation-creation';
 import type { ContentBrief } from '@/lib/content-brief';
+import { FORMAT_SPECS, ctaRequired, formatInstructions } from '@/lib/content-formats';
 import {
   generationContextRecord,
   generationContextToPrompt,
@@ -66,46 +71,20 @@ interface TypeSpec {
   schemaText: string;
 }
 
-const TYPE_SPECS: Record<ContentTypeKey, TypeSpec> = {
-  LINKEDIN_POST: {
-    label: 'LinkedIn post',
-    schemaText:
-      '{ "hook": string, "paragraphs": string[3..5], "cta": string, "hashtags": string[] (without #) }',
-  },
-  IMAGE_POST: {
-    label: 'Single image post',
-    schemaText:
-      '{ "caption": string, "cta": string, "hashtags": string[] (without #), "altText": string }',
-  },
-  CAROUSEL: {
-    label: 'Carousel',
-    schemaText:
-      '{ "title": string, "slides": [{ "headline": string, "body": string }] (5..8), "cta": string, "hashtags": string[] (without #) }',
-  },
-  TWEET_THREAD: {
-    label: 'X thread',
-    schemaText:
-      '{ "tweets": string[2..12] (each <= 280 chars), "hashtags": string[0..2] (without #) }',
-  },
-  BLOG: {
-    label: 'Blog draft',
-    schemaText:
-      '{ "headline": string, "subtitle": string, "sections": [{ "heading": string, "body": string }] (2..10), "tags": string[0..10] }',
-  },
-  EMAIL: {
-    label: 'Email',
-    schemaText:
-      '{ "subjectLine": string, "previewText": string, "greeting": string, "paragraphs": string[1..6], "cta": string, "signOff": string }',
-  },
-  AD: {
-    label: 'Ad copy',
-    schemaText:
-      '{ "headline": string, "primaryText": string, "description": string, "cta": string }',
-  },
-};
+/**
+ * Label and output shape per format, from the format registry
+ * (lib/content-formats.ts) — the one definition of every format.
+ */
+const TYPE_SPECS: Record<ContentTypeKey, TypeSpec> = Object.fromEntries(
+  Object.values(FORMAT_SPECS).map((f) => [
+    f.key,
+    { label: f.label, schemaText: f.output.schemaText },
+  ]),
+) as Record<ContentTypeKey, TypeSpec>;
 
 const maxTokensFor = (type: ContentTypeKey, n: number) =>
-  (type === 'BLOG' ? 4000 : 1600) * Math.max(1, n);
+  (type === 'BLOG' ? 4000 : type === 'CAMPAIGN_COPY' ? 2200 : 1600) *
+  Math.max(1, n);
 
 /** Everything the copy may draw facts from, beyond the system prompt. */
 function groundingSources(
@@ -127,8 +106,12 @@ async function checkAndRepair(args: {
   w: WritingContext;
   platform: SocialPlatformKey | null;
   sources: string[];
+  /** A missing call to action blocks (and is repaired) — lib/content-formats.ts. */
+  ctaRequired?: boolean;
 }): Promise<{ body: unknown; quality: QualityReport; repaired: boolean }> {
-  const qc = qualityContextFor(args.type, args.platform, args.w, args.sources);
+  const qc = qualityContextFor(args.type, args.platform, args.w, args.sources, {
+    ctaRequired: args.ctaRequired ?? false,
+  });
   const first = finalizeBody(args.type, args.body, qc);
   const blocking = first.quality.issues.filter((i) => i.severity === 'block');
   if (!blocking.length) return { ...first, repaired: false };
@@ -255,8 +238,31 @@ export async function generateDraft({
   });
   const contextText = generationContextToPrompt(context);
 
+  // Who it is for and where it runs — said in the task itself, so the copy
+  // is shaped for them (the context carries the detail).
+  const cb = recommendation?.brief ?? null;
+  const audience =
+    cb?.targetAudience?.value ??
+    context.sections.find((s) => s.key === 'audience')?.text.split('\n')[0] ??
+    null;
+  // Copied-out formats (email, campaign copy, promotion) run on no network.
+  const channelLabel = platform !== null ? platformSpec(platform).label : null;
+  const mustHaveCta = ctaRequired(type, cb?.cta.expected ?? null);
+  const formatText = formatInstructions(type, {
+    limits: playbook.limits,
+    // The brief's destination, else the business's own site — never made up.
+    ctaDestination: cb?.cta.destination?.value ?? company.website ?? null,
+    ctaExpected: cb?.cta.expected ?? null,
+  });
+
   const prompt = [
-    `TASK: Write ${n > 1 ? `${n} different versions of ` : ''}a ${playbook.label} for ${company.name}.`,
+    `TASK: Write ${n > 1 ? `${n} different versions of ` : ''}a ${playbook.label} for ${company.name}${
+      audience ? `, for ${audience}` : ''
+    }${channelLabel ? `, to run on ${channelLabel}` : ''}.`,
+    '',
+    // The format's definition (lib/content-formats.ts): purpose, where it
+    // goes, length, the call to action and how the brand voice applies.
+    formatText,
     '',
     tone
       ? `\nTONE FOR THIS PIECE (within the brand voice): ${TONE_GUIDANCE[tone]}`
@@ -325,7 +331,14 @@ export async function generateDraft({
         v.angle ||
         VARIATION_ANGLES[i]?.split(' with ')[0] ||
         `Version ${i + 1}`,
-      ...(await checkAndRepair({ type, body: v.body, w, platform, sources })),
+      ...(await checkAndRepair({
+        type,
+        body: v.body,
+        w,
+        platform,
+        sources,
+        ctaRequired: mustHaveCta,
+      })),
     })),
   );
   const first = checked[0]!;
@@ -515,6 +528,13 @@ export async function refineDraft({
     w,
     platform,
     sources: groundingSources(brief, '', knowledge),
+    // A revision keeps the format's rule; the brief it was written from, if
+    // any, decides an optional one.
+    ctaRequired: ctaRequired(
+      type,
+      ((meta.brief ?? null) as { cta?: { expected?: boolean } } | null)?.cta
+        ?.expected ?? null,
+    ),
   });
 
   const history = [
