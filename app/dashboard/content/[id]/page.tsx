@@ -34,6 +34,8 @@ import { PageHeader } from '@/components/dashboard/page-header';
 import { Badge, statusBadgeVariant } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { DraftPreview } from '@/components/dashboard/content/draft-preview';
+import { availableVariations } from '@/lib/content-variations';
+import type { SocialPlatformKey } from '@/lib/platforms';
 import { CreatedFromSuggestion } from '@/components/dashboard/content/created-from-suggestion';
 import { VisualBriefPanel } from '@/components/dashboard/content/visual-brief-panel';
 import { visualBriefForDraft } from '@/server/media/visual-brief.service';
@@ -92,7 +94,14 @@ export default async function DraftDetailPage({
   const meta = (draft.aiMetadata ?? {}) as {
     source?: { kind?: string; brief?: string | null };
     quality?: QualityReport;
-    variations?: { angle?: string; body?: unknown; quality?: QualityReport }[];
+    variations?: {
+      angle?: string;
+      body?: unknown;
+      quality?: QualityReport;
+      kind?: string;
+      platform?: SocialPlatformKey;
+      facts?: { introduced?: string[] };
+    }[];
     activeVariation?: number;
     history?: unknown[];
     writtenFor?: string | null;
@@ -111,12 +120,36 @@ export default async function DraftDetailPage({
   };
   const sourceKind = meta.source?.kind;
   const copyOnly = isCopyOnlyType(type);
-  const variations = (meta.variations ?? []).map((v) => ({
-    angle: v.angle ?? '',
-    snippet: draftSnippet(type, v.body),
-    approvable: v.quality?.approvable ?? true,
-    issues: (v.quality?.issues ?? []).filter((i) => i.severity === 'block').length,
-  }));
+  const variations = (meta.variations ?? []).map((v, i) => {
+    // The version in use reads as the draft does now (hand edits included).
+    const body = i === (meta.activeVariation ?? 0) ? draft.body : v.body;
+    const blockers = (v.quality?.issues ?? []).filter((x) => x.severity === 'block');
+    return {
+      angle: v.angle ?? '',
+      snippet: draftSnippet(type, body),
+      text: renderForManual({ ...draft, body } as typeof draft),
+      approvable: v.quality?.approvable ?? true,
+      issues: blockers.length,
+      blockers: blockers.map((x) => x.message),
+      ...(v.kind ? { kind: v.kind } : {}),
+      platformLabel: v.platform ? platformSpec(v.platform).label : null,
+      // Only variations are fact-checked; versions written at generation are originals.
+      factsKept: v.facts ? (v.facts.introduced ?? []).length === 0 : null,
+      introduced: v.facts?.introduced ?? [],
+    };
+  });
+  // What can be asked for here (lib/content-variations.ts).
+  const variationOptions =
+    canEdit
+      ? availableVariations(type, isCopyOnlyType(type) && type !== 'AD' ? null : platform).map((o) => ({
+          kind: o.kind,
+          label: o.label,
+          available: o.available,
+          reason: o.reason,
+          ...(o.platforms ? { platforms: o.platforms.map((p) => ({ key: p, label: platformSpec(p).label })) } : {}),
+          ...(o.tones ? { tones: o.tones } : {}),
+        }))
+      : [];
 
   // Graphics and attachments are loaded server-side so the panel renders with
   // its history already present — no spinner on a page that has been visited.
@@ -243,6 +276,7 @@ export default async function DraftDetailPage({
                 tone={meta.tone ?? null}
                 quality={meta.quality ?? null}
                 variations={variations}
+                options={variationOptions}
                 activeVariation={meta.activeVariation ?? 0}
               />
             </CardContent>

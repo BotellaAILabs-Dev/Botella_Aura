@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
   CheckCircle2,
+  Copy,
   Info,
   Layers,
   ShieldCheck,
@@ -21,6 +22,27 @@ export interface AssistantVariation {
   snippet: string;
   approvable: boolean;
   issues: number;
+  /** The whole version, to read before choosing it. */
+  text?: string;
+  /** What kind of variation it is (absent on versions written at generation). */
+  kind?: string;
+  /** The network a channel variation is written for. */
+  platformLabel?: string | null;
+  /** The facts guard: null when not checked (versions written at generation). */
+  factsKept?: boolean | null;
+  introduced?: string[];
+  /** What must be fixed before approval, in words. */
+  blockers?: string[];
+}
+
+/** What can be asked for on this draft (lib/content-variations.ts). */
+export interface VariationOption {
+  kind: string;
+  label: string;
+  available: boolean;
+  reason: string | null;
+  platforms?: { key: string; label: string }[];
+  tones?: readonly string[];
 }
 
 /**
@@ -37,6 +59,7 @@ export function ContentAssistantPanel({
   quality,
   variations,
   activeVariation,
+  options = [],
 }: {
   draftId: string;
   editable: boolean;
@@ -50,9 +73,92 @@ export function ContentAssistantPanel({
   } | null;
   variations: AssistantVariation[];
   activeVariation: number;
+  /** Variations that can be made here; empty when the draft cannot be varied. */
+  options?: VariationOption[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<number | null>(null);
+  const [making, setMaking] = useState<string | null>(null);
+  const [pickTone, setPickTone] = useState('');
+  const [channel, setChannel] = useState('');
+
+  /** Ask for a variation; it is added next to the original, not over it. */
+  async function vary(kind: string, extra: Record<string, string> = {}) {
+    setMaking(kind);
+    try {
+      if (kind === 'image') {
+        await anotherImage();
+        return;
+      }
+      const res = await fetch(`/api/content/drafts/${draftId}/variations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, ...extra }),
+      });
+      const b = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        label?: string;
+        factsKept?: boolean;
+      };
+      if (!res.ok) {
+        toast.error(b.error ?? 'Could not make that variation.');
+        return;
+      }
+      toast.success(
+        b.factsKept === false
+          ? `Added “${b.label}” — it changes a fact, so review it before using it.`
+          : `Added “${b.label}” — read it below and use it if you prefer it.`,
+      );
+      router.refresh();
+    } finally {
+      setMaking(null);
+    }
+  }
+
+  /** Another image from the same brief, through the graphics workflow. */
+  async function anotherImage() {
+    const req = await fetch(`/api/content/drafts/${draftId}/variations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'image' }),
+    });
+    const r = (await req.json().catch(() => ({}))) as {
+      error?: string;
+      image?: { prompt: string; negativePrompt?: string; style: string; aspectRatio?: string };
+    };
+    if (!req.ok || !r.image) {
+      toast.error(r.error ?? 'Could not prepare another image.');
+      return;
+    }
+    const res = await fetch(`/api/content/drafts/${draftId}/graphics`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...r.image, variations: 1 }),
+    });
+    const q = (await res.json().catch(() => ({}))) as { error?: string; jobId?: string; reused?: boolean };
+    if (!res.ok || !q.jobId) {
+      toast.error(q.error ?? 'Could not start another image. Your post is unaffected.');
+      return;
+    }
+    if (!q.reused) void fetch(`/api/jobs/${q.jobId}/run`, { method: 'POST' }).catch(() => undefined);
+    toast('Making another image — it appears under your graphics when ready.');
+    for (let i = 0; i < 80; i++) {
+      await new Promise((r2) => setTimeout(r2, 1500));
+      const job = (await fetch(`/api/jobs/${q.jobId}`, { cache: 'no-store' })
+        .then((x) => x.json())
+        .catch(() => null)) as { status?: string; error?: string | null } | null;
+      if (job?.status === 'SUCCEEDED') {
+        window.dispatchEvent(new Event('aura:graphics-refresh'));
+        toast.success('Another image is ready — review it with your graphics.');
+        return;
+      }
+      if (job?.status === 'FAILED') {
+        toast.error(`${job.error ?? 'The image could not be made.'} Your post is unaffected — try again or another model.`);
+        return;
+      }
+    }
+    toast('Still working on the image — it will appear when it lands.');
+  }
   const blocking = quality?.issues.filter((i) => i.severity === 'block') ?? [];
   const warnings = quality?.issues.filter((i) => i.severity === 'warn') ?? [];
 
@@ -139,6 +245,78 @@ export function ContentAssistantPanel({
         </p>
       )}
 
+      {editable && options.length > 0 && (
+        <div className="space-y-2">
+          <p className="flex items-center gap-2 font-medium text-foreground">
+            <Copy className="h-4 w-4" /> Make a variation
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Added next to this version — nothing is replaced. The goal, audience,
+            facts, evidence and brand stay the same.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {options
+              .filter((o) => o.available && !['tone', 'channel'].includes(o.kind))
+              .map((o) => (
+                <Button
+                  key={o.kind}
+                  size="sm"
+                  variant="outline"
+                  disabled={making !== null}
+                  loading={making === o.kind}
+                  onClick={() => void vary(o.kind)}
+                >
+                  {o.label}
+                </Button>
+              ))}
+          </div>
+          {options
+            .filter((o) => o.available && (o.kind === 'tone' || o.kind === 'channel'))
+            .map((o) => (
+              <div key={o.kind} className="flex flex-wrap items-center gap-2">
+                <select
+                  aria-label={o.label}
+                  className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                  value={o.kind === 'tone' ? pickTone : channel}
+                  onChange={(e) => (o.kind === 'tone' ? setPickTone(e.target.value) : setChannel(e.target.value))}
+                >
+                  <option value="">{o.kind === 'tone' ? 'Pick a tone…' : 'Pick a channel…'}</option>
+                  {o.kind === 'tone'
+                    ? (o.tones ?? []).map((t) => (
+                        <option key={t} value={t}>
+                          {t[0]!.toUpperCase() + t.slice(1)}
+                        </option>
+                      ))
+                    : (o.platforms ?? []).map((p) => (
+                        <option key={p.key} value={p.key}>
+                          {p.label}
+                        </option>
+                      ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={making !== null || !(o.kind === 'tone' ? pickTone : channel)}
+                  loading={making === o.kind}
+                  onClick={() =>
+                    void vary(o.kind, o.kind === 'tone' ? { tone: pickTone } : { platform: channel })
+                  }
+                >
+                  {o.label}
+                </Button>
+              </div>
+            ))}
+          {options.some((o) => !o.available) && (
+            <p className="text-xs text-muted-foreground">
+              {options
+                .filter((o) => !o.available)
+                .map((o) => `${o.label}: ${o.reason}`)
+                .join(' ')}
+            </p>
+          )}
+        </div>
+      )}
+
       {variations.length > 1 && (
         <div className="space-y-2">
           <p className="flex items-center gap-2 font-medium text-foreground">
@@ -156,8 +334,18 @@ export function ContentAssistantPanel({
                 }
               >
                 <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <span className="flex flex-wrap items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {v.angle || `Version ${i + 1}`}
+                    {v.platformLabel && (
+                      <Badge variant="outline" className="normal-case">
+                        {v.platformLabel}
+                      </Badge>
+                    )}
+                    {v.factsKept === true && (
+                      <Badge variant="secondary" className="normal-case">
+                        Facts kept
+                      </Badge>
+                    )}
                   </span>
                   {i === activeVariation ? (
                     <Badge>In use</Badge>
@@ -176,10 +364,26 @@ export function ContentAssistantPanel({
                   )}
                 </div>
                 <p className="line-clamp-3 text-foreground">{v.snippet}</p>
+                {v.text && (
+                  <details className="mt-1 text-xs">
+                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                      Read this version
+                    </summary>
+                    <p className="mt-1 whitespace-pre-wrap rounded bg-muted/40 p-2 text-foreground">
+                      {v.text}
+                    </p>
+                  </details>
+                )}
+                {v.factsKept === false && (
+                  <p className="mt-1 text-xs text-destructive">
+                    Changes facts from the original: {(v.introduced ?? []).join(', ')}
+                  </p>
+                )}
                 {!v.approvable && (
                   <p className="mt-1 text-xs text-destructive">
                     Has {v.issues} issue{v.issues === 1 ? '' : 's'} to fix
-                    before approval.
+                    before approval
+                    {v.blockers?.length ? `: ${v.blockers.join(' ')}` : '.'}
                   </p>
                 )}
               </li>

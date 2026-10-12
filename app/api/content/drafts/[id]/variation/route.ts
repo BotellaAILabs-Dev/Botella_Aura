@@ -5,6 +5,7 @@ import { can } from '@/lib/rbac';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 import { getDraft } from '@/server/content/content.service';
 import { switchVariation } from '@/server/content/generator';
+import { MAX_VERSIONS } from '@/lib/content-variations';
 
 /**
  * POST /api/content/drafts/:id/variation { index } — switch the draft to
@@ -12,7 +13,9 @@ import { switchVariation } from '@/server/content/generator';
  */
 export const dynamic = 'force-dynamic';
 
-const bodySchema = z.object({ index: z.number().int().min(0).max(2) });
+const bodySchema = z.object({
+  index: z.number().int().min(0).max(MAX_VERSIONS - 1),
+});
 
 export async function POST(
   req: Request,

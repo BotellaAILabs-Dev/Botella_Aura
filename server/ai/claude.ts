@@ -433,6 +433,25 @@ export async function completeStructured<S extends ZodTypeAny>(
   }
 }
 
+/**
+ * A provider failure, in words a person can act on — or null when the error
+ * is not a provider failure. The raw provider text (JSON, quota links) is
+ * for the log, not the page.
+ */
+export function aiFailureMessage(err: unknown): string | null {
+  const status = (err as { status?: unknown } | null)?.status;
+  const message = err instanceof Error ? err.message : '';
+  const fromProvider =
+    /^(Gemini API error|Gemini did not respond)/.test(message) ||
+    err instanceof EmptyCompletionError ||
+    (typeof status === 'number' && /anthropic|claude/i.test(String((err as { name?: string }).name ?? '')));
+  if (!fromProvider) return null;
+  if (status === 429) {
+    return 'Aura’s writer is at its limit right now (rate limit or quota). Nothing was changed — try again in a few minutes.';
+  }
+  return 'Aura’s writer did not answer. Nothing was changed — try again.';
+}
+
 export class SchemaValidationError extends Error {
   constructor(
     message: string,

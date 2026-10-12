@@ -100,7 +100,7 @@ function groundingSources(
  * exactly those problems. One repair — not a loop — so a stubborn model costs
  * one extra call, and whatever is still wrong is reported, never hidden.
  */
-async function checkAndRepair(args: {
+export async function checkAndRepair(args: {
   type: ContentTypeKey;
   body: unknown;
   w: WritingContext;
@@ -585,7 +585,8 @@ export async function switchVariation(args: {
   const meta = (args.draft.aiMetadata ?? {}) as Record<string, unknown>;
   const variations = Array.isArray(meta.variations) ? meta.variations : [];
   const chosen = variations[args.index] as
-    { body?: unknown; quality?: unknown } | undefined;
+    | { body?: unknown; quality?: unknown; platform?: SocialPlatformKey }
+    | undefined;
   if (!chosen) {
     throw Object.assign(new Error('That version does not exist.'), {
       status: 404,
@@ -602,16 +603,26 @@ export async function switchVariation(args: {
     },
     ...((Array.isArray(meta.history) ? meta.history : []) as unknown[]),
   ].slice(0, HISTORY_LIMIT);
+  // The version being left is saved as it reads now, so a hand edit to it is
+  // still there to come back to (lib/content-variations.ts).
+  const active = typeof meta.activeVariation === 'number' ? meta.activeVariation : 0;
+  const kept = variations.map((v, i) =>
+    i === active ? { ...(v as object), body: args.draft.body } : v,
+  );
   const updated = await db.contentDraft.update({
     where: { id: args.draft.id },
     data: {
       body: body as object,
       status: args.draft.status === 'APPROVED' ? 'DRAFT' : args.draft.status,
+      // A version written for another network moves the draft there.
+      ...(chosen.platform ? { platform: chosen.platform } : {}),
       aiMetadata: {
         ...meta,
+        variations: kept,
         activeVariation: args.index,
         quality: chosen.quality ?? meta.quality ?? null,
         history,
+        ...(chosen.platform ? { writtenFor: chosen.platform } : {}),
       } as unknown as Prisma.InputJsonValue,
     },
   });

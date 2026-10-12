@@ -219,6 +219,23 @@ export function GraphicStudio({
     };
   }, []);
 
+  // "Another image" from the versions panel (lib/content-variations.ts) runs
+  // outside this component; when it lands, re-read this draft's graphics so
+  // the new one shows here to be reviewed next to the others.
+  useEffect(() => {
+    const reload = async () => {
+      const res = await fetch(`/api/content/drafts/${draftId}/graphics`, {
+        cache: 'no-store',
+      }).catch(() => null);
+      if (!res?.ok || !alive.current) return;
+      const data = (await res.json()) as { assets?: GraphicAsset[] };
+      if (data.assets) setAssets(data.assets);
+    };
+    const onRefresh = () => void reload();
+    window.addEventListener('aura:graphics-refresh', onRefresh);
+    return () => window.removeEventListener('aura:graphics-refresh', onRefresh);
+  }, [draftId]);
+
   // Provider status loads when the panel is first opened, not on mount: a user
   // reading a draft has not asked for anything yet.
   useEffect(() => {

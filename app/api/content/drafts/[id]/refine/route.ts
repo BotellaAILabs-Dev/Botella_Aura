@@ -3,7 +3,7 @@ import { can } from '@/lib/rbac';
 import { refineContentSchema } from '@/lib/validations/content';
 import { getDraft } from '@/server/content/content.service';
 import { refineDraft } from '@/server/content/generator';
-import { ClaudeNotConfiguredError } from '@/server/ai/claude';
+import { aiFailureMessage, ClaudeNotConfiguredError } from '@/server/ai/claude';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
 /**
@@ -44,6 +44,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         503,
       );
     }
+    const ai = aiFailureMessage(error);
+    if (ai) return jsonError(ai, 503);
     return handleRouteError(error);
   }
 }

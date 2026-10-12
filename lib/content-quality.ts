@@ -42,7 +42,9 @@ export interface QualityIssue {
     | 'repetition'
     | 'long'
     | 'hashtags'
-    | 'no-cta';
+    | 'no-cta'
+    /** A variation changed a fact from the original (lib/content-variations.ts). */
+    | 'facts-changed';
   severity: IssueSeverity;
   message: string;
 }

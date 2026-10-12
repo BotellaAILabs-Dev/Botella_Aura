@@ -56,6 +56,7 @@
     "verify:generation-context": "tsx scripts/verify-generation-context.ts",
     "verify:contextual-generation": "tsx scripts/verify-contextual-generation.ts",
     "verify:visual-context": "tsx scripts/verify-visual-context.ts",
+    "verify:variations": "tsx scripts/verify-variations.ts",
     "verify:content-studio": "tsx scripts/verify-content-studio.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
