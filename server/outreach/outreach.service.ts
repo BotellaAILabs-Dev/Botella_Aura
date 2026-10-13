@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { recordAudit } from '@/server/services/audit.service';
 import { checkOutreachMessage } from '@/server/outreach/outreach-checks.service';
 import { outreachMetaAfter } from '@/server/approval/approval.service';
+import { withApprovedMessageVersion, withMessageVersion } from '@/server/versions/version.service';
+import type { VersionSource } from '@/lib/versions';
 import type { ApprovalAction } from '@/lib/approval';
 import { can } from '@/lib/rbac';
 
@@ -142,6 +144,13 @@ export async function transitionMessage(args: {
     }
   }
 
+  const recorded = outreachMetaAfter(current, {
+    action: APPROVAL_ACTION[action],
+    by: userId,
+    nextStatus: status,
+    reason: action === 'reject' || action === 'request_changes' ? (reason ?? null) : null,
+    approve: action === 'approve',
+  });
   return db.$transaction(async (tx) => {
     // Only from the state it was read in: a concurrent second approval is refused.
     const { count } = await tx.outreachMessage.updateMany({
@@ -152,13 +161,7 @@ export async function transitionMessage(args: {
           action === 'reject' || action === 'request_changes'
             ? reason || null
             : null,
-        aiMetadata: outreachMetaAfter(current, {
-          action: APPROVAL_ACTION[action],
-          by: userId,
-          nextStatus: status,
-          reason: action === 'reject' || action === 'request_changes' ? (reason ?? null) : null,
-          approve: action === 'approve',
-        }),
+        aiMetadata: action === 'approve' ? withApprovedMessageVersion(current, recorded, userId) : recorded,
       },
     });
     if (count === 0) {
@@ -188,6 +191,8 @@ export async function updateMessageText(args: {
   messageId: string;
   draftText: string;
   requestMeta?: Meta;
+  versionSource?: VersionSource;
+  basedOn?: number | null;
 }) {
   const { companyId, userId, messageId, draftText, requestMeta } = args;
   const current = await getMessageOrThrow(companyId, messageId);
@@ -202,7 +207,17 @@ export async function updateMessageText(args: {
       data: {
         draftText,
         status: 'DRAFT',
-        aiMetadata: outreachMetaAfter(current, { action: 'edited', by: userId, nextStatus: 'DRAFT', nextText: draftText }),
+        aiMetadata: withMessageVersion(
+          current,
+          outreachMetaAfter(current, { action: 'edited', by: userId, nextStatus: 'DRAFT', nextText: draftText }),
+          {
+            text: draftText,
+            source: args.versionSource ?? 'edited',
+            by: userId,
+            basedOn: args.basedOn ?? null,
+            note: args.versionSource === 'restored' ? `Restored from version ${args.basedOn}` : null,
+          },
+        ),
       },
     });
     await recordAudit(

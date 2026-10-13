@@ -31,6 +31,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import type { ApprovalInfo } from '@/lib/review-item';
+import { VersionsPanel, type VersionView } from '@/components/dashboard/review/versions-panel';
 import {
   changedEdits,
   editsStorageKey,
@@ -209,7 +210,7 @@ function ApprovalCard({ info }: { info: ApprovalInfo }) {
   );
 }
 
-export function ReviewScreen({ item }: { item: ReviewItem }) {
+export function ReviewScreen({ item, versions = null }: { item: ReviewItem; versions?: VersionView[] | null }) {
   const router = useRouter();
   const storageKey = editsStorageKey(item);
   const [editing, setEditing] = useState(false);
@@ -755,6 +756,14 @@ export function ReviewScreen({ item }: { item: ReviewItem }) {
             </CardContent>
           </Card>
           {item.approvalInfo && <ApprovalCard info={item.approvalInfo} />}
+          <VersionsPanel
+            kind={item.kind}
+            id={item.id}
+            updatedAt={item.updatedAt}
+            canRestore={a.edit.available}
+            approvedNow={['approved', 'scheduled', 'ready_for_execution'].includes(item.approvalInfo?.state ?? '')}
+            initial={versions}
+          />
         </aside>
       </div>
 

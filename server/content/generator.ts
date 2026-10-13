@@ -30,6 +30,8 @@ import {
 import { assembleDraftContext } from '@/server/content/generation-context.service';
 import { reviewAfterWrite, storedReview } from '@/server/content/review.service';
 import { contentChangeMeta, generatedRecord, syncCampaignTask } from '@/server/approval/approval.service';
+import { bodyFingerprint } from '@/lib/versions';
+import { firstVersion, versionMatching, withContentVersion } from '@/server/versions/version.service';
 import { reviewAsFeedback } from '@/lib/content-review';
 import {
   bodySchemaFor,
@@ -409,6 +411,8 @@ export async function generateDraft({
         ...(aiMetadata as object),
         // The approval record starts here (lib/approval.ts).
         approval: generatedRecord(first.body, type === 'EMAIL' ? null : platform, userId),
+        // Version 1: the original AI version, always recoverable (lib/versions.ts).
+        versions: firstVersion(first.body),
       } as unknown as Prisma.InputJsonValue,
     },
   });
@@ -579,6 +583,8 @@ export async function refineDraft({
           ...(action === 'tone' && tone ? { tone } : {}),
         },
         { action: 'regenerated', by: userId, nextStatus: 'DRAFT', nextBody: result.body, note: action },
+      ).then((m) =>
+        withContentVersion(draft, m, { body: result.body, source: 'regenerated', by: userId, note: action }),
       ),
     },
   });
@@ -661,6 +667,13 @@ export async function switchVariation(args: {
           nextPlatform: chosen.platform ?? args.draft.platform,
           note: `Switched to version ${args.index + 1}`,
         },
+      ).then((m) =>
+        withContentVersion(args.draft, m, {
+          body,
+          source: 'variation',
+          by: args.userId,
+          note: `Variation ${args.index + 1}`,
+        }),
       ),
     },
   });
@@ -711,6 +724,13 @@ export async function undoDraft(args: {
           nextBody: body,
           note: 'Undo — the previous version restored',
         },
+      ).then((m) =>
+        withContentVersion(args.draft, m, {
+          body,
+          source: 'undo',
+          by: args.userId,
+          basedOn: versionMatching(args.draft, body, bodyFingerprint),
+        }),
       ),
     },
   });

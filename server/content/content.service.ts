@@ -28,6 +28,11 @@ import {
   syncCampaignTask,
 } from '@/server/approval/approval.service';
 import { contentFingerprint, type ApprovalAction } from '@/lib/approval';
+import {
+  withApprovedContentVersion,
+  withContentVersion,
+} from '@/server/versions/version.service';
+import type { VersionSource } from '@/lib/versions';
 import { DIMENSION_INFO, type ContentReview } from '@/lib/content-review';
 
 /** Undo steps kept per draft (matches server/content/generator.ts). */
@@ -278,6 +283,9 @@ export async function transition({
         : {}),
     },
   );
+  // The version being approved is marked (lib/versions.ts) — identifiable
+  // later, and never dropped from the history.
+  if (to === 'APPROVED') data.aiMetadata = withApprovedContentVersion(draft, data.aiMetadata, userId);
 
   // Only from the state it was read in: a second, concurrent approval (a
   // double click, two approvers) finds it already moved and is refused.
@@ -354,6 +362,10 @@ export async function updateDraftBody(args: {
   draftId: string;
   title?: string;
   body: unknown;
+  /** How this version came about (default: a person's edit). */
+  versionSource?: VersionSource;
+  /** For a restore: the version brought back. */
+  basedOn?: number | null;
 }): Promise<ContentDraft> {
   const draft = await loadOwned(args.companyId, args.draftId);
   if (draft.status === 'PUBLISHED') {
@@ -382,16 +394,32 @@ export async function updateDraftBody(args: {
       body: body as object,
       title: args.title ?? draft.title,
       status: nextStatus,
-      aiMetadata: contentMetaAfter(
-        { ...draft, aiMetadata: { ...meta, quality, history } as unknown as Prisma.JsonValue },
-        contentFingerprint({ body: draft.body, platform: draft.platform, media }),
+      // A new version (the person's edit, or a restored one); nothing earlier is lost.
+      aiMetadata: withContentVersion(
+        draft,
+        contentMetaAfter(
+          { ...draft, aiMetadata: { ...meta, quality, history } as unknown as Prisma.JsonValue },
+          contentFingerprint({ body: draft.body, platform: draft.platform, media }),
+          {
+            action: 'edited',
+            by: args.userId,
+            nextStatus,
+            nextHash: contentFingerprint({ body, platform: draft.platform, media }),
+            previous: draft.body,
+            note:
+              args.versionSource === 'restored'
+                ? `Restored version ${args.basedOn}${draft.status === 'APPROVED' ? ' — it needs approving again.' : ''}`
+                : draft.status === 'APPROVED'
+                  ? 'Edited after approval — it needs approving again.'
+                  : null,
+          },
+        ),
         {
-          action: 'edited',
+          body,
+          source: args.versionSource ?? 'edited',
           by: args.userId,
-          nextStatus,
-          nextHash: contentFingerprint({ body, platform: draft.platform, media }),
-          previous: draft.body,
-          note: draft.status === 'APPROVED' ? 'Edited after approval — it needs approving again.' : null,
+          basedOn: args.basedOn ?? null,
+          note: args.versionSource === 'restored' ? `Restored from version ${args.basedOn}` : null,
         },
       ),
     },

@@ -11,6 +11,7 @@ import {
   contentMetaAfter,
   syncCampaignTask,
 } from '@/server/approval/approval.service';
+import { withApprovedContentVersion } from '@/server/versions/version.service';
 import { generateGraphics } from '@/server/media/generation.service';
 import { attachAsset } from '@/server/media/asset.service';
 import {
@@ -347,12 +348,7 @@ async function writeWeeklyContent(args: {
         // setting, and exactly what (text, network, image) it approved.
         const current = (await db.contentDraft.findUnique({ where: { id: draft.id } }))!;
         const hash = await contentHash(current);
-        await db.contentDraft.update({
-          where: { id: draft.id },
-          data: {
-            scheduledFor: slot.at,
-            ...(approve ? { status: 'APPROVED' as const } : {}),
-            aiMetadata: contentMetaAfter(current, hash, {
+        const recorded = contentMetaAfter(current, hash, {
               action: approve ? 'approved' : 'scheduled',
               by: null,
               nextStatus: approve ? 'APPROVED' : current.status,
@@ -367,7 +363,14 @@ async function writeWeeklyContent(args: {
                     note: 'Approved by Autopilot under this workspace’s auto-publish setting.',
                   }
                 : {}),
-            }),
+        });
+        await db.contentDraft.update({
+          where: { id: draft.id },
+          data: {
+            scheduledFor: slot.at,
+            ...(approve ? { status: 'APPROVED' as const } : {}),
+            // The approved version is marked in the draft's version history.
+            aiMetadata: approve ? withApprovedContentVersion(current, recorded, null) : recorded,
           },
         });
         if (approve) await syncCampaignTask(draft.id, 'APPROVED');

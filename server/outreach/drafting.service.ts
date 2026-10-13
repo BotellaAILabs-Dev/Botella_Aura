@@ -17,6 +17,7 @@ import {
 } from '@/server/business-context/business-context.service';
 import { getLeadOrThrow } from '@/server/outreach/lead.service';
 import { outreachMetaAfter } from '@/server/approval/approval.service';
+import { firstVersion, withMessageVersion } from '@/server/versions/version.service';
 
 /**
  * AI outreach drafting (Sprint 4, Module 3). For a lead + its most recent
@@ -72,7 +73,12 @@ export async function draftForLead(args: {
         type: 'CONNECTION_NOTE',
         status: 'DRAFT',
         draftText: drafts.connectionNote.slice(0, CONNECTION_NOTE_LIMIT),
-        aiMetadata: { model, signalId: signal?.id ?? null, brandVoiceApplied: model !== 'none' },
+        aiMetadata: {
+          model,
+          signalId: signal?.id ?? null,
+          brandVoiceApplied: model !== 'none',
+          versions: firstVersion(drafts.connectionNote.slice(0, CONNECTION_NOTE_LIMIT)),
+        } as unknown as Prisma.InputJsonObject,
       },
     });
     const followup = await tx.outreachMessage.create({
@@ -82,7 +88,12 @@ export async function draftForLead(args: {
         type: 'FOLLOWUP',
         status: 'DRAFT',
         draftText: drafts.followup,
-        aiMetadata: { model, signalId: signal?.id ?? null, brandVoiceApplied: model !== 'none' },
+        aiMetadata: {
+          model,
+          signalId: signal?.id ?? null,
+          brandVoiceApplied: model !== 'none',
+          versions: firstVersion(drafts.followup),
+        } as unknown as Prisma.InputJsonObject,
       },
     });
     await tx.lead.update({ where: { id: leadId }, data: { status: 'DRAFTED' } });
@@ -246,7 +257,7 @@ export async function regenerateMessage(args: {
         status: 'DRAFT',
         rejectionReason: null,
         // Regeneration history on the approval record, too.
-        aiMetadata: outreachMetaAfter(
+        aiMetadata: withMessageVersion(msg, outreachMetaAfter(
           {
             ...msg,
             aiMetadata: {
@@ -259,7 +270,7 @@ export async function regenerateMessage(args: {
             } as unknown as Prisma.JsonValue,
           },
           { action: 'regenerated', by: userId, nextStatus: 'DRAFT', nextText: draftText },
-        ),
+        ), { text: draftText, source: 'regenerated', by: userId }),
       },
     });
     await recordAudit(
