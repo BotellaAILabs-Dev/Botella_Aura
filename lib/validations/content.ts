@@ -272,6 +272,8 @@ export const REFINE_ACTIONS = [
   'tone',
   'improve',
   'custom',
+  /** Regenerate to fix what the AI Reviewer found (lib/content-review.ts). */
+  'fix_review',
 ] as const;
 export type RefineAction = (typeof REFINE_ACTIONS)[number];
 

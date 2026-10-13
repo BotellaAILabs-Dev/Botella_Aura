@@ -48,6 +48,12 @@ interface Props {
    * claims it could not verify need the approver to confirm they checked them.
    */
   factCheck?: { status: string; toReview: number; mustFix: number } | null;
+  /**
+   * The AI Reviewer, when its review is of the body as it stands: a failed
+   * review blocks submitting; one that needs a person needs the approver to
+   * confirm they looked.
+   */
+  review?: { status: 'pass' | 'review_required' | 'fail'; reasons: number } | null;
 }
 
 export function DraftActions({
@@ -61,8 +67,12 @@ export function DraftActions({
   canUndo = false,
   copyOnly = false,
   factCheck = null,
+  review = null,
 }: Props) {
   const [factsReviewed, setFactsReviewed] = useState(false);
+  const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
+  const reviewFailed = review?.status === 'fail';
+  const reviewNeedsHuman = review?.status === 'review_required';
   // Claims a person cannot vouch for (contradictions, unsupported figures
   // and absolutes) block approval; the rest need the approver to confirm.
   const contradicted = (factCheck?.mustFix ?? 0) > 0;
@@ -107,6 +117,7 @@ export function DraftActions({
         action,
         reason,
         ...(action === 'approve' && needsReview ? { factsReviewed } : {}),
+        ...(action === 'approve' && reviewNeedsHuman ? { reviewAcknowledged } : {}),
       },
       action,
     );
@@ -241,9 +252,21 @@ export function DraftActions({
       {/* Primary status actions */}
       <div className="flex flex-wrap gap-2">
         {status === 'DRAFT' && (
-          <Button onClick={() => transition('submit')} loading={loading('submit')}>
-            <Send className="h-4 w-4" /> Submit for approval
-          </Button>
+          <>
+            {reviewFailed && (
+              <p className="w-full text-xs text-destructive">
+                The review failed — fix the piece or regenerate it with the review’s feedback (see
+                Review) before submitting.
+              </p>
+            )}
+            <Button
+              onClick={() => transition('submit')}
+              loading={loading('submit')}
+              disabled={reviewFailed}
+            >
+              <Send className="h-4 w-4" /> Submit for approval
+            </Button>
+          </>
         )}
         {status === 'PENDING_APPROVAL' && (
           <>
@@ -262,6 +285,25 @@ export function DraftActions({
                 </span>
               </label>
             )}
+            {reviewNeedsHuman && (
+              <label className="flex w-full items-start gap-2 rounded-md border border-amber-300/60 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={reviewAcknowledged}
+                  onChange={(e) => setReviewAcknowledged(e.target.checked)}
+                />
+                <span>
+                  I’ve looked at what the review marked for human review (see Review) and this is
+                  fine to approve.
+                </span>
+              </label>
+            )}
+            {reviewFailed && (
+              <p className="w-full text-xs text-destructive">
+                The review failed — request changes, or fix it, before approving.
+              </p>
+            )}
             {contradicted && (
               <p className="w-full text-xs text-destructive">
                 {factCheck?.status === 'contradicted'
@@ -272,7 +314,12 @@ export function DraftActions({
             <Button
               onClick={() => transition('approve')}
               loading={loading('approve')}
-              disabled={contradicted || (needsReview && !factsReviewed)}
+              disabled={
+                contradicted ||
+                reviewFailed ||
+                (needsReview && !factsReviewed) ||
+                (reviewNeedsHuman && !reviewAcknowledged)
+              }
             >
               <Check className="h-4 w-4" /> Approve
             </Button>

@@ -21,12 +21,14 @@ const bodySchema = z.object({
   reason: z.string().trim().max(500).optional(),
   /** The approver checked the claims the fact check could not verify. */
   factsReviewed: z.boolean().optional(),
+  /** The approver looked at what the AI Reviewer marked for human review. */
+  reviewAcknowledged: z.boolean().optional(),
 });
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
     const { company, user } = await requireActiveCompany();
-    const { action, reason, factsReviewed } = bodySchema.parse(await req.json());
+    const { action, reason, factsReviewed, reviewAcknowledged } = bodySchema.parse(await req.json());
 
     const draft = await transition({
       companyId: company.id,
@@ -36,6 +38,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       reason,
       requestMeta: getRequestMeta(req),
       factsReviewed: factsReviewed ?? false,
+      reviewAcknowledged: reviewAcknowledged ?? false,
     });
 
     return jsonOk({ id: draft.id, status: draft.status });

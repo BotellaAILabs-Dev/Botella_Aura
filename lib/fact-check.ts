@@ -105,8 +105,10 @@ export interface FactCheckReport {
 // Claims
 // ---------------------------------------------------------------------------
 
+// "first" only as a claim ("the first…", "first-ever", "first to…") — not
+// "taste it first" or "our first batch".
 const ABSOLUTES =
-  /\b(best|#1|number one|no\.? ?1|only|first|leading|largest|biggest|fastest|cheapest|lowest price|guaranteed?|award[- ]winning|certified|organic|100%|always|never fails|proven|unbeatable|world[- ]class|official)\b/gi;
+  /\b(best|#1|number one|no\.? ?1|only|(?<=\bthe )first|first(?=[- ](?:ever|to)\b)|leading|largest|biggest|fastest|cheapest|lowest price|guaranteed?|award[- ]winning|certified|organic|100%|always|never fails|proven|unbeatable|world[- ]class|official)\b/gi;
 const BUSINESS =
   /\b(we|our|us)\b[^.!?]{0,40}\b(offer|offers|sell|sells|ship|ships|deliver|delivers|open|opened|serve|serves|make|makes|roast|roasts|source|sources|have|has|provide|provides|include|includes|launch|launched|use|uses|work with|partner|pay|paid|grow|grown|founded|started|employ|absorb|charge|price)/i;
 /** "Our bag is…", "our subscriptions are…", "our beans cost…" — the business, described. */

@@ -202,6 +202,14 @@ describe('the report', () => {
     });
   });
 
+  it('“first” is a claim only when it claims to be first', () => {
+    const abs = (t: string) => extractClaims(t)[0]?.absolutes ?? [];
+    expect(abs('We are the first roaster in town to sell subscriptions.')).toContain('first');
+    expect(abs('We were first to ship compostable bags.')).toContain('first');
+    expect(abs('We taste every batch first, then roast it.')).not.toContain('first');
+    expect(abs('Our first batch of the season sold out.')).not.toContain('first');
+  });
+
   it('says what it was checked against', () => {
     expect(report.checkedAgainst).toEqual(
       expect.arrayContaining([

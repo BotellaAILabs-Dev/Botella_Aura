@@ -425,9 +425,12 @@ async function main() {
         /could not be verified/.test(unconfirmed.json?.error ?? ''),
       `${unconfirmed.status} ${unconfirmed.json?.error}`,
     );
+    // The AI Reviewer's own confirmation (lib/content-review.ts) is separate
+    // from the fact confirmation; it is given here so this checks the facts.
     const ok = await me.req('POST', `/api/content/drafts/${draft.id}/status`, {
       action: 'approve',
       factsReviewed: true,
+      reviewAcknowledged: true,
     });
     const approved = await db.contentDraft.findUnique({
       where: { id: draft.id },
@@ -487,10 +490,10 @@ async function main() {
     const direct = await me.req(
       'POST',
       `/api/content/drafts/${clean.id}/status`,
-      { action: 'approve' },
+      { action: 'approve', reviewAcknowledged: true },
     );
     check(
-      'content whose claims all check out is “Fact-checked” and approves directly',
+      'content whose claims all check out is “Fact-checked” and approves without vouching for facts',
       cleanReport.status === 'verified' && direct.status === 200,
       `${cleanReport.status} ${JSON.stringify(cleanReport.claims.map((c) => c.status))} ${direct.status}`,
     );

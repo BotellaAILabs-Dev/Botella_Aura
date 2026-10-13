@@ -15,6 +15,7 @@ import { CreateContentDialog } from '@/components/dashboard/content/create-conte
 import { getEnabledContentTypes } from '@/server/company/profile.service';
 import { QueueBoard, type DraftCard } from '@/components/dashboard/content/queue-board';
 import type { ContentTypeKey } from '@/lib/validations/content';
+import { isReviewCurrent, type ContentReview } from '@/lib/content-review';
 
 export const metadata: Metadata = { title: 'Content Studio' };
 
@@ -28,7 +29,12 @@ export default async function ContentPage() {
     getEnabledContentTypes(active.id),
   ]);
   const cards: DraftCard[] = drafts.map((d) => {
-    const meta = (d.aiMetadata ?? {}) as { source?: { kind?: string } };
+    const meta = (d.aiMetadata ?? {}) as {
+      source?: { kind?: string };
+      review?: ContentReview;
+    };
+    // The AI Reviewer's verdict, only while it is of the body as it stands.
+    const review = isReviewCurrent(meta.review, d.body) ? meta.review! : null;
     const type = d.type as ContentTypeKey;
     const platform = resolvePlatform(type, d.platform);
     return {
@@ -45,6 +51,7 @@ export default async function ContentPage() {
       // Counted in the same query as the drafts (see listDrafts) rather than
       // one lookup per card — this board routinely renders dozens of rows.
       mediaCount: d._count.media,
+      review: review ? review.status : null,
     };
   });
 

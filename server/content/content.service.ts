@@ -16,6 +16,8 @@ import type { QualityReport } from '@/lib/content-quality';
 import { assessDraft } from '@/server/content/quality.service';
 import { claimsToReview, type FactCheckReport } from '@/lib/fact-check';
 import { factCheckDraft } from '@/server/content/fact-check.service';
+import { ensureReview } from '@/server/content/review.service';
+import { DIMENSION_INFO, type ContentReview } from '@/lib/content-review';
 
 /** Undo steps kept per draft (matches server/content/generator.ts). */
 const HISTORY_LIMIT = 5;
@@ -83,6 +85,12 @@ interface TransitionArgs {
    * recorded in the audit trail.
    */
   factsReviewed?: boolean;
+  /**
+   * The approver has looked at what the AI Reviewer marked for human review
+   * (lib/content-review.ts). Required to approve a draft whose review needs
+   * one; recorded on the draft and in the audit trail.
+   */
+  reviewAcknowledged?: boolean;
 }
 
 /** Validated status transition + audit. The backbone of the approval loop. */
@@ -94,10 +102,36 @@ export async function transition({
   reason,
   requestMeta,
   factsReviewed = false,
+  reviewAcknowledged = false,
 }: TransitionArgs): Promise<ContentDraft> {
-  const draft = await loadOwned(companyId, draftId);
+  let draft = await loadOwned(companyId, draftId);
   if (!isValidTransition(draft.status, to)) {
     throw new InvalidTransitionError(draft.status, to);
+  }
+
+  // The AI Reviewer before the approval workflow (lib/content-review.ts):
+  // nothing enters it, or is approved, without a review of the body as it now
+  // stands. A failed review must be fixed or regenerated first. At approval
+  // the compliance and fact checks below speak first: their messages name
+  // the exact claim or rule.
+  let review: ContentReview | null = null;
+  let reviewFailed: Error | null = null;
+  if (to === 'PENDING_APPROVAL' || to === 'APPROVED') {
+    ({ draft, review } = await ensureReview(
+      draft,
+      to === 'APPROVED' ? 'approval' : 'submitted',
+    ));
+    if (review.status === 'fail') {
+      const first = review.issues.find((i) => i.severity === 'blocker') ?? review.issues[0];
+      const failed = review.failed.map((d) => DIMENSION_INFO[d].label).join(', ');
+      reviewFailed = Object.assign(
+        new Error(
+          `The review failed${failed ? ` on ${failed}` : ''}${first ? ` — ${first.message}` : ''} Fix it or regenerate with the review's feedback before ${to === 'APPROVED' ? 'approving' : 'submitting'}.`,
+        ),
+        { status: 409, code: 'review_failed', failed: review.failed },
+      );
+      if (to === 'PENDING_APPROVAL') throw reviewFailed;
+    }
   }
   // Compliance before approval: a draft whose check found something that
   // must not be published (an alcohol-code breach, a never-mention topic, an
@@ -148,12 +182,32 @@ export async function transition({
     }
   }
 
+  if (reviewFailed) throw reviewFailed;
+  if (to === 'APPROVED' && review?.status === 'review_required' && !reviewAcknowledged) {
+    throw Object.assign(
+      new Error(
+        `This piece needs a person's review before it is approved: ${review.humanReviewReasons.slice(0, 2).join(' ')} Look at the review, then confirm to approve.`,
+      ),
+      { status: 409, code: 'review_needs_human' },
+    );
+  }
+
   const data: Prisma.ContentDraftUpdateInput = { status: to };
+  if (to === 'APPROVED' && review) {
+    // Who looked at what the review flagged.
+    data.aiMetadata = {
+      ...((draft.aiMetadata ?? {}) as object),
+      review: {
+        ...review,
+        acknowledgedBy: review.status === 'review_required' ? userId : null,
+      },
+    } as unknown as Prisma.InputJsonObject;
+  }
   if (factCheck) {
     // What was checked when it was approved, and whether a person vouched
     // for what Aura could not verify.
     data.aiMetadata = {
-      ...((draft.aiMetadata ?? {}) as object),
+      ...((data.aiMetadata ?? draft.aiMetadata ?? {}) as object),
       factCheck: {
         status: factCheck.status,
         counts: factCheck.counts,
@@ -177,6 +231,14 @@ export async function transition({
       from: draft.status,
       to,
       reason: reason ?? undefined,
+      ...(review
+        ? {
+            review: review.status,
+            reviewScore: review.score,
+            reviewFailed: review.failed,
+            reviewAcknowledgedByApprover: to === 'APPROVED' && review.status === 'review_required',
+          }
+        : {}),
       ...(factCheck
         ? {
             factCheck: factCheck.status,

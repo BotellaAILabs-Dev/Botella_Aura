@@ -38,6 +38,9 @@ import { availableVariations } from '@/lib/content-variations';
 import type { SocialPlatformKey } from '@/lib/platforms';
 import { CreatedFromSuggestion } from '@/components/dashboard/content/created-from-suggestion';
 import { FactCheckPanel } from '@/components/dashboard/content/fact-check-panel';
+import { ReviewPanel } from '@/components/dashboard/content/review-panel';
+import { REVIEW_STATUS_LABEL, isReviewCurrent } from '@/lib/content-review';
+import { storedReview } from '@/server/content/review.service';
 import { claimsToReview } from '@/lib/fact-check';
 import { factCheckDraft } from '@/server/content/fact-check.service';
 import { VisualBriefPanel } from '@/components/dashboard/content/visual-brief-panel';
@@ -174,6 +177,10 @@ export default async function DraftDetailPage({
     factCheckDraft(draft),
   ]);
   const toReview = claimsToReview(factCheck).length;
+  // The AI Reviewer's result (lib/content-review.ts), and whether it is of
+  // the body as it stands.
+  const review = storedReview(draft);
+  const reviewCurrent = isReviewCurrent(review, draft.body);
 
   return (
     <div>
@@ -196,6 +203,11 @@ export default async function DraftDetailPage({
                 {factCheck.status === 'contradicted' ? 'Contradiction' : 'Needs fact review'}
               </Badge>
             )}
+            {review && reviewCurrent && review.status !== 'pass' && (
+              <Badge variant={review.status === 'fail' ? 'destructive' : 'warning'}>
+                {REVIEW_STATUS_LABEL[review.status]}
+              </Badge>
+            )}
           </span>
         }
       />
@@ -204,6 +216,13 @@ export default async function DraftDetailPage({
         {/* Preview + actions */}
         <div className="space-y-5">
           <DraftPreview type={type} body={draft.body} />
+          <ReviewPanel
+            draftId={draft.id}
+            review={review}
+            current={reviewCurrent}
+            canEdit={canEdit}
+            editable={draft.status !== 'PUBLISHED'}
+          />
           <FactCheckPanel report={factCheck} />
 
           {/* Content → graphic → post → queue, in the order the user works. */}
@@ -264,6 +283,11 @@ export default async function DraftDetailPage({
                 canUndo={(meta.history?.length ?? 0) > 0}
                 copyOnly={copyOnly}
                 factCheck={{ status: factCheck.status, toReview, mustFix: factCheck.mustFix }}
+                review={
+                  review && reviewCurrent
+                    ? { status: review.status, reasons: review.humanReviewReasons.length }
+                    : null
+                }
               />
             </CardContent>
           </Card>

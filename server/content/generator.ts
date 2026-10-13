@@ -28,6 +28,8 @@ import {
   redactSensitive,
 } from '@/lib/generation-context';
 import { assembleDraftContext } from '@/server/content/generation-context.service';
+import { reviewAfterWrite, storedReview } from '@/server/content/review.service';
+import { reviewAsFeedback } from '@/lib/content-review';
 import {
   bodySchemaFor,
   type ContentTone,
@@ -420,7 +422,8 @@ export async function generateDraft({
       repaired: checked.some((c) => c.repaired),
     },
   });
-  return draft;
+  // The independent review, before it can enter the approval workflow.
+  return reviewAfterWrite(draft, 'generated');
 }
 
 /** What each one-click action asks of the writer. */
@@ -444,6 +447,8 @@ function instructionFor(
       ]
         .filter(Boolean)
         .join('\n');
+    case 'fix_review':
+      return options.feedback || 'Fix the problems the review found.';
     case 'custom':
       return (
         options.feedback ||
@@ -479,6 +484,16 @@ export async function refineDraft({
   });
   if (!company) throw new Error('Company not found');
   const type = draft.type as ContentTypeKey;
+  if (action === 'fix_review') {
+    // The review's findings, from the server's record — not the request.
+    const review = storedReview(draft);
+    if (!review || !review.issues.length) {
+      throw Object.assign(new Error('There is no review with issues to fix — run the review first.'), {
+        status: 409,
+      });
+    }
+    feedback = reviewAsFeedback(review);
+  }
 
   await generateBrandVoiceProfile({ company, userId });
   // A revision is still content a customer publishes, so it gets the same
@@ -570,7 +585,8 @@ export async function refineDraft({
       repaired: result.repaired,
     },
   });
-  return updated;
+  // Every rewrite is reviewed again, independently of the writer.
+  return reviewAfterWrite(updated, 'regenerated');
 }
 
 /**

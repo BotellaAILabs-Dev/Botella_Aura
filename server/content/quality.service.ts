@@ -185,6 +185,8 @@ export async function chunkText(
 export async function assessDraft(
   draft: ContentDraft,
   body: unknown,
+  /** A missing call to action counts (the reviewer passes the format's rule). */
+  options: { ctaRequired?: boolean } = {},
 ): Promise<QualityReport> {
   const type = draft.type as ContentTypeKey;
   const w = await loadWritingContext(draft.companyId, {
@@ -204,7 +206,7 @@ export async function assessDraft(
     src.brief ?? '',
     evidence,
     await chunkText(draft.companyId, meta.knowledgeChunkIds),
-  ]);
+  ], options);
   return { ...checkQuality(type, body, qc), fixes: [] };
 }
 

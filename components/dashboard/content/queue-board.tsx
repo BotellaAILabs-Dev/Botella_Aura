@@ -25,6 +25,8 @@ export interface DraftCard {
   platformLabel: string;
   /** How many graphics are attached. Zero renders no badge. */
   mediaCount: number;
+  /** The AI Reviewer's verdict on the body as it stands; null when not reviewed. */
+  review?: 'pass' | 'review_required' | 'fail' | null;
 }
 
 const COLUMNS: DraftCard['status'][] = [
@@ -187,6 +189,11 @@ function Card({
         <Badge variant={statusBadgeVariant(draft.status)}>
           {CONTENT_STATUS_LABELS[draft.status]}
         </Badge>
+        {draft.review && draft.review !== 'pass' && draft.status !== 'PUBLISHED' && (
+          <Badge variant={draft.review === 'fail' ? 'destructive' : 'warning'}>
+            {draft.review === 'fail' ? 'Review failed' : 'Needs human review'}
+          </Badge>
+        )}
       </div>
       <Link
         href={`/dashboard/content/${draft.id}`}
