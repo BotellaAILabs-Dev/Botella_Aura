@@ -1,4 +1,11 @@
 import { db } from '@/lib/db';
+import {
+  assertContentIntact,
+  contentHash,
+  contentMetaAfter,
+  outreachIntact,
+  outreachMetaAfter,
+} from '@/server/approval/approval.service';
 import { recordAudit } from '@/server/services/audit.service';
 import type { ExtensionContext } from '@/lib/extension-auth';
 import type { QueueItemType } from '@/server/extension/queue.service';
@@ -75,6 +82,9 @@ async function completeContentDraft(
       409,
     );
   }
+  // Only what was approved: a changed draft must be approved again first.
+  await assertContentIntact(draft);
+  const hash = await contentHash(draft);
 
   await db.$transaction(async (tx) => {
     await tx.contentDraft.update({
@@ -83,6 +93,13 @@ async function completeContentDraft(
         status: 'PUBLISHED',
         publishedAt: new Date(),
         publishedUrl: postedUrl,
+        aiMetadata: contentMetaAfter(draft, hash, {
+          action: 'executed',
+          by: ctx.userId,
+          nextStatus: 'PUBLISHED',
+          nextHash: hash,
+          note: postedUrl ? `Posted via the extension: ${postedUrl}` : 'Posted via the extension',
+        }),
       },
     });
     await recordAudit(
@@ -111,11 +128,18 @@ async function completeOutreachMessage(
   if (message.status !== 'APPROVED') {
     throw new ActionItemError('Only approved messages can be marked sent.', 409);
   }
+  if (!outreachIntact(message)) {
+    throw new ActionItemError('This message changed after it was approved — approve it again first.', 409);
+  }
 
   await db.$transaction(async (tx) => {
     await tx.outreachMessage.update({
       where: { id: messageId },
-      data: { status: 'SENT', sentAt: new Date() },
+      data: {
+        status: 'SENT',
+        sentAt: new Date(),
+        aiMetadata: outreachMetaAfter(message, { action: 'executed', by: ctx.userId, nextStatus: 'SENT' }),
+      },
     });
     // Mark the lead contacted so the pipeline reflects reality.
     await tx.lead.update({

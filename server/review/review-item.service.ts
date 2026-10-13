@@ -31,6 +31,68 @@ import { getPolicyContext } from '@/server/content/compliance.service';
 import { storedReview } from '@/server/content/review.service';
 import { getWorkspaceProfile } from '@/server/company/profile.service';
 import { checkOutreachMessage } from '@/server/outreach/outreach-checks.service';
+import {
+  ACTION_LABEL,
+  contentState,
+  outreachState,
+  summarize,
+  textFingerprint,
+  type ApprovalRecord,
+  type ApprovalState,
+} from '@/lib/approval';
+import {
+  contentHash,
+  contentRecord,
+  outreachRecord,
+} from '@/server/approval/approval.service';
+import type { ApprovalInfo } from '@/lib/review-item';
+
+/** The approval record, with people's names, for the screen. */
+async function approvalInfo(
+  state: ApprovalState,
+  record: ApprovalRecord,
+  hash: string,
+): Promise<ApprovalInfo> {
+  const ids = new Set<string>();
+  for (const e of record.events) if (e.by) ids.add(e.by);
+  if (record.approved?.by) ids.add(record.approved.by);
+  if (record.rejected?.by) ids.add(record.rejected.by);
+  const users = ids.size
+    ? await db.user.findMany({
+        where: { id: { in: [...ids] } },
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+  const name = (id: string | null) => {
+    if (!id) return null;
+    const u = users.find((x) => x.id === id);
+    return u ? (u.name ?? u.email) : 'A former member';
+  };
+  const s = summarize(state, record, hash);
+  return {
+    ...s,
+    approvedByName: record.approved
+      ? record.approved.via === 'autopilot'
+        ? 'Autopilot'
+        : (name(record.approved.by) ??
+          'Unknown (approved before records were kept)')
+      : null,
+    rejectedByName: name(record.rejected?.by ?? null),
+    history: record.events.slice(0, 25).map((e) => ({
+      at: e.at,
+      who: e.by
+        ? (name(e.by) ?? 'Someone')
+        : e.action === 'approved'
+          ? 'Autopilot'
+          : 'Aura',
+      action: ACTION_LABEL[e.action],
+      note: e.note ?? null,
+      reason: e.reason ?? null,
+      version: e.version,
+      keptPrevious: e.previous !== undefined,
+    })),
+  };
+}
 
 /**
  * Each module's generated work as a ReviewItem (lib/review-item.ts), so one
@@ -97,6 +159,9 @@ export async function contentReviewItem(
   const review = storedReview(draft);
   const current = isReviewCurrent(review, draft.body, policy.hash);
   const state = CONTENT_STATE[draft.status];
+  const hash = await contentHash(draft);
+  const record = contentRecord(draft, hash);
+  const approvalState = contentState(draft, record);
 
   // Quality flags: the current review carries the rules, compliance and fact
   // check; without one, the fact check and the stored rule check speak.
@@ -173,6 +238,16 @@ export async function contentReviewItem(
       label: 'Image',
       message: `${platform ? platformSpec(platform).label : 'This format'} needs an image and none is attached.`,
       source: 'format',
+    });
+  }
+  const info = await approvalInfo(approvalState, record, hash);
+  if (info.intact === false) {
+    flags.push({
+      severity: 'block',
+      label: 'Approval',
+      message:
+        'This changed after it was approved — it will not be scheduled or published until it is approved again.',
+      source: 'approval',
     });
   }
   if (draft.rejectionReason && state !== 'approved') {
@@ -367,6 +442,7 @@ export async function contentReviewItem(
         : null,
       blockedBy,
     },
+    approvalInfo: info,
     actions,
     regenerate: {
       fixReview: Boolean(
@@ -419,6 +495,12 @@ export async function outreachReviewItem(
     getWorkspaceProfile(companyId),
   ]);
   const state = OUTREACH_STATE[msg.status];
+  const oRecord = outreachRecord(msg);
+  const oInfo = await approvalInfo(
+    outreachState(msg, oRecord),
+    oRecord,
+    textFingerprint(msg.draftText),
+  );
   if (msg.rejectionReason && state !== 'approved') {
     flags.push({
       severity: 'info',
@@ -545,6 +627,7 @@ export async function outreachReviewItem(
         : null,
       blockedBy: blocking.length ? blocking[0]!.message : null,
     },
+    approvalInfo: oInfo,
     actions,
     regenerate: { fixReview: false, instructions: false },
     backHref: QUEUE_HREF,

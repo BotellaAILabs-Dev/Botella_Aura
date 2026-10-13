@@ -16,6 +16,9 @@ const draftRow = {
   platform: null as string | null,
   scheduledFor: null as Date | null,
   rejectionReason: null as string | null,
+  body: { hook: 'A post' } as unknown,
+  aiMetadata: {} as unknown,
+  updatedAt: new Date('2026-10-01T00:00:00Z'),
 };
 
 const state = {
@@ -25,6 +28,8 @@ const state = {
 
 vi.mock('@/lib/db', () => ({
   db: {
+    // The approval fingerprint reads the attached images (lib/approval.ts).
+    contentMedia: { findMany: vi.fn(async () => []) },
     contentDraft: {
       findFirst: vi.fn(async () => state.draft),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {

@@ -27,10 +27,12 @@ const bodySchema = z.object({
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
-    const { company, user } = await requireActiveCompany();
+    const { company, user, membership } = await requireActiveCompany();
     const { action, reason, factsReviewed, reviewAcknowledged } = bodySchema.parse(await req.json());
 
     const draft = await transition({
+      // Approving and rejecting need content:approve (enforced in the service).
+      role: membership.role,
       companyId: company.id,
       userId: user.id,
       draftId: params.id,

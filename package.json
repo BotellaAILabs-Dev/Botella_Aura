@@ -61,6 +61,7 @@
     "verify:compliance": "tsx scripts/verify-compliance.ts",
     "verify:unified-review": "tsx scripts/verify-unified-review.ts",
     "verify:creative": "tsx scripts/verify-creative.ts",
+    "verify:approval": "tsx scripts/verify-approval.ts",
     "verify:fact-check": "tsx scripts/verify-fact-check.ts",
     "verify:content-studio": "tsx scripts/verify-content-studio.ts",
     "db:generate": "prisma generate",

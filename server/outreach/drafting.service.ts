@@ -16,6 +16,7 @@ import {
   WORKFLOW_PRESETS,
 } from '@/server/business-context/business-context.service';
 import { getLeadOrThrow } from '@/server/outreach/lead.service';
+import { outreachMetaAfter } from '@/server/approval/approval.service';
 
 /**
  * AI outreach drafting (Sprint 4, Module 3). For a lead + its most recent
@@ -244,14 +245,21 @@ export async function regenerateMessage(args: {
         draftText,
         status: 'DRAFT',
         rejectionReason: null,
-        aiMetadata: {
-          ...meta,
-          model: drafts.model,
-          signalId: signal?.id ?? null,
-          brandVoiceApplied: drafts.model !== 'none',
-          history,
-          regeneratedAt: new Date().toISOString(),
-        } as Prisma.InputJsonObject,
+        // Regeneration history on the approval record, too.
+        aiMetadata: outreachMetaAfter(
+          {
+            ...msg,
+            aiMetadata: {
+              ...meta,
+              model: drafts.model,
+              signalId: signal?.id ?? null,
+              brandVoiceApplied: drafts.model !== 'none',
+              history,
+              regeneratedAt: new Date().toISOString(),
+            } as unknown as Prisma.JsonValue,
+          },
+          { action: 'regenerated', by: userId, nextStatus: 'DRAFT', nextText: draftText },
+        ),
       },
     });
     await recordAudit(

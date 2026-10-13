@@ -1,6 +1,7 @@
 import type { GeneratedAsset, Prisma } from '@prisma/client';
 
 import { db } from '@/lib/db';
+import { recordContentChange } from '@/server/approval/approval.service';
 import { logger } from '@/lib/logger';
 import { recordAudit } from '@/server/services/audit.service';
 import { assetFileUrl } from '@/server/media/asset-url';
@@ -291,7 +292,20 @@ export async function attachAsset(args: {
     );
   }
 
-  await db.$transaction(async (tx) => {
+  // Recorded on the draft's approval (lib/approval.ts): images are part of
+  // what an approval covers, so swapping one on approved work reopens it.
+  const before = await db.contentMedia.findMany({
+    where: { companyId, contentDraftId: draftId },
+    orderBy: { position: 'asc' },
+    select: { assetId: true },
+  });
+  const { reopened } = await recordContentChange({
+    draftId,
+    companyId,
+    by: userId,
+    action: 'media_changed',
+    previous: { media: before.map((m) => m.assetId) },
+    apply: async (tx) => {
     if (replace) {
       await tx.contentMedia.deleteMany({
         where: { companyId, contentDraftId: draftId },
@@ -315,13 +329,14 @@ export async function attachAsset(args: {
       },
       update: { altText: altText ?? null },
     });
+    },
   });
 
   await recordAudit({
     action: 'GRAPHIC_ATTACHED',
     userId,
     companyId,
-    metadata: { draftId, assetId, replace },
+    metadata: { draftId, assetId, replace, ...(reopened ? { reopenedApproval: true } : {}) },
   });
 }
 
@@ -332,8 +347,18 @@ export async function detachAsset(args: {
   assetId: string;
 }): Promise<void> {
   const { companyId, userId, draftId, assetId } = args;
-  const { count } = await db.contentMedia.deleteMany({
-    where: { companyId, contentDraftId: draftId, assetId },
+  let count = 0;
+  await recordContentChange({
+    draftId,
+    companyId,
+    by: userId,
+    action: 'media_changed',
+    previous: { media: [assetId] },
+    apply: async (tx) => {
+      ({ count } = await tx.contentMedia.deleteMany({
+        where: { companyId, contentDraftId: draftId, assetId },
+      }));
+    },
   });
   if (count === 0) {
     throw Object.assign(new Error('That graphic is not attached to this post.'), {

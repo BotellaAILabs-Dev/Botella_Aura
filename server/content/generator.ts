@@ -29,6 +29,7 @@ import {
 } from '@/lib/generation-context';
 import { assembleDraftContext } from '@/server/content/generation-context.service';
 import { reviewAfterWrite, storedReview } from '@/server/content/review.service';
+import { contentChangeMeta, generatedRecord, syncCampaignTask } from '@/server/approval/approval.service';
 import { reviewAsFeedback } from '@/lib/content-review';
 import {
   bodySchemaFor,
@@ -404,7 +405,11 @@ export async function generateDraft({
       body: first.body as object,
       // The platform it was written for is where it goes, unless changed.
       platform: type === 'EMAIL' ? null : platform,
-      aiMetadata,
+      aiMetadata: {
+        ...(aiMetadata as object),
+        // The approval record starts here (lib/approval.ts).
+        approval: generatedRecord(first.body, type === 'EMAIL' ? null : platform, userId),
+      } as unknown as Prisma.InputJsonValue,
     },
   });
 
@@ -563,16 +568,22 @@ export async function refineDraft({
     data: {
       body: result.body as object,
       status: 'DRAFT',
-      aiMetadata: {
-        ...meta,
-        quality: result.quality,
-        history,
-        lastAction: action,
-        ...(action === 'tone' && tone ? { tone } : {}),
-      } as unknown as Prisma.InputJsonValue,
+      // Regeneration history: the version replaced is kept on the approval record.
+      aiMetadata: await contentChangeMeta(
+        draft,
+        {
+          ...meta,
+          quality: result.quality,
+          history,
+          lastAction: action,
+          ...(action === 'tone' && tone ? { tone } : {}),
+        },
+        { action: 'regenerated', by: userId, nextStatus: 'DRAFT', nextBody: result.body, note: action },
+      ),
     },
   });
 
+  if (draft.status === 'APPROVED') await syncCampaignTask(draft.id, 'DRAFT');
   await recordAudit({
     action: 'CONTENT_REGENERATED',
     userId,
@@ -632,16 +643,28 @@ export async function switchVariation(args: {
       status: args.draft.status === 'APPROVED' ? 'DRAFT' : args.draft.status,
       // A version written for another network moves the draft there.
       ...(chosen.platform ? { platform: chosen.platform } : {}),
-      aiMetadata: {
-        ...meta,
-        variations: kept,
-        activeVariation: args.index,
-        quality: chosen.quality ?? meta.quality ?? null,
-        history,
-        ...(chosen.platform ? { writtenFor: chosen.platform } : {}),
-      } as unknown as Prisma.InputJsonValue,
+      aiMetadata: await contentChangeMeta(
+        args.draft,
+        {
+          ...meta,
+          variations: kept,
+          activeVariation: args.index,
+          quality: chosen.quality ?? meta.quality ?? null,
+          history,
+          ...(chosen.platform ? { writtenFor: chosen.platform } : {}),
+        },
+        {
+          action: 'edited',
+          by: args.userId,
+          nextStatus: args.draft.status === 'APPROVED' ? 'DRAFT' : args.draft.status,
+          nextBody: body,
+          nextPlatform: chosen.platform ?? args.draft.platform,
+          note: `Switched to version ${args.index + 1}`,
+        },
+      ),
     },
   });
+  if (args.draft.status === 'APPROVED') await syncCampaignTask(args.draft.id, 'DRAFT');
   await recordAudit({
     action: 'CONTENT_CHANGES_REQUESTED',
     userId: args.userId,
@@ -673,14 +696,25 @@ export async function undoDraft(args: {
     data: {
       body: body as object,
       status: args.draft.status === 'APPROVED' ? 'DRAFT' : args.draft.status,
-      aiMetadata: {
-        ...meta,
-        history: history.slice(1),
-        // The restored version's quality is re-checked by the caller.
-        lastAction: 'undo',
-      } as unknown as Prisma.InputJsonValue,
+      aiMetadata: await contentChangeMeta(
+        args.draft,
+        {
+          ...meta,
+          history: history.slice(1),
+          // The restored version's quality is re-checked by the caller.
+          lastAction: 'undo',
+        },
+        {
+          action: 'edited',
+          by: args.userId,
+          nextStatus: args.draft.status === 'APPROVED' ? 'DRAFT' : args.draft.status,
+          nextBody: body,
+          note: 'Undo — the previous version restored',
+        },
+      ),
     },
   });
+  if (args.draft.status === 'APPROVED') await syncCampaignTask(args.draft.id, 'DRAFT');
   await recordAudit({
     action: 'CONTENT_CHANGES_REQUESTED',
     userId: args.userId,

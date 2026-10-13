@@ -1,4 +1,5 @@
 import type {
+  CompanyRole,
   AuditAction,
   ContentDraft,
   ContentStatus,
@@ -17,6 +18,16 @@ import { assessDraft } from '@/server/content/quality.service';
 import { claimsToReview, type FactCheckReport } from '@/lib/fact-check';
 import { factCheckDraft } from '@/server/content/fact-check.service';
 import { ensureReview } from '@/server/content/review.service';
+import { can } from '@/lib/rbac';
+import {
+  assertContentIntact,
+  contentHash,
+  contentMedia,
+  contentMetaAfter,
+  recordContentChange,
+  syncCampaignTask,
+} from '@/server/approval/approval.service';
+import { contentFingerprint, type ApprovalAction } from '@/lib/approval';
 import { DIMENSION_INFO, type ContentReview } from '@/lib/content-review';
 
 /** Undo steps kept per draft (matches server/content/generator.ts). */
@@ -91,6 +102,11 @@ interface TransitionArgs {
    * one; recorded on the draft and in the audit trail.
    */
   reviewAcknowledged?: boolean;
+  /**
+   * The caller's role. Approving and rejecting need content:approve; every
+   * route passes it. Omitted only by trusted server code (tests, jobs).
+   */
+  role?: CompanyRole;
 }
 
 /** Validated status transition + audit. The backbone of the approval loop. */
@@ -103,8 +119,21 @@ export async function transition({
   requestMeta,
   factsReviewed = false,
   reviewAcknowledged = false,
+  role,
 }: TransitionArgs): Promise<ContentDraft> {
+  // Approving and rejecting are the human gate: owners and admins only.
+  if (role && (to === 'APPROVED' || to === 'REJECTED') && !can(role, 'content:approve')) {
+    throw Object.assign(new Error('Only owners and admins can approve or reject content.'), {
+      status: 403,
+    });
+  }
   let draft = await loadOwned(companyId, draftId);
+  if (draft.status === to && (to === 'APPROVED' || to === 'REJECTED')) {
+    throw Object.assign(
+      new Error(to === 'APPROVED' ? 'This is already approved.' : 'This is already rejected.'),
+      { status: 409, code: 'duplicate' },
+    );
+  }
   if (!isValidTransition(draft.status, to)) {
     throw new InvalidTransitionError(draft.status, to);
   }
@@ -192,7 +221,7 @@ export async function transition({
     );
   }
 
-  const data: Prisma.ContentDraftUpdateInput = { status: to };
+  const data: Prisma.ContentDraftUpdateManyMutationInput = { status: to };
   if (to === 'APPROVED' && review) {
     // Who looked at what the review flagged.
     data.aiMetadata = {
@@ -220,7 +249,47 @@ export async function transition({
   if (to === 'REJECTED') data.rejectionReason = reason ?? null;
   if (to === 'DRAFT') data.rejectionReason = null;
 
-  const updated = await db.contentDraft.update({ where: { id: draft.id }, data });
+  // The approval record (lib/approval.ts): who, when, which version, and —
+  // for an approval — exactly what was approved (text, network, images).
+  const hash = await contentHash(draft);
+  const action: ApprovalAction =
+    to === 'PENDING_APPROVAL'
+      ? 'submitted'
+      : to === 'APPROVED'
+        ? 'approved'
+        : to === 'REJECTED'
+          ? 'rejected'
+          : to === 'PUBLISHED'
+            ? 'executed'
+            : draft.status === 'PENDING_APPROVAL'
+              ? 'changes_requested'
+              : 'reopened';
+  data.aiMetadata = contentMetaAfter(
+    { ...draft, aiMetadata: (data.aiMetadata ?? draft.aiMetadata) as Prisma.JsonValue },
+    hash,
+    {
+      action,
+      by: userId,
+      nextStatus: to,
+      nextHash: hash,
+      reason: to === 'REJECTED' || to === 'DRAFT' ? (reason ?? null) : null,
+      ...(to === 'APPROVED'
+        ? { approve: { via: 'person' as const, snapshot: { body: draft.body, platform: draft.platform, media: await contentMedia(draft.id) } } }
+        : {}),
+    },
+  );
+
+  // Only from the state it was read in: a second, concurrent approval (a
+  // double click, two approvers) finds it already moved and is refused.
+  const { count } = await db.contentDraft.updateMany({ where: { id: draft.id, status: draft.status }, data });
+  if (count === 0) {
+    throw Object.assign(new Error('Someone else changed this at the same moment. Reload to see where it is now.'), {
+      status: 409,
+      code: 'concurrent_change',
+    });
+  }
+  await syncCampaignTask(draft.id, to);
+  const updated = (await db.contentDraft.findUnique({ where: { id: draft.id } }))!;
 
   await recordAudit({
     action: ACTION_FOR[to] ?? 'CONTENT_DRAFT_CREATED',
@@ -231,6 +300,7 @@ export async function transition({
       from: draft.status,
       to,
       reason: reason ?? undefined,
+      approval: { action, version: (updated.aiMetadata as { approval?: { version?: number } }).approval?.version, hash },
       ...(review
         ? {
             review: review.status,
@@ -259,6 +329,7 @@ export async function bulkTransition(args: {
   draftIds: string[];
   to: ContentStatus;
   reason?: string;
+  role?: CompanyRole;
 }): Promise<{ ok: string[]; failed: Array<{ id: string; error: string }> }> {
   const ok: string[] = [];
   const failed: Array<{ id: string; error: string }> = [];
@@ -302,19 +373,30 @@ export async function updateDraftBody(args: {
     ...((Array.isArray(meta.history) ? meta.history : []) as unknown[]),
   ].slice(0, HISTORY_LIMIT);
 
+  // The edit is recorded: the version moves on and the previous text is kept.
+  // An approved piece is reopened, never changed while approved.
+  const media = await contentMedia(draft.id);
   const updated = await db.contentDraft.update({
     where: { id: draft.id },
     data: {
       body: body as object,
       title: args.title ?? draft.title,
       status: nextStatus,
-      aiMetadata: {
-        ...meta,
-        quality,
-        history,
-      } as unknown as Prisma.InputJsonValue,
+      aiMetadata: contentMetaAfter(
+        { ...draft, aiMetadata: { ...meta, quality, history } as unknown as Prisma.JsonValue },
+        contentFingerprint({ body: draft.body, platform: draft.platform, media }),
+        {
+          action: 'edited',
+          by: args.userId,
+          nextStatus,
+          nextHash: contentFingerprint({ body, platform: draft.platform, media }),
+          previous: draft.body,
+          note: draft.status === 'APPROVED' ? 'Edited after approval — it needs approving again.' : null,
+        },
+      ),
     },
   });
+  if (draft.status === 'APPROVED') await syncCampaignTask(draft.id, nextStatus);
   await recordAudit({
     action: 'CONTENT_CHANGES_REQUESTED',
     userId: args.userId,
@@ -346,9 +428,21 @@ export async function scheduleDraft(args: {
       { status: 409 },
     );
   }
+  // Only what was approved is scheduled.
+  await assertContentIntact(draft);
+  const hash = await contentHash(draft);
   const updated = await db.contentDraft.update({
     where: { id: draft.id },
-    data: { scheduledFor: args.scheduledFor },
+    data: {
+      scheduledFor: args.scheduledFor,
+      aiMetadata: contentMetaAfter(draft, hash, {
+        action: 'scheduled',
+        by: args.userId,
+        nextStatus: draft.status,
+        nextScheduledFor: args.scheduledFor,
+        nextHash: hash,
+      }),
+    },
   });
   await recordAudit({
     action: 'CONTENT_SCHEDULED',
@@ -396,12 +490,28 @@ export async function queueDraft(args: {
   if (args.scheduledFor) data.scheduledFor = args.scheduledFor;
 
   // DRAFT and REJECTED both mean "not yet in front of a reviewer"; queueing is
-  // what puts them there. APPROVED stays APPROVED.
-  const needsReview = draft.status === 'DRAFT' || draft.status === 'REJECTED';
+  // what puts them there. APPROVED stays APPROVED — unless the network
+  // changes: approval covers where it goes, so a new network needs a new one.
+  const retargeted = Boolean(args.platform && args.platform !== draft.platform);
+  const needsReview =
+    draft.status === 'DRAFT' || draft.status === 'REJECTED' || (draft.status === 'APPROVED' && retargeted);
   if (needsReview) {
     data.status = 'PENDING_APPROVAL';
     data.rejectionReason = null;
   }
+  if (draft.status === 'APPROVED' && !retargeted) await assertContentIntact(draft);
+  const media = await contentMedia(draft.id);
+  const before = contentFingerprint({ body: draft.body, platform: draft.platform, media });
+  data.aiMetadata = contentMetaAfter(draft, before, {
+    action: retargeted ? 'retargeted' : needsReview ? 'submitted' : 'scheduled',
+    by: args.userId,
+    nextStatus: (data.status as ContentStatus | undefined) ?? draft.status,
+    nextScheduledFor: args.scheduledFor ?? draft.scheduledFor,
+    nextHash: contentFingerprint({ body: draft.body, platform: args.platform ?? draft.platform, media }),
+    ...(retargeted ? { previous: { platform: draft.platform } } : {}),
+    note: retargeted && draft.status === 'APPROVED' ? 'The network changed after approval — it needs approving again.' : null,
+  });
+  if (retargeted && draft.status === 'APPROVED') await syncCampaignTask(draft.id, 'PENDING_APPROVAL');
 
   const updated = await db.contentDraft.update({
     where: { id: draft.id },
@@ -442,10 +552,27 @@ export async function setDraftPlatform(args: {
       { status: 409 },
     );
   }
-  return db.contentDraft.update({
-    where: { id: draft.id },
-    data: { platform: args.platform },
+  if (draft.platform === args.platform) return draft;
+  // Approval covers where a post goes: retargeting approved work reopens it.
+  const { reopened } = await recordContentChange({
+    draftId: draft.id,
+    companyId: args.companyId,
+    by: args.userId,
+    action: 'retargeted',
+    previous: { platform: draft.platform },
+    apply: async (tx) => {
+      await tx.contentDraft.update({ where: { id: draft.id }, data: { platform: args.platform } });
+    },
   });
+  if (reopened) {
+    await recordAudit({
+      action: 'CONTENT_CHANGES_REQUESTED',
+      userId: args.userId,
+      companyId: args.companyId,
+      metadata: { draftId: draft.id, retargeted: { from: draft.platform, to: args.platform }, reopened: true },
+    });
+  }
+  return (await db.contentDraft.findUnique({ where: { id: draft.id } }))!;
 }
 
 // ---- Publish guard (the hard gate) -----------------------------------------
@@ -466,12 +593,21 @@ export async function markPublished(args: {
 }): Promise<ContentDraft> {
   const draft = await loadOwned(args.companyId, args.draftId);
   assertPublishable(draft); // never publish an unapproved draft, even internally
+  await assertContentIntact(draft); // …or one changed since it was approved
+  const hash = await contentHash(draft);
   const updated = await db.contentDraft.update({
     where: { id: draft.id },
     data: {
       status: 'PUBLISHED',
       publishedAt: new Date(),
       publishedUrl: args.publishedUrl,
+      aiMetadata: contentMetaAfter(draft, hash, {
+        action: 'executed',
+        by: args.userId,
+        nextStatus: 'PUBLISHED',
+        nextHash: hash,
+        note: args.publishedUrl,
+      }),
     },
   });
   await recordAudit({

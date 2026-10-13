@@ -21,6 +21,8 @@ export interface TaskRow {
   rationale: string | null;
   relatedContentDraftId: string | null;
   checkpointSummary: string | null;
+  /** The unified approval state of the content made for it (lib/approval.ts). */
+  approval?: { label: string; state: string } | null;
 }
 
 /** Icons only — the labels come from lib/campaign-status.ts. */
@@ -91,6 +93,22 @@ export function CampaignTimeline({ tasks }: { tasks: TaskRow[] }) {
                       <Badge variant={status.tone} title={status.hint}>
                         {status.label}
                       </Badge>
+                      {t.approval && (
+                        <Badge
+                          variant={
+                            t.approval.state === 'rejected'
+                              ? 'destructive'
+                              : ['approved', 'scheduled', 'ready_for_execution', 'executed'].includes(t.approval.state)
+                                ? 'success'
+                                : t.approval.state === 'review_required'
+                                  ? 'warning'
+                                  : 'muted'
+                          }
+                          title="Approval"
+                        >
+                          {t.approval.label}
+                        </Badge>
+                      )}
                       {t.relatedContentDraftId && (
                         <Link
                           href={`/dashboard/content/${t.relatedContentDraftId}`}

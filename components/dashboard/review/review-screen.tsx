@@ -20,6 +20,7 @@ import {
   TriangleAlert,
   X,
   XCircle,
+  History,
 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
@@ -29,6 +30,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
+import type { ApprovalInfo } from '@/lib/review-item';
 import {
   changedEdits,
   editsStorageKey,
@@ -119,6 +121,91 @@ function FlagRow({ f }: { f: ReviewFlag }) {
         </span>
       </span>
     </li>
+  );
+}
+
+/** The unified approval record: state, who approved or rejected and when, and the history. */
+function ApprovalCard({ info }: { info: ApprovalInfo }) {
+  const when = (iso: string) => (
+    <time dateTime={iso} suppressHydrationWarning>
+      {new Date(iso).toLocaleString()}
+    </time>
+  );
+  const tone =
+    info.state === 'rejected'
+      ? 'destructive'
+      : ['approved', 'scheduled', 'ready_for_execution', 'executed'].includes(
+            info.state,
+          )
+        ? 'success'
+        : info.state === 'review_required'
+          ? 'warning'
+          : 'muted';
+  return (
+    <Card data-testid="approval-card" data-approval-state={info.state}>
+      <CardContent className="space-y-3 p-4 text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <History className="h-4 w-4 text-primary" aria-hidden />
+          <h2 className="text-sm font-semibold text-foreground">Approval</h2>
+          <Badge variant={tone}>{info.label}</Badge>
+          <span className="text-xs text-muted-foreground">
+            Version {info.version}
+          </span>
+        </div>
+        {info.approvedAt && (
+          <p className="text-xs text-muted-foreground">
+            Approved by{' '}
+            <span className="font-medium text-foreground">
+              {info.approvedByName}
+            </span>
+            {info.approvedVia === 'autopilot' ? ' (auto-publish setting)' : ''}{' '}
+            on {when(info.approvedAt)} — version {info.approvedVersion}.
+          </p>
+        )}
+        {info.intact === false && (
+          <p className="rounded-md bg-destructive/5 p-2 text-xs text-destructive">
+            Changed after it was approved — it will not be scheduled or
+            published until it is approved again.
+          </p>
+        )}
+        {info.state === 'rejected' && info.rejectedAt && (
+          <p className="text-xs text-muted-foreground">
+            Rejected by{' '}
+            <span className="font-medium text-foreground">
+              {info.rejectedByName ?? 'Unknown'}
+            </span>{' '}
+            on {when(info.rejectedAt)}
+            {info.rejectionReason ? ` — “${info.rejectionReason}”` : ''}.
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          {info.edits} edit{info.edits === 1 ? '' : 's'} · {info.regenerations}{' '}
+          regeneration
+          {info.regenerations === 1 ? '' : 's'} · every earlier version is kept
+        </p>
+        {info.history.length > 0 && (
+          <ol
+            className="space-y-1.5 border-t pt-2"
+            aria-label="Approval history"
+          >
+            {info.history.map((h, i) => (
+              <li key={i} className="text-xs">
+                <span className="font-medium text-foreground">{h.action}</span>{' '}
+                <span className="text-muted-foreground">
+                  by {h.who} · {when(h.at)} · v{h.version}
+                  {h.keptPrevious ? ' · previous version kept' : ''}
+                </span>
+                {(h.reason || h.note) && (
+                  <span className="block text-muted-foreground">
+                    {h.reason ? `“${h.reason}”` : h.note}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ol>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -667,6 +754,7 @@ export function ReviewScreen({ item }: { item: ReviewItem }) {
               )}
             </CardContent>
           </Card>
+          {item.approvalInfo && <ApprovalCard info={item.approvalInfo} />}
         </aside>
       </div>
 

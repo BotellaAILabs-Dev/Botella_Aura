@@ -5,6 +5,12 @@ import { logger } from '@/lib/logger';
 import { recordAudit } from '@/server/services/audit.service';
 import { isClaudeConfigured } from '@/server/ai/claude';
 import { generateDraft } from '@/server/content/generator';
+import {
+  contentHash,
+  contentMedia,
+  contentMetaAfter,
+  syncCampaignTask,
+} from '@/server/approval/approval.service';
 import { generateGraphics } from '@/server/media/generation.service';
 import { attachAsset } from '@/server/media/asset.service';
 import {
@@ -337,13 +343,34 @@ async function writeWeeklyContent(args: {
         const approve = autoPublishRemaining > 0;
         if (approve) autoPublishRemaining -= 1;
 
+        // The approval record says the machine approved it, under which
+        // setting, and exactly what (text, network, image) it approved.
+        const current = (await db.contentDraft.findUnique({ where: { id: draft.id } }))!;
+        const hash = await contentHash(current);
         await db.contentDraft.update({
           where: { id: draft.id },
           data: {
             scheduledFor: slot.at,
             ...(approve ? { status: 'APPROVED' as const } : {}),
+            aiMetadata: contentMetaAfter(current, hash, {
+              action: approve ? 'approved' : 'scheduled',
+              by: null,
+              nextStatus: approve ? 'APPROVED' : current.status,
+              nextScheduledFor: slot.at,
+              nextHash: hash,
+              ...(approve
+                ? {
+                    approve: {
+                      via: 'autopilot' as const,
+                      snapshot: { body: current.body, platform: current.platform, media: await contentMedia(current.id) },
+                    },
+                    note: 'Approved by Autopilot under this workspace’s auto-publish setting.',
+                  }
+                : {}),
+            }),
           },
         });
+        if (approve) await syncCampaignTask(draft.id, 'APPROVED');
 
         if (approve) {
           activity.autoPublishScheduled = (activity.autoPublishScheduled ?? 0) + 1;

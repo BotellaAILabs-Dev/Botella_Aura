@@ -1,6 +1,7 @@
 import type { ContentDraft } from '@prisma/client';
 
 import { db } from '@/lib/db';
+import { assertContentIntact } from '@/server/approval/approval.service';
 import { httpRequest } from '@/lib/http';
 import { logger } from '@/lib/logger';
 import { getPublishContext } from '@/server/services/linkedin.service';
@@ -156,6 +157,8 @@ export async function publishDraft({
   const draft = await getDraft(companyId, draftId);
   if (!draft) throw new DraftNotFoundError();
   assertPublishable(draft); // hard gate — must be APPROVED
+  // …and exactly what was approved: text, network and images.
+  await assertContentIntact(draft);
 
   const type = draft.type as ContentTypeKey;
   // Email and ad copy never go to a social network — an ad aimed at Facebook

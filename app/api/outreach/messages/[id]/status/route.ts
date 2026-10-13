@@ -28,6 +28,7 @@ export async function POST(
     const msg = await transitionMessage({
       companyId: company.id,
       userId: user.id,
+      role: membership.role,
       messageId: params.id,
       action,
       reason,

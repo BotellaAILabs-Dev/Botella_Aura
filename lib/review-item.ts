@@ -8,6 +8,23 @@
  * client-safe.
  */
 
+import type { ApprovalSummary } from '@/lib/approval';
+
+export interface ApprovalInfo extends ApprovalSummary {
+  approvedByName: string | null;
+  rejectedByName: string | null;
+  history: {
+    at: string;
+    who: string;
+    action: string;
+    note: string | null;
+    reason: string | null;
+    version: number;
+    /** The content as it was before this change is kept. */
+    keptPrevious: boolean;
+  }[];
+}
+
 export type ReviewKind = 'content' | 'outreach';
 export const REVIEW_KINDS: ReviewKind[] = ['content', 'outreach'];
 
@@ -134,6 +151,8 @@ export interface ReviewItem {
     /** Approval is not possible until this is fixed. */
     blockedBy: string | null;
   };
+  /** The unified approval record (lib/approval.ts): state, who, when, history. */
+  approvalInfo: ApprovalInfo | null;
   actions: Record<ReviewActionKey, ActionState>;
   /** Regeneration options beyond a fresh take. */
   regenerate: { fixReview: boolean; instructions: boolean };

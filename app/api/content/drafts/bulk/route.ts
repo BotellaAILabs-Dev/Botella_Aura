@@ -18,7 +18,7 @@ const TO: Record<'approve' | 'reject', ContentStatus> = {
 
 export async function POST(req: Request) {
   try {
-    const { company, user } = await requireActiveCompany();
+    const { company, user, membership } = await requireActiveCompany();
     const { ids, action, reason } = bodySchema.parse(await req.json());
     const result = await bulkTransition({
       companyId: company.id,
@@ -26,6 +26,8 @@ export async function POST(req: Request) {
       draftIds: ids,
       to: TO[action],
       reason,
+      // Owners and admins only — checked per draft in the service.
+      role: membership.role,
     });
     return jsonOk(result);
   } catch (error) {

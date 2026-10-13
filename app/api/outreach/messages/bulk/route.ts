@@ -55,6 +55,7 @@ export async function POST(req: Request) {
         await transitionMessage({
           companyId: company.id,
           userId: user.id,
+      role: membership.role,
           messageId,
           action,
           reason,

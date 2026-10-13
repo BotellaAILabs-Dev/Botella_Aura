@@ -15,6 +15,8 @@ import {
   taskTypeLabel,
 } from '@/lib/campaign-status';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { db } from '@/lib/db';
+import { APPROVAL_STATE_LABEL, approvalOf, campaignTaskState, contentState } from '@/lib/approval';
 import { PauseButton } from '@/components/dashboard/campaigns/pause-button';
 import {
   CampaignTimeline,
@@ -77,6 +79,12 @@ export default async function CampaignDetailPage({
     acc[t.taskType] = (acc[t.taskType] ?? 0) + 1;
     return acc;
   }, {});
+  // Each task's approval follows the content made for it (lib/approval.ts).
+  const drafts = await db.contentDraft.findMany({
+    where: { id: { in: campaign.tasks.map((t) => t.relatedContentDraftId).filter((x): x is string => Boolean(x)) } },
+    select: { id: true, status: true, scheduledFor: true, publishedAt: true, aiMetadata: true },
+  });
+  const draftState = new Map(drafts.map((d) => [d.id, contentState(d, approvalOf(d.aiMetadata))]));
   const rows: TaskRow[] = campaign.tasks.map((t) => ({
     id: t.id,
     scheduledDate: t.scheduledDate.toISOString(),
@@ -87,6 +95,10 @@ export default async function CampaignDetailPage({
     rationale: t.rationale,
     relatedContentDraftId: t.relatedContentDraftId,
     checkpointSummary: t.checkpointSummary,
+    approval: (() => {
+      const s = campaignTaskState(t, t.relatedContentDraftId ? (draftState.get(t.relatedContentDraftId) ?? null) : null);
+      return { state: s, label: APPROVAL_STATE_LABEL[s] };
+    })(),
   }));
 
   return (

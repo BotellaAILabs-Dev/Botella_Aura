@@ -1,4 +1,6 @@
 import { db } from '@/lib/db';
+import { approvalIntact, contentFingerprint } from '@/lib/approval';
+import { contentRecord, outreachIntact } from '@/server/approval/approval.service';
 import { renderForManual } from '@/server/content/render';
 import { CONTENT_TYPE_LABELS } from '@/lib/content-ui';
 import { resolvePlatform, platformSpec } from '@/lib/platforms';
@@ -89,6 +91,10 @@ export async function getQueue(companyId: string): Promise<QueueItem[]> {
   for (const d of drafts) {
     const text = renderForManual(d);
     if (!text) continue;
+    // Only what was approved is handed out: a draft changed since its
+    // approval (it should have been reopened) waits for a new one.
+    const hash = contentFingerprint({ body: d.body, platform: d.platform, media: d.media.map((m) => ({ assetId: m.assetId, altText: m.altText })) });
+    if (!approvalIntact(contentRecord(d, hash), hash)) continue;
     const type = d.type as ContentTypeKey;
     const platform = resolvePlatform(type, d.platform);
 
@@ -122,6 +128,7 @@ export async function getQueue(companyId: string): Promise<QueueItem[]> {
     include: { lead: true },
   });
   for (const m of messages) {
+    if (!outreachIntact(m)) continue;
     const who = m.lead.name
       ? `${m.lead.name} (${m.lead.companyName})`
       : m.lead.companyName;

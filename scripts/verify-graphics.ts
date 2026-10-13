@@ -20,6 +20,7 @@ try {
 }
 
 import { db } from '@/lib/db';
+import { contentHash, contentMetaAfter } from '@/server/approval/approval.service';
 import { validateImageBytes, validateForPlatform } from '@/server/media/validate';
 import { putImage, activeStore } from '@/server/media/storage';
 import {
@@ -98,6 +99,13 @@ const fail = (label: string, detail: string) => {
   process.exitCode = 1;
 };
 
+/**
+ * This check works on the demo workspace's own draft. If it stops part-way,
+ * the draft is put back exactly as it was found (status, schedule, network,
+ * metadata) and the test image removed — never left approved and scheduled.
+ */
+let restoreDemo: (() => Promise<void>) | null = null;
+
 async function main() {
   const company = await db.company.findFirst({ where: { slug: 'botella-demo' } });
   const user = await db.user.findFirst({ where: { email: 'demo@botella.ai' } });
@@ -112,6 +120,12 @@ async function main() {
     orderBy: { createdAt: 'asc' },
   });
   if (!company || !user || !draft) throw new Error('demo data missing — run pnpm db:seed:demo');
+  const original = {
+    status: draft.status,
+    scheduledFor: draft.scheduledFor,
+    platform: draft.platform,
+    aiMetadata: draft.aiMetadata ?? {},
+  };
 
   console.log(`\nworkspace ${company.slug} · draft ${draft.id} · store ${activeStore()}\n`);
 
@@ -137,6 +151,15 @@ async function main() {
   // --- 2. store + persist ------------------------------------------------
   console.log('\n2. Storage and persistence');
   const assetId = `c${Date.now().toString(36)}${crypto.randomBytes(9).toString('base64url').toLowerCase()}`;
+  restoreDemo = async () => {
+    await db.contentMedia.deleteMany({ where: { contentDraftId: draft.id, assetId } });
+    await db.generatedAsset.deleteMany({ where: { id: assetId, companyId: company.id } });
+    await db.contentDraft.update({
+      where: { id: draft.id },
+      data: { ...original, aiMetadata: original.aiMetadata as object },
+    });
+    console.error('Restored the demo draft to how it was found.');
+  };
   const stored = await putImage({
     companyId: company.id,
     assetId,
@@ -275,6 +298,27 @@ async function main() {
   // --- 8. the queue -------------------------------------------------------
   console.log('\n8. Queue (the existing one)');
   const before = draft.status;
+  // Restored at the end, so the demo draft is left as it was found.
+  const beforeMeta = draft.aiMetadata;
+  // Approving the way the app does — with an approval record (lib/approval.ts).
+  // A bare status write is exactly what the approval guard refuses to execute.
+  const recordedApproval = async () => {
+    const d = (await db.contentDraft.findUnique({ where: { id: draft.id } }))!;
+    const hash = await contentHash(d);
+    await db.contentDraft.update({
+      where: { id: draft.id },
+      data: {
+        status: 'APPROVED',
+        aiMetadata: contentMetaAfter(d, hash, {
+          action: 'approved',
+          by: user.id,
+          nextStatus: 'APPROVED',
+          nextHash: hash,
+          approve: { via: 'person', snapshot: { body: d.body, platform: d.platform } },
+        }),
+      },
+    });
+  };
 
   // Force DRAFT first. The seeded draft may already be APPROVED, and
   // "an approved post stays approved" is correct behaviour — so asserting on
@@ -293,7 +337,7 @@ async function main() {
 
   // The other half: re-queueing an approved post to change its time must not
   // force a second approval round.
-  await db.contentDraft.update({ where: { id: draft.id }, data: { status: 'APPROVED' } });
+  await recordedApproval();
   const requeued = await queueDraft({
     companyId: company.id,
     userId: user.id,
@@ -309,7 +353,7 @@ async function main() {
 
   // --- 9. extension queue -------------------------------------------------
   console.log('\n9. Extension queue');
-  await db.contentDraft.update({ where: { id: draft.id }, data: { status: 'APPROVED' } });
+  await recordedApproval();
   const queue = await getQueue(company.id);
   const item = queue.find((q) => q.itemId === draft.id);
   if (item) ok('approved post appears in the extension queue', item.platformLabel ?? '');
@@ -323,7 +367,7 @@ async function main() {
   console.log('\n10. Cleanup');
   await db.contentDraft.update({
     where: { id: draft.id },
-    data: { status: before, scheduledFor: null, platform: null },
+    data: { status: before, scheduledFor: null, platform: null, aiMetadata: beforeMeta ?? {} },
   });
   await deleteAsset({ companyId: company.id, userId: user.id, assetId });
   if ((await db.generatedAsset.findUnique({ where: { id: assetId } }))) fail('delete', 'asset still present');
@@ -339,5 +383,6 @@ main()
   .catch(async (err) => {
     console.error('\nVERIFICATION ERROR:', err);
     process.exitCode = 1;
+    if (restoreDemo) await restoreDemo().catch((e) => console.error('Could not restore the demo draft:', e));
     await db.$disconnect();
   });
