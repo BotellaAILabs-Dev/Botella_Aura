@@ -33,6 +33,7 @@ import {
   writingPlatform,
 } from '@/server/content/quality.service';
 import { factCheckDraft } from '@/server/content/fact-check.service';
+import { withReviewTrace } from '@/server/trace/trace.service';
 import { getPolicyContext } from '@/server/content/compliance.service';
 import { checkCompliance } from '@/lib/compliance-policy';
 import type { SocialPlatformKey } from '@/lib/platforms';
@@ -324,11 +325,8 @@ export async function reviewDraft(
   const updated = await db.contentDraft.update({
     where: { id: draft.id },
     data: {
-      aiMetadata: {
-        ...meta,
-        review,
-        reviewHistory: history,
-      } as unknown as Prisma.InputJsonValue,
+      // The trace records which version this review was of (lib/trace.ts).
+      aiMetadata: withReviewTrace(latest, { ...meta, review, reviewHistory: history }, review) as unknown as Prisma.InputJsonValue,
     },
   });
   return { draft: updated, review };

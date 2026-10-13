@@ -32,6 +32,7 @@ import { reviewAfterWrite, storedReview } from '@/server/content/review.service'
 import { contentChangeMeta, generatedRecord, syncCampaignTask } from '@/server/approval/approval.service';
 import { bodyFingerprint } from '@/lib/versions';
 import { firstVersion, versionMatching, withContentVersion } from '@/server/versions/version.service';
+import { initialTrace } from '@/server/trace/trace.service';
 import { reviewAsFeedback } from '@/lib/content-review';
 import {
   bodySchemaFor,
@@ -413,6 +414,15 @@ export async function generateDraft({
         approval: generatedRecord(first.body, type === 'EMAIL' ? null : platform, userId),
         // Version 1: the original AI version, always recoverable (lib/versions.ts).
         versions: firstVersion(first.body),
+        // The chain back to why it exists (lib/trace.ts): business context,
+        // signals, opportunity, recommendation, brief.
+        trace: await initialTrace({
+          companyId,
+          recommendation: recommendation
+            ? { id: recommendation.id, provenance: recommendation.provenance ?? null, brief: recommendation.brief ?? null }
+            : null,
+          contextRevision: context.trace.snapshot.revision ?? w.context?.meta.revision ?? null,
+        }),
       } as unknown as Prisma.InputJsonValue,
     },
   });

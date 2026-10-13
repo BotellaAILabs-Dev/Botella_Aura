@@ -7,6 +7,7 @@ import { getMembership } from '@/server/services/company.service';
 import { getReviewItem } from '@/server/review/review-item.service';
 import { ReviewScreen } from '@/components/dashboard/review/review-screen';
 import { listVersions } from '@/server/versions/version-api.service';
+import { resolveTrace } from '@/server/trace/trace.service';
 
 export const metadata: Metadata = { title: 'Review' };
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,9 @@ export default async function ReviewItemPage({
     membership.role,
   );
   if (!item) notFound();
-  const versions = await listVersions(params.kind, active.id, params.id);
-  return <ReviewScreen item={item} versions={versions?.versions ?? null} />;
+  const [versions, trace] = await Promise.all([
+    listVersions(params.kind, active.id, params.id),
+    params.kind === 'content' ? resolveTrace(active.id, params.id) : null,
+  ]);
+  return <ReviewScreen item={item} versions={versions?.versions ?? null} trace={trace} />;
 }

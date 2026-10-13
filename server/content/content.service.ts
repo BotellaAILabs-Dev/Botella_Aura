@@ -33,6 +33,7 @@ import {
   withContentVersion,
 } from '@/server/versions/version.service';
 import type { VersionSource } from '@/lib/versions';
+import { traceAudit, withApprovalTrace } from '@/server/trace/trace.service';
 import { DIMENSION_INFO, type ContentReview } from '@/lib/content-review';
 
 /** Undo steps kept per draft (matches server/content/generator.ts). */
@@ -285,7 +286,15 @@ export async function transition({
   );
   // The version being approved is marked (lib/versions.ts) — identifiable
   // later, and never dropped from the history.
-  if (to === 'APPROVED') data.aiMetadata = withApprovedContentVersion(draft, data.aiMetadata, userId);
+  if (to === 'APPROVED') {
+    data.aiMetadata = withApprovedContentVersion(draft, data.aiMetadata, userId);
+    // The approval gets an id, and the trace points at the approved version.
+    data.aiMetadata = withApprovalTrace(
+      draft,
+      data.aiMetadata,
+      (await contentMedia(draft.id)).map((m) => m.assetId),
+    );
+  }
 
   // Only from the state it was read in: a second, concurrent approval (a
   // double click, two approvers) finds it already moved and is refused.
@@ -309,6 +318,8 @@ export async function transition({
       to,
       reason: reason ?? undefined,
       approval: { action, version: (updated.aiMetadata as { approval?: { version?: number } }).approval?.version, hash },
+      // The chain back to why it exists — for analytics (lib/trace.ts).
+      ...(to === 'APPROVED' || to === 'PUBLISHED' ? { trace: traceAudit(updated) } : {}),
       ...(review
         ? {
             review: review.status,
@@ -642,7 +653,7 @@ export async function markPublished(args: {
     action: 'CONTENT_PUBLISHED',
     userId: args.userId,
     companyId: args.companyId,
-    metadata: { draftId: draft.id, publishedUrl: args.publishedUrl ?? undefined },
+    metadata: { draftId: draft.id, publishedUrl: args.publishedUrl ?? undefined, trace: traceAudit(updated) },
   });
   return updated;
 }

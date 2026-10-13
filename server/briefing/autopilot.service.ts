@@ -12,6 +12,7 @@ import {
   syncCampaignTask,
 } from '@/server/approval/approval.service';
 import { withApprovedContentVersion } from '@/server/versions/version.service';
+import { withApprovalTrace } from '@/server/trace/trace.service';
 import { generateGraphics } from '@/server/media/generation.service';
 import { attachAsset } from '@/server/media/asset.service';
 import {
@@ -370,7 +371,13 @@ async function writeWeeklyContent(args: {
             scheduledFor: slot.at,
             ...(approve ? { status: 'APPROVED' as const } : {}),
             // The approved version is marked in the draft's version history.
-            aiMetadata: approve ? withApprovedContentVersion(current, recorded, null) : recorded,
+            aiMetadata: approve
+              ? withApprovalTrace(
+                  current,
+                  withApprovedContentVersion(current, recorded, null),
+                  (await contentMedia(current.id)).map((m) => m.assetId),
+                )
+              : recorded,
           },
         });
         if (approve) await syncCampaignTask(draft.id, 'APPROVED');

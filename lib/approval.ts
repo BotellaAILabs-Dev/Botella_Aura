@@ -112,6 +112,8 @@ export interface ApprovalRecord {
   /** Fingerprint of the content now. */
   hash: string;
   approved: {
+    /** The approval's id (lib/trace.ts) — what analytics and the trace refer to. */
+    id?: string;
     by: string | null;
     via: 'person' | 'autopilot';
     at: string;

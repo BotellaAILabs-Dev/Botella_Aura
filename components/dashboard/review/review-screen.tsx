@@ -32,6 +32,8 @@ import { toast } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import type { ApprovalInfo } from '@/lib/review-item';
 import { VersionsPanel, type VersionView } from '@/components/dashboard/review/versions-panel';
+import { TracePanel } from '@/components/dashboard/review/trace-panel';
+import type { ContentTrace } from '@/lib/trace';
 import {
   changedEdits,
   editsStorageKey,
@@ -210,7 +212,16 @@ function ApprovalCard({ info }: { info: ApprovalInfo }) {
   );
 }
 
-export function ReviewScreen({ item, versions = null }: { item: ReviewItem; versions?: VersionView[] | null }) {
+export function ReviewScreen({
+  item,
+  versions = null,
+  trace = null,
+}: {
+  item: ReviewItem;
+  versions?: VersionView[] | null;
+  /** Why it exists — content only (lib/trace.ts). */
+  trace?: ContentTrace | null;
+}) {
   const router = useRouter();
   const storageKey = editsStorageKey(item);
   const [editing, setEditing] = useState(false);
@@ -755,6 +766,7 @@ export function ReviewScreen({ item, versions = null }: { item: ReviewItem; vers
               )}
             </CardContent>
           </Card>
+          {trace && <TracePanel trace={trace} />}
           {item.approvalInfo && <ApprovalCard info={item.approvalInfo} />}
           <VersionsPanel
             kind={item.kind}
