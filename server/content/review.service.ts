@@ -33,6 +33,9 @@ import {
   writingPlatform,
 } from '@/server/content/quality.service';
 import { factCheckDraft } from '@/server/content/fact-check.service';
+import { getPolicyContext } from '@/server/content/compliance.service';
+import { checkCompliance } from '@/lib/compliance-policy';
+import type { SocialPlatformKey } from '@/lib/platforms';
 
 /**
  * The AI Reviewer, run for a draft (lib/content-review.ts): the deterministic
@@ -65,12 +68,16 @@ export function storedReview(
   return r && typeof r === 'object' ? (r as ContentReview) : null;
 }
 
-/** The stored review, when it still describes the draft's body. */
+/**
+ * The stored review, when it still describes the draft's body and was made
+ * under the rules now in force (`policyHash`, when given).
+ */
 export function currentReview(
   draft: Pick<ContentDraft, 'aiMetadata' | 'body'>,
+  policyHash?: string,
 ): ContentReview | null {
   const r = storedReview(draft);
-  return isReviewCurrent(r, draft.body) ? r : null;
+  return isReviewCurrent(r, draft.body, policyHash) ? r : null;
 }
 
 /** Parts the format requires that are missing, empty or placeholders. */
@@ -91,9 +98,12 @@ export function missingParts(type: ContentTypeKey, body: unknown): string[] {
   return [...missing];
 }
 
-async function reviewerInputFor(
-  draft: ContentDraft,
-): Promise<{ input: ReviewerInput; ctaChecked: boolean }> {
+async function reviewerInputFor(draft: ContentDraft): Promise<{
+  input: ReviewerInput;
+  ctaChecked: boolean;
+  platform: SocialPlatformKey | null;
+  competitors: string[];
+}> {
   const type = draft.type as ContentTypeKey;
   const meta = (draft.aiMetadata ?? {}) as Meta;
   // A stored brief may be partial (an older draft, or evidence only), so
@@ -180,12 +190,22 @@ async function reviewerInputFor(
     facts: knowledge.slice(0, 3000),
     alcohol: w.alcohol,
   };
-  return { input, ctaChecked: ctaRequired(type, ctaExpected) };
+  return {
+    input,
+    ctaChecked: ctaRequired(type, ctaExpected),
+    platform,
+    // The writing context does not load the market section; the names are
+    // all the compliance check needs.
+    competitors: (
+      await db.competitorProfile.findMany({
+        where: { companyId: draft.companyId },
+        select: { name: true },
+      })
+    ).map((c) => c.name),
+  };
 }
 
-async function runReviewer(
-  input: ReviewerInput,
-): Promise<{
+async function runReviewer(input: ReviewerInput): Promise<{
   ai: ReviewerOutput | null;
   model: string | null;
   unavailable: string | null;
@@ -230,9 +250,10 @@ export async function reviewDraft(
   const started = Date.now();
   const type = draft.type as ContentTypeKey;
   const hash = bodyHash(draft.body);
-  const { input, ctaChecked } = await reviewerInputFor(draft);
+  const { input, ctaChecked, platform, competitors } =
+    await reviewerInputFor(draft);
 
-  const [quality, factCheck, model] = await Promise.all([
+  const [quality, factCheck, model, policy] = await Promise.all([
     assessDraft(draft, draft.body, { ctaRequired: ctaChecked }),
     factCheckDraft(draft),
     options.ai === false
@@ -242,7 +263,25 @@ export async function reviewDraft(
           unavailable: 'it was skipped',
         })
       : runReviewer(input),
+    getPolicyContext(draft.companyId),
   ]);
+
+  // The compliance & policy checks (lib/compliance-policy.ts), under the
+  // workspace's rules as they stand now.
+  const subject = (draft.body as { subjectLine?: unknown } | null)?.subjectLine;
+  const compliance = checkCompliance({
+    type,
+    platform: platform as SocialPlatformKey | null,
+    text: [input.text, input.hashtags.join(' ')].join('\n'),
+    cta: input.cta,
+    subject: typeof subject === 'string' ? subject : null,
+    policy: policy.policy,
+    alcohol: policy.alcohol,
+    website: policy.website,
+    competitors,
+    rules: quality.issues,
+    claims: factCheck.claims,
+  });
 
   const review = combineReview({
     rules: quality.issues,
@@ -255,6 +294,7 @@ export async function reviewDraft(
     text: [input.text, input.cta, input.hashtags.join(' ')].join('\n'),
     bodyHash: hash,
     trigger: options.trigger,
+    compliance,
     durationMs: Date.now() - started,
   });
 
@@ -299,7 +339,9 @@ export async function ensureReview(
   draft: ContentDraft,
   trigger: ReviewTrigger,
 ): Promise<{ draft: ContentDraft; review: ContentReview }> {
-  const current = currentReview(draft);
+  // Current means: this body, under the compliance rules in force now.
+  const { hash } = await getPolicyContext(draft.companyId);
+  const current = currentReview(draft, hash);
   if (current) return { draft, review: current };
   return reviewDraft(draft, { trigger });
 }

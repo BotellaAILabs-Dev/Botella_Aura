@@ -15,6 +15,7 @@ import {
   LayoutGrid,
   Bot,
   Building2,
+  ShieldCheck,
 } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
@@ -171,6 +172,24 @@ export default async function SettingsPage() {
             </CardHeader>
             <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
               Choose your formats <ChevronRight className="h-4 w-4" />
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link href="/dashboard/settings/compliance" className="group">
+          <Card className="h-full transition-shadow group-hover:shadow-md">
+            <CardHeader>
+              <div className="mb-1 flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">Compliance</CardTitle>
+              </div>
+              <CardDescription>
+                Words you never use, disclaimers you need, and what always goes
+                to a person before approval.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
+              Set your rules <ChevronRight className="h-4 w-4" />
             </CardContent>
           </Card>
         </Link>

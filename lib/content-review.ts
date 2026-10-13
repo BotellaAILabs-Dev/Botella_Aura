@@ -2,6 +2,10 @@ import { z } from 'zod';
 
 import type { QualityIssue } from '@/lib/content-quality';
 import type { FactCheckReport } from '@/lib/fact-check';
+import type {
+  ComplianceCategory,
+  ComplianceReport,
+} from '@/lib/compliance-policy';
 
 /**
  * The AI Reviewer: a separate review step that evaluates generated content
@@ -144,7 +148,7 @@ export const REVIEW_THRESHOLDS = {
 export type ReviewStatus = 'pass' | 'review_required' | 'fail';
 export type DimensionVerdict = 'pass' | 'review' | 'fail' | 'not_assessed';
 export type IssueSeverity = 'blocker' | 'major' | 'minor';
-export type ReviewSource = 'reviewer' | 'rules' | 'fact_check';
+export type ReviewSource = 'reviewer' | 'rules' | 'fact_check' | 'policy';
 
 export interface ReviewIssue {
   dimension: ReviewDimension;
@@ -196,6 +200,13 @@ export interface ContentReview {
   thresholds: typeof REVIEW_THRESHOLDS;
   /** Set when an approver confirmed they looked at what needed review. */
   acknowledgedBy?: string | null;
+  /**
+   * The compliance & policy checks (lib/compliance-policy.ts), and the
+   * fingerprint of the rules they ran under — a review made under other rules
+   * is out of date.
+   */
+  compliance?: ComplianceReport | null;
+  policyHash?: string | null;
 }
 
 export type ReviewTrigger =
@@ -404,9 +415,22 @@ export interface ReviewSignals {
   text: string;
   bodyHash: string;
   trigger: ReviewTrigger;
+  /** The compliance & policy checks; their rules and fact-check findings come in above. */
+  compliance?: ComplianceReport | null;
   now?: Date;
   durationMs?: number;
 }
+
+/** Which review dimension each compliance category speaks to. */
+const COMPLIANCE_DIMENSION: Record<ComplianceCategory, ReviewDimension> = {
+  prohibited_claim: 'compliance',
+  disclaimer: 'compliance',
+  business: 'compliance',
+  manual_review: 'compliance',
+  channel: 'channel_fit',
+  cta: 'cta',
+  factual: 'accuracy',
+};
 
 const toScore = (s: number) => Math.round(((s - 1) / 4) * 100);
 const norm = (s: string) =>
@@ -518,6 +542,40 @@ export function combineReview(s: ReviewSignals): ContentReview {
     }
     if (acc.accuracy.ruleVerdict === 'not_assessed')
       acc.accuracy.ruleVerdict = 'pass';
+  }
+
+  // 2b. The workspace's compliance policy and the built-in packs. (Its
+  // findings from the rules and the fact check arrived above.)
+  if (s.compliance) {
+    acc.compliance.by.add('policy');
+    if (acc.compliance.ruleVerdict === 'not_assessed')
+      acc.compliance.ruleVerdict = 'pass';
+    for (const f of s.compliance.findings) {
+      if (f.source !== 'built_in' && f.source !== 'workspace') continue;
+      const d = COMPLIANCE_DIMENSION[f.category];
+      acc[d].by.add('policy');
+      if (acc[d].ruleVerdict === 'not_assessed') acc[d].ruleVerdict = 'pass';
+      if (f.outcome !== 'warn') {
+        acc[d].ruleVerdict = worse(
+          acc[d].ruleVerdict,
+          f.outcome === 'fail' ? 'fail' : 'review',
+        );
+        acc[d].ruleNote ??= f.message;
+      }
+      issues.push({
+        dimension: d,
+        severity:
+          f.outcome === 'fail'
+            ? 'blocker'
+            : f.outcome === 'review'
+              ? 'major'
+              : 'minor',
+        message: f.message,
+        quote: f.quote,
+        suggestion: f.fix,
+        source: 'policy',
+      });
+    }
   }
 
   // 3. The independent reviewer.
@@ -694,6 +752,8 @@ export function combineReview(s: ReviewSignals): ContentReview {
     durationMs: s.durationMs ?? 0,
     trigger: s.trigger,
     thresholds: REVIEW_THRESHOLDS,
+    compliance: s.compliance ?? null,
+    policyHash: s.compliance?.policyHash ?? null,
   };
 }
 
@@ -722,15 +782,23 @@ export function bodyHash(body: unknown): string {
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 
-/** The review still describes this body. */
+/**
+ * The review still describes this body — and, when the rules in force are
+ * given, was made under them (a policy change makes every review out of date).
+ */
 export function isReviewCurrent(
-  review: Pick<ContentReview, 'bodyHash' | 'version'> | null | undefined,
+  review:
+    | Pick<ContentReview, 'bodyHash' | 'version' | 'policyHash'>
+    | null
+    | undefined,
   body: unknown,
+  policyHash?: string,
 ): boolean {
   return Boolean(
     review &&
     review.version === REVIEW_VERSION &&
-    review.bodyHash === bodyHash(body),
+    review.bodyHash === bodyHash(body) &&
+    (policyHash === undefined || review.policyHash === policyHash),
   );
 }
 

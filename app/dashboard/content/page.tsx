@@ -16,6 +16,7 @@ import { getEnabledContentTypes } from '@/server/company/profile.service';
 import { QueueBoard, type DraftCard } from '@/components/dashboard/content/queue-board';
 import type { ContentTypeKey } from '@/lib/validations/content';
 import { isReviewCurrent, type ContentReview } from '@/lib/content-review';
+import { getPolicyContext } from '@/server/content/compliance.service';
 
 export const metadata: Metadata = { title: 'Content Studio' };
 
@@ -24,9 +25,10 @@ export default async function ContentPage() {
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const [drafts, enabledTypes] = await Promise.all([
+  const [drafts, enabledTypes, policy] = await Promise.all([
     listDrafts(active.id),
     getEnabledContentTypes(active.id),
+    getPolicyContext(active.id),
   ]);
   const cards: DraftCard[] = drafts.map((d) => {
     const meta = (d.aiMetadata ?? {}) as {
@@ -34,7 +36,7 @@ export default async function ContentPage() {
       review?: ContentReview;
     };
     // The AI Reviewer's verdict, only while it is of the body as it stands.
-    const review = isReviewCurrent(meta.review, d.body) ? meta.review! : null;
+    const review = isReviewCurrent(meta.review, d.body, policy.hash) ? meta.review! : null;
     const type = d.type as ContentTypeKey;
     const platform = resolvePlatform(type, d.platform);
     return {

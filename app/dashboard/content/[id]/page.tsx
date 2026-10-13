@@ -41,6 +41,7 @@ import { FactCheckPanel } from '@/components/dashboard/content/fact-check-panel'
 import { ReviewPanel } from '@/components/dashboard/content/review-panel';
 import { REVIEW_STATUS_LABEL, isReviewCurrent } from '@/lib/content-review';
 import { storedReview } from '@/server/content/review.service';
+import { getPolicyContext } from '@/server/content/compliance.service';
 import { claimsToReview } from '@/lib/fact-check';
 import { factCheckDraft } from '@/server/content/fact-check.service';
 import { VisualBriefPanel } from '@/components/dashboard/content/visual-brief-panel';
@@ -159,7 +160,7 @@ export default async function DraftDetailPage({
 
   // Graphics and attachments are loaded server-side so the panel renders with
   // its history already present — no spinner on a page that has been visited.
-  const [assets, attached, media, activeJob, visual, factCheck] = await Promise.all([
+  const [assets, attached, media, activeJob, visual, factCheck, policy] = await Promise.all([
     listAssets(active.id, { draftId: draft.id }),
     attachedAssetIds(active.id, draft.id),
     getAttachedMedia({
@@ -175,12 +176,14 @@ export default async function DraftDetailPage({
     visualBriefForDraft(draft, platform),
     // Every claim, against what Aura trusts now (lib/fact-check.ts).
     factCheckDraft(draft),
+    // The compliance rules in force — a review made under others is out of date.
+    getPolicyContext(active.id),
   ]);
   const toReview = claimsToReview(factCheck).length;
   // The AI Reviewer's result (lib/content-review.ts), and whether it is of
   // the body as it stands.
   const review = storedReview(draft);
-  const reviewCurrent = isReviewCurrent(review, draft.body);
+  const reviewCurrent = isReviewCurrent(review, draft.body, policy.hash);
 
   return (
     <div>

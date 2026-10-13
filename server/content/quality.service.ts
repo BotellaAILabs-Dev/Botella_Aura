@@ -11,6 +11,7 @@ import {
   type QualityReport,
 } from '@/lib/content-quality';
 import { resolvePlatform, type SocialPlatformKey } from '@/lib/platforms';
+import { policyToPrompt, readPolicy } from '@/lib/compliance-policy';
 import type { ContentTypeKey } from '@/lib/validations/content';
 import {
   businessContextToPrompt,
@@ -111,6 +112,16 @@ export async function loadWritingContext(
     'HOW TO WRITE:',
     ...HUMAN_WRITING_RULES.map((r) => `- ${r}`),
     alcohol ? `\n${ALCOHOL_PROMPT}` : '',
+    // The workspace's compliance policy (Settings → Compliance) — the same
+    // rules the draft is checked against before approval.
+    `\n${policyToPrompt(
+      readPolicy(
+        ((company.preferences ?? {}) as { compliancePolicy?: unknown })
+          .compliancePolicy,
+        alcohol,
+      ),
+      alcohol,
+    )}`,
     '',
     withContext
       ? 'Ground every fact in the business context and company knowledge provided. Do not invent product names, prices, awards or claims.'

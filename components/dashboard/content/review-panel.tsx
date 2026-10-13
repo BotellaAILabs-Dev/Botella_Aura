@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   CheckCircle2,
@@ -17,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from '@/components/ui/toaster';
+import { PACKS } from '@/lib/compliance-policy';
 import {
   DIMENSION_INFO,
   REVIEW_STATUS_LABEL,
@@ -73,6 +75,7 @@ const SOURCE_LABEL: Record<ReviewIssue['source'], string> = {
   reviewer: 'reviewer',
   rules: 'rules',
   fact_check: 'fact check',
+  policy: 'policy',
 };
 
 const SEVERITY_CLASS: Record<ReviewIssue['severity'], string> = {
@@ -204,7 +207,9 @@ export function ReviewPanel({
             </span>
           )}
           {!current && (
-            <Badge variant="muted">Out of date — the piece changed</Badge>
+            <Badge variant="muted">
+              Out of date — the piece or the rules changed
+            </Badge>
           )}
         </div>
 
@@ -222,6 +227,36 @@ export function ReviewPanel({
         {review.summary && (
           <p className="rounded-md bg-muted/50 p-2 text-xs text-foreground">
             {review.summary}
+          </p>
+        )}
+
+        {review.compliance && (
+          <p
+            className="text-xs text-muted-foreground"
+            data-testid="compliance-summary"
+          >
+            <span className="font-medium text-foreground">Compliance:</span>{' '}
+            {Object.values(review.compliance.checked).reduce(
+              (n, x) => n + x,
+              0,
+            )}{' '}
+            checks
+            {review.compliance.packs.length
+              ? ` (${review.compliance.packs.map((p) => PACKS[p].label).join(', ')} rules and yours)`
+              : ' (your rules)'}{' '}
+            —{' '}
+            {review.compliance.status === 'pass'
+              ? 'all clear'
+              : review.compliance.status === 'fail'
+                ? `${review.compliance.findings.filter((f) => f.outcome === 'fail').length} failed`
+                : `${review.compliance.findings.filter((f) => f.outcome === 'review').length} for a person to check`}
+            .{' '}
+            <Link
+              href="/dashboard/settings/compliance"
+              className="text-primary hover:underline"
+            >
+              Compliance rules
+            </Link>
           </p>
         )}
 
