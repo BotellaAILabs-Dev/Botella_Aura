@@ -1,6 +1,7 @@
 import type { AuditAction, OutreachStatus } from '@prisma/client';
 import { db } from '@/lib/db';
 import { recordAudit } from '@/server/services/audit.service';
+import { checkOutreachMessage } from '@/server/outreach/outreach-checks.service';
 
 /**
  * Outreach message state machine (Sprint 4, Module 3) — mirrors the Content
@@ -86,8 +87,24 @@ export async function transitionMessage(args: {
   requestMeta?: Meta;
 }) {
   const { companyId, userId, messageId, action, reason, requestMeta } = args;
-  await getMessageOrThrow(companyId, messageId);
+  const current = await getMessageOrThrow(companyId, messageId);
   const status = ACTION_TO_STATUS[action];
+  if (current.status === 'SENT') {
+    throw Object.assign(new Error('This message was already sent.'), { status: 409 });
+  }
+  // The same checks the review shows (LinkedIn's limits, the workspace's
+  // compliance rules): a message that breaks one cannot be approved.
+  if (action === 'approve') {
+    const blocking = (await checkOutreachMessage(current)).filter(
+      (f) => f.severity === 'block',
+    );
+    if (blocking.length) {
+      throw Object.assign(
+        new Error(`Fix before approving: ${blocking.map((f) => f.message).join(' ')}`),
+        { status: 409, code: 'outreach_checks_failed' },
+      );
+    }
+  }
 
   return db.$transaction(async (tx) => {
     const msg = await tx.outreachMessage.update({

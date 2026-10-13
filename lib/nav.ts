@@ -18,6 +18,7 @@ import {
   Building2,
   Telescope,
   Sparkles,
+  ClipboardCheck,
 } from 'lucide-react';
 
 /**
@@ -87,6 +88,14 @@ export const NAV_ITEMS: NavItem[] = [
     ready: true,
     section: 'overview',
     description: 'What Aura thinks you should do next, why, and the evidence behind it.',
+  },
+  {
+    label: 'Review & approve',
+    href: '/dashboard/review',
+    icon: ClipboardCheck,
+    ready: true,
+    section: 'overview',
+    description: 'Everything Aura made that is waiting on you, reviewed and approved in one place.',
   },
   {
     label: 'Marketing health',

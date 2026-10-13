@@ -206,6 +206,14 @@ export default async function DraftDetailPage({
                 {factCheck.status === 'contradicted' ? 'Contradiction' : 'Needs fact review'}
               </Badge>
             )}
+            {draft.status !== 'PUBLISHED' && (
+              <Link
+                href={`/dashboard/review/content/${draft.id}`}
+                className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/5"
+              >
+                Review &amp; approve
+              </Link>
+            )}
             {review && reviewCurrent && review.status !== 'pass' && (
               <Badge variant={review.status === 'fail' ? 'destructive' : 'warning'}>
                 {REVIEW_STATUS_LABEL[review.status]}

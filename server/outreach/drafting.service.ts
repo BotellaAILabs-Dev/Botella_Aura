@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
@@ -187,4 +188,82 @@ function deterministicDrafts(
     `At ${companyName} we work with teams like ${leadCompany} on exactly this — ` +
     `happy to share a couple of relevant ideas if useful. No pressure either way.`;
   return { connectionNote: note, followup };
+}
+
+/**
+ * Regenerate ONE message in place (the unified review's Regenerate): a fresh
+ * draft of the same type for the same lead and signal. The previous text is
+ * kept in aiMetadata.history, and the message returns to DRAFT — it must be
+ * approved again.
+ */
+export async function regenerateMessage(args: {
+  companyId: string;
+  userId: string;
+  messageId: string;
+  requestMeta?: Meta;
+}) {
+  const { companyId, userId, messageId, requestMeta } = args;
+  const msg = await db.outreachMessage.findFirst({
+    where: { id: messageId, companyId },
+    include: { lead: true },
+  });
+  if (!msg) throw Object.assign(new Error('Message not found.'), { status: 404 });
+  if (msg.status === 'SENT') {
+    throw Object.assign(new Error('A sent message cannot be regenerated.'), { status: 409 });
+  }
+  const meta = (msg.aiMetadata ?? {}) as Record<string, unknown>;
+  const signal =
+    (typeof meta.signalId === 'string'
+      ? await db.leadSignal.findFirst({ where: { id: meta.signalId, leadId: msg.leadId } })
+      : null) ??
+    (await db.leadSignal.findFirst({ where: { leadId: msg.leadId }, orderBy: { detectedAt: 'desc' } }));
+  const company = await db.company.findUnique({ where: { id: companyId } });
+  if (!company) throw new Error('Company not found.');
+
+  const drafts = await buildDrafts({
+    companyId,
+    userId,
+    companyName: company.name,
+    leadName: msg.lead.name,
+    leadCompany: msg.lead.companyName,
+    signalText: signal?.description ?? `recent activity at ${msg.lead.companyName}`,
+  });
+  const draftText =
+    msg.type === 'CONNECTION_NOTE'
+      ? drafts.connectionNote.slice(0, CONNECTION_NOTE_LIMIT)
+      : drafts.followup;
+  const history = [
+    { text: msg.draftText, at: new Date().toISOString(), status: msg.status },
+    ...((Array.isArray(meta.history) ? meta.history : []) as unknown[]),
+  ].slice(0, 5);
+
+  return db.$transaction(async (tx) => {
+    const updated = await tx.outreachMessage.update({
+      where: { id: msg.id },
+      data: {
+        draftText,
+        status: 'DRAFT',
+        rejectionReason: null,
+        aiMetadata: {
+          ...meta,
+          model: drafts.model,
+          signalId: signal?.id ?? null,
+          brandVoiceApplied: drafts.model !== 'none',
+          history,
+          regeneratedAt: new Date().toISOString(),
+        } as Prisma.InputJsonObject,
+      },
+    });
+    await recordAudit(
+      {
+        action: 'OUTREACH_DRAFTED',
+        userId,
+        companyId,
+        metadata: { messageId: msg.id, regenerated: true, model: drafts.model },
+        ...requestMeta,
+      },
+      tx,
+    );
+    return updated;
+  });
 }

@@ -201,7 +201,8 @@ export function ReviewPanel({
           <Badge variant={STATUS_VARIANT[review.status]}>
             {REVIEW_STATUS_LABEL[review.status]}
           </Badge>
-          {review.score !== null && (
+          {/* Without the AI reviewer the score is the rules' alone — not a quality score. */}
+          {review.reviewer.ran && review.score !== null && (
             <span className="text-xs text-muted-foreground">
               Score {review.score}/100 · pass at {REVIEW_THRESHOLDS.overallPass}
             </span>

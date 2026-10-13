@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { ClipboardCheck } from 'lucide-react';
 import {
   Sparkles,
   Pencil,
@@ -492,6 +494,13 @@ function MessageBlock({
 
       {canManage && !editing && (
         <div className="mt-3 flex flex-wrap gap-2">
+          {message.status !== 'SENT' && (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/dashboard/review/outreach/${message.id}`}>
+                <ClipboardCheck className="h-4 w-4" /> Review
+              </Link>
+            </Button>
+          )}
           {message.status === 'DRAFT' && (
             <>
               <Button size="sm" onClick={() => transition('submit')}>
