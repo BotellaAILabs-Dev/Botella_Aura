@@ -33,6 +33,16 @@ const nextConfig = {
      * anything. They are named explicitly rather than left to the default so
      * the optimisation does not silently disappear if that list changes.
      */
+    /**
+     * Marketing creatives (server/media/creative): resvg is a native module,
+     * loaded by Node rather than bundled, and the bundled fonts are read from
+     * disk at runtime — so they must ship with every function that renders.
+     */
+    serverComponentsExternalPackages: ['@resvg/resvg-js'],
+    outputFileTracingIncludes: {
+      '/api/**/*': ['./assets/fonts/**/*'],
+      '/dashboard/**/*': ['./assets/fonts/**/*'],
+    },
     optimizePackageImports: [
       '@radix-ui/react-avatar',
       '@radix-ui/react-dialog',

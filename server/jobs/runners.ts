@@ -7,6 +7,7 @@ import { generateMarketingPlan } from '@/server/planner/plan.service';
 import { generateIntelligenceSnapshot } from '@/server/intelligence/intelligence.service';
 import { getDraft } from '@/server/content/content.service';
 import { generateGraphics } from '@/server/media/generation.service';
+import { generateCreative } from '@/server/media/creative/creative.service';
 import { reportProgress, type JobProgress } from '@/server/jobs/job.service';
 import {
   getCreation,
@@ -118,6 +119,20 @@ const RUNNERS: Record<GenerationJobKind, Runner> = {
     const draft = await getDraft(job.companyId, inputs.draftId);
     if (!draft) {
       throw new Error('That draft no longer exists, so there is nothing to illustrate.');
+    }
+
+    // A marketing creative: copy, photograph and layout in one run.
+    if (inputs.creative) {
+      const result = await generateCreative({
+        draft,
+        userId: job.userId,
+        input: inputs.creative.input,
+        keepText: inputs.creative.keepText ?? null,
+        jobId: job.id,
+        report,
+      });
+      await report('Preparing the preview…', 95);
+      return { creative: result } as unknown as JobResult;
     }
 
     await report(

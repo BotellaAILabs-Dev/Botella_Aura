@@ -17,6 +17,8 @@ import { DATE_LOCALE } from './dates';
 /** Art styles offered in the studio. */
 export const IMAGE_STYLES = [
   'professional',
+  /** Commercial photography — the marketing creatives' backgrounds. */
+  'photo',
   'minimal',
   'cinematic',
   '3d',
@@ -30,6 +32,7 @@ export function isImageStyle(value: string): value is ImageStyleKey {
 
 export const STYLE_LABELS: Record<ImageStyleKey, string> = {
   professional: 'Professional',
+  photo: 'Photorealistic',
   minimal: 'Minimal',
   cinematic: 'Cinematic',
   '3d': '3D',

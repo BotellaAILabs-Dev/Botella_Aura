@@ -159,6 +159,10 @@ export const STYLE_DIRECTION: Record<ImageStyleKey, string> = {
   professional:
     'Polished corporate photography and clean vector accents. Balanced, ' +
     'trustworthy, premium. Soft realistic lighting, muted confident palette.',
+  photo:
+    'Photorealistic commercial photography: natural or studio lighting, realistic ' +
+    'textures, accurate proportions, editorial advertising quality. Never ' +
+    'illustrated, rendered or cartoon-like.',
   minimal:
     'Extreme restraint. Generous negative space, two or three colours, one ' +
     'clear subject, geometric simplicity. Nothing decorative.',

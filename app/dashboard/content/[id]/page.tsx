@@ -49,6 +49,7 @@ import { visualBriefForDraft } from '@/server/media/visual-brief.service';
 import type { CreationProvenance } from '@/lib/recommendation-creation';
 import { DraftActions } from '@/components/dashboard/content/draft-actions';
 import { GraphicStudio } from '@/components/dashboard/content/graphic-studio';
+import { CreativeStudio } from '@/components/dashboard/content/creative-studio';
 import { AgnesImageGenerator } from '@/components/dashboard/content/agnes-image-generator';
 import { googleImageProvider } from '@/server/media/providers/gemini';
 import { agnesImageProvider } from '@/server/media/providers/agnes';
@@ -171,7 +172,10 @@ export default async function DraftDetailPage({
     }),
     // A generation still running for this draft, so a reload reattaches to it
     // rather than showing an idle panel while images are still being made.
-    findActiveImageJob(active.id, draft.id),
+    findActiveImageJob(active.id, draft.id).then((j) =>
+      // A creative run is shown by the creative studio, not the graphics panel.
+      j && (j.inputs as { creative?: unknown } | null)?.creative ? null : j,
+    ),
     // What the image is for (lib/visual-brief.ts).
     visualBriefForDraft(draft, platform),
     // Every claim, against what Aura trusts now (lib/fact-check.ts).
@@ -242,6 +246,8 @@ export default async function DraftDetailPage({
             fromRecommendation={visual.source === 'content_brief'}
             hasImage={media.length > 0}
           />
+          {/* Branded, ready-to-post creatives: photo + copy + layout. */}
+          <CreativeStudio draftId={draft.id} canEdit={canEdit} />
           <GraphicStudio
             draftId={draft.id}
             platform={platform}

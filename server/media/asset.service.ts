@@ -61,6 +61,19 @@ export interface AssetView {
   createdAt: string;
   /** True when this asset is attached to the draft currently being viewed. */
   attached: boolean;
+  /**
+   * A composed marketing creative (server/media/creative): its design, and
+   * whether it was made without an AI photograph. Null for plain images.
+   */
+  creative: {
+    type: string;
+    layout: string;
+    headline: string;
+    photoAssetId: string | null;
+    /** No AI photo — a brand-colour background (labelled as such). */
+    fallback: boolean;
+    fallbackReason: string | null;
+  } | null;
 }
 
 export function toAssetView(
@@ -85,6 +98,23 @@ export function toAssetView(
     contentDraftId: asset.contentDraftId,
     createdAt: asset.createdAt.toISOString(),
     attached: attachedAssetIds.has(asset.id),
+    creative: creativeOf(asset.metadata),
+  };
+}
+
+function creativeOf(metadata: unknown): AssetView['creative'] {
+  const m = (metadata ?? {}) as {
+    kind?: string;
+    spec?: { type?: string; layout?: string; text?: { headline?: string }; photo?: { assetId?: string | null; fallback?: boolean; fallbackReason?: string | null } };
+  };
+  if (m.kind !== 'creative' || !m.spec) return null;
+  return {
+    type: m.spec.type ?? 'brand_awareness',
+    layout: m.spec.layout ?? 'hero',
+    headline: m.spec.text?.headline ?? '',
+    photoAssetId: m.spec.photo?.assetId ?? null,
+    fallback: Boolean(m.spec.photo?.fallback),
+    fallbackReason: m.spec.photo?.fallbackReason ?? null,
   };
 }
 
@@ -397,9 +427,18 @@ export async function assetsThisMonth(companyId: string): Promise<number> {
   const monthStart = new Date();
   monthStart.setUTCDate(1);
   monthStart.setUTCHours(0, 0, 0, 0);
-  return db.generatedAsset.count({
-    where: { companyId, createdAt: { gte: monthStart } },
-  });
+  const where = { companyId, createdAt: { gte: monthStart } };
+  // A composed creative is a layout over a photo already counted (or the
+  // brand's own colours) — re-setting its text spends no generation. Counted
+  // as total minus creatives: a NOT on a JSON path would also drop every
+  // asset that has no "kind" at all (NULL in SQL), i.e. all of them.
+  const [all, creatives] = await Promise.all([
+    db.generatedAsset.count({ where }),
+    db.generatedAsset.count({
+      where: { ...where, metadata: { path: ['kind'], equals: 'creative' } },
+    }),
+  ]);
+  return all - creatives;
 }
 
 /**

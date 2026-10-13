@@ -52,9 +52,11 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       findActiveImageJob(company.id, params.id),
     ]);
 
+    // A creative run belongs to the creative studio, not this panel.
+    const isCreative = Boolean((activeJob?.inputs as { creative?: unknown } | null)?.creative);
     return jsonOk({
       assets: assets.map((a) => toAssetView(a, attached)),
-      activeJob: activeJob
+      activeJob: activeJob && !isCreative
         ? {
             jobId: activeJob.id,
             status: activeJob.status,

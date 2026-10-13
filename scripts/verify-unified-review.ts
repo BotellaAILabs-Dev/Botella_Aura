@@ -20,6 +20,7 @@ import { db } from '@/lib/db';
 import { REVIEW_DIMENSIONS } from '@/lib/content-review';
 import { REVIEW_ACTIONS, type ReviewItem } from '@/lib/review-item';
 import { runReviewAction } from '@/server/review/review-actions.service';
+import { reviewDraft } from '@/server/content/review.service';
 
 const BASE = (
   process.env.VERIFY_BASE_URL ??
@@ -440,6 +441,10 @@ async function main() {
         memberItem.actions.submit.available === true,
       `${memberApprove.status} ${viewerSave.status} ${outsiderGet.status}`,
     );
+    // The live AI reviewer on the server would judge this test post on its
+    // merits; record a passing review (stubbed model) so this check tests the
+    // workflow, not the model's opinion. The server uses it while it is current.
+    await withStub(POST, async () => reviewDraft(await load(d1.id), { trigger: 'manual' }));
     const submitted = await memberC.req(
       'POST',
       `/api/review/content/${d1.id}`,

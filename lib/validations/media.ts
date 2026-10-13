@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { ASPECT_RATIOS, SOCIAL_PLATFORMS } from '@/lib/platforms';
 import { IMAGE_STYLES } from '@/lib/graphics-ui';
+import { creativeInputSchema, keepTextSchema } from '@/lib/creative/spec';
 
 /**
  * Graphic Generation input schemas.
@@ -97,6 +98,26 @@ export const imageJobInputsSchema = z.object({
   customHeight: z.number().int().min(256).max(4096).optional(),
   style: z.enum(IMAGE_STYLES).default('professional'),
   variations: z.number().int().min(1).max(4).default(1),
+  /**
+   * A marketing creative (server/media/creative): the photo, copy and layout
+   * in one run. When set, the runner composes a creative instead of plain images.
+   */
+  creative: z
+    .object({ input: creativeInputSchema, keepText: keepTextSchema.nullable().optional() })
+    .optional(),
+});
+
+/** Make a marketing creative (queued — it may photograph a new scene). */
+export const generateCreativeSchema = z.object({
+  input: creativeInputSchema,
+  /** Regenerate the photo but keep these words. */
+  keepText: keepTextSchema.nullable().optional(),
+});
+
+/** Re-set a creative's text, layout or colours on its existing photo — no generation. */
+export const renderCreativeSchema = z.object({
+  input: creativeInputSchema,
+  keepText: keepTextSchema,
 });
 
 export const attachGraphicSchema = z.object({
