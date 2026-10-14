@@ -15,6 +15,7 @@ import {
   Upload,
   Link as LinkIcon,
   X,
+  Layers,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -191,6 +192,8 @@ export function GraphicStudio({
   const [uploading, setUploading] = useState<'file' | 'url' | null>(null);
   const [urlOpen, setUrlOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
+  // A video (Instagram Reels and carousels) rather than an image, for URL imports.
+  const [urlIsVideo, setUrlIsVideo] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   /**
@@ -516,7 +519,7 @@ export function GraphicStudio({
       );
       if (!res.ok) {
         const b = (await res.json().catch(() => ({}))) as { error?: string };
-        toast.error(b.error ?? 'That image could not be added.');
+        toast.error(b.error ?? 'That file could not be added.');
         return;
       }
       const data = (await res.json()) as { asset: GraphicAsset };
@@ -524,7 +527,10 @@ export function GraphicStudio({
       setSelected(data.asset.id);
       setUrlOpen(false);
       setImageUrl('');
-      toast.success('Image added. Select “Attach to post” to use it.');
+      setUrlIsVideo(false);
+      toast.success(
+        `${isVideo(data.asset) ? 'Video' : 'Image'} added. Select “Attach to post” to use it.`,
+      );
     } catch {
       toast.error('Could not reach the server. Try again.');
     } finally {
@@ -542,16 +548,21 @@ export function GraphicStudio({
   async function importFromUrl() {
     await addSuppliedImage(
       'url',
-      JSON.stringify({ url: imageUrl.trim() }),
+      JSON.stringify({ url: imageUrl.trim(), ...(urlIsVideo ? { kind: 'video' } : {}) }),
       { 'Content-Type': 'application/json' },
     );
   }
 
-  async function attach(assetId: string) {
+  /**
+   * Attach to the post. `replace` (the default) swaps the post's media for
+   * this one; "Add to carousel" appends it after what is attached — an
+   * Instagram carousel takes 2–10 images and videos, in this order.
+   */
+  async function attach(assetId: string, replace = true) {
     const res = await fetch(`/api/content/graphics/${assetId}/attach`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ draftId, replace: true }),
+      body: JSON.stringify({ draftId, replace }),
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -560,9 +571,9 @@ export function GraphicStudio({
     }
     // Replacing means exactly one attachment, so the set is rebuilt rather
     // than added to — otherwise the previous image keeps its checkmark.
-    setAttached(new Set([assetId]));
+    setAttached((prev) => (replace ? new Set([assetId]) : new Set([...prev, assetId])));
     setSelected(assetId);
-    toast.success('Graphic attached to this post.');
+    toast.success(replace ? 'Attached to this post.' : `Added to the carousel (item ${attached.size + 1}).`);
     router.refresh();
   }
 
@@ -855,7 +866,7 @@ export function GraphicStudio({
             loading={uploading === 'file'}
             disabled={busy || !canEdit || uploading !== null}
           >
-            <Upload className="h-4 w-4" /> Upload image
+            <Upload className="h-4 w-4" /> Upload image or video
           </Button>
           <Button
             variant="ghost"
@@ -868,7 +879,7 @@ export function GraphicStudio({
           <input
             ref={fileInput}
             type="file"
-            accept="image/png,image/jpeg,image/webp"
+            accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime"
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -882,7 +893,7 @@ export function GraphicStudio({
         {urlOpen && (
           <div className="flex flex-wrap items-end gap-2 rounded-md border border-border p-3">
             <div className="min-w-[240px] flex-1 space-y-1.5">
-              <Label htmlFor="image-url">Image URL</Label>
+              <Label htmlFor="image-url">{urlIsVideo ? 'Video URL (MP4 or MOV)' : 'Image URL'}</Label>
               <input
                 id="image-url"
                 type="url"
@@ -897,10 +908,19 @@ export function GraphicStudio({
               loading={uploading === 'url'}
               disabled={!canEdit || imageUrl.trim().length === 0}
             >
-              Add image
+              {urlIsVideo ? 'Add video' : 'Add image'}
             </Button>
+            <label className="flex w-full items-center gap-2 text-xs text-foreground">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-primary"
+                checked={urlIsVideo}
+                onChange={(e) => setUrlIsVideo(e.target.checked)}
+              />
+              It&apos;s a video — for an Instagram Reel or carousel (MP4/MOV, H.264, 3 s – 15 min, up to 100 MB)
+            </label>
             <p className="w-full text-xs text-muted-foreground">
-              The image is downloaded and stored with your post — it won&apos;t
+              The file is downloaded and stored with your post — it won&apos;t
               break if the original link goes away.
             </p>
           </div>
@@ -944,6 +964,7 @@ export function GraphicStudio({
                       canEdit={canEdit}
                       onSelect={setSelected}
                       onAttach={attach}
+                      onAdd={(id) => attach(id, false)}
                       onDelete={remove}
                     />
                   </div>
@@ -957,6 +978,7 @@ export function GraphicStudio({
                 canEdit={canEdit}
                 onSelect={setSelected}
                 onAttach={attach}
+                onAdd={(id) => attach(id, false)}
                 onDelete={remove}
               />
             )}
@@ -967,8 +989,10 @@ export function GraphicStudio({
           <SelectedGraphic
             asset={selectedAsset}
             isAttached={attached.has(selectedAsset.id)}
+            canAdd={attached.size > 0 && attached.size < 10}
             canEdit={canEdit}
             onAttach={() => attach(selectedAsset.id)}
+            onAdd={() => attach(selectedAsset.id, false)}
             onRegenerate={generate}
             regenerating={busy}
           />
@@ -1109,6 +1133,7 @@ function Gallery({
   canEdit,
   onSelect,
   onAttach,
+  onAdd,
   onDelete,
 }: {
   assets: GraphicAsset[];
@@ -1117,6 +1142,8 @@ function Gallery({
   canEdit: boolean;
   onSelect: (id: string) => void;
   onAttach: (id: string) => void;
+  /** Append to the post's media (carousel). */
+  onAdd: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
   if (assets.length === 0) return null;
@@ -1144,15 +1171,26 @@ function Gallery({
                 paints, and the width/height stop the grid reflowing as each
                 one lands. The file route marks them immutable, so the download
                 cost is paid once per image. */}
-            <RetryingImage
-              src={asset.url}
-              alt={`Generated graphic, ${asset.aspectRatio}`}
-              className="h-full w-full object-cover"
-              loading="lazy"
-              decoding="async"
-              width={asset.width}
-              height={asset.height}
-            />
+            {isVideo(asset) ? (
+              <video
+                src={asset.url}
+                className="h-full w-full object-cover"
+                muted
+                playsInline
+                preload="metadata"
+                aria-label={`Video, ${asset.aspectRatio}`}
+              />
+            ) : (
+              <RetryingImage
+                src={asset.url}
+                alt={`Generated graphic, ${asset.aspectRatio}`}
+                className="h-full w-full object-cover"
+                loading="lazy"
+                decoding="async"
+                width={asset.width}
+                height={asset.height}
+              />
+            )}
             {attached.has(asset.id) && (
               <span className="absolute right-1.5 top-1.5 rounded-full bg-primary p-1 text-primary-foreground">
                 <Check className="h-3 w-3" />
@@ -1177,11 +1215,21 @@ function Gallery({
                   <button
                     type="button"
                     onClick={() => onAttach(asset.id)}
-                    title="Use this image"
+                    title={isVideo(asset) ? 'Use this video' : 'Use this image'}
                     className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     <Check className="h-3.5 w-3.5" />
                   </button>
+                  {attached.size > 0 && attached.size < 10 && !attached.has(asset.id) && (
+                    <button
+                      type="button"
+                      onClick={() => onAdd(asset.id)}
+                      title="Add to carousel (after what is attached)"
+                      className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <Layers className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => onDelete(asset.id)}
@@ -1200,18 +1248,28 @@ function Gallery({
   );
 }
 
+/** A video asset (Instagram Reels and carousels) rather than an image. */
+function isVideo(asset: { mimeType: string }): boolean {
+  return asset.mimeType.startsWith('video/');
+}
+
 function SelectedGraphic({
   asset,
   isAttached,
+  canAdd,
   canEdit,
   onAttach,
+  onAdd,
   onRegenerate,
   regenerating,
 }: {
   asset: GraphicAsset;
   isAttached: boolean;
+  /** The post has media and room for more (an Instagram carousel). */
+  canAdd: boolean;
   canEdit: boolean;
   onAttach: () => void;
+  onAdd: () => void;
   onRegenerate: () => void;
   regenerating: boolean;
 }) {
@@ -1224,19 +1282,23 @@ function SelectedGraphic({
             asset.aspectRatio,
           )}`}
         >
-          <RetryingImage
-            src={asset.url}
-            alt="Selected graphic preview"
-            className="h-full w-full object-cover"
-            decoding="async"
-            width={asset.width}
-            height={asset.height}
-          />
+          {isVideo(asset) ? (
+            <video src={asset.url} className="h-full w-full object-cover" controls muted playsInline preload="metadata" />
+          ) : (
+            <RetryingImage
+              src={asset.url}
+              alt="Selected graphic preview"
+              className="h-full w-full object-cover"
+              decoding="async"
+              width={asset.width}
+              height={asset.height}
+            />
+          )}
         </div>
         <div className="min-w-[200px] flex-1 space-y-2 text-sm">
           <p className="text-muted-foreground">
             {asset.width}×{asset.height} · {formatFileSize(asset.fileSize)} ·{' '}
-            {asset.mimeType.replace('image/', '').toUpperCase()}
+            {asset.mimeType.replace(/^(image|video)\//, '').replace('quicktime', 'mov').toUpperCase()}
           </p>
           <p className="text-xs text-muted-foreground">
             {asset.provider} · {asset.model}
@@ -1250,6 +1312,11 @@ function SelectedGraphic({
               <Check className="h-4 w-4" />
               {isAttached ? 'Attached to post' : 'Attach to post'}
             </Button>
+            {canAdd && !isAttached && (
+              <Button size="sm" variant="outline" onClick={onAdd} disabled={!canEdit}>
+                <Layers className="h-4 w-4" /> Add to carousel
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"

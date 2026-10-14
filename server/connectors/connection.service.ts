@@ -153,6 +153,8 @@ export async function completeOAuth(args: {
   userId: string;
   connectorId: string;
   code: string;
+  /** PKCE verifier from the browser binding (server/connectors/oauth.ts). */
+  verifier?: string;
   requestMeta?: Meta;
 }): Promise<ConnectionView> {
   const { companyId, userId, connectorId, code, requestMeta } = args;
@@ -161,7 +163,27 @@ export async function completeOAuth(args: {
     throw new ConnectorError(`"${connectorId}" does not use OAuth.`, 400);
   }
 
-  const tokens = await exchangeCode(connectorId, code);
+  let tokens = await exchangeCode(connectorId, code, args.verifier);
+  // A provider whose first token is short-lived swaps it for a long-lived one
+  // (Meta). If that fails the short token still works for now — stored, and
+  // the person is told to reconnect, rather than the connection failing.
+  let upgradeWarning: string | null = null;
+  if (provider.oauth.upgradeToken) {
+    try {
+      tokens = { ...tokens, ...(await provider.oauth.upgradeToken(tokens)) };
+    } catch (err) {
+      upgradeWarning = 'Connected, but only for a short time — reconnect if publishing stops working.';
+      logger.warn('connectors: token upgrade failed', {
+        connectorId,
+        error: err instanceof Error ? err.message.slice(0, 200) : String(err),
+      });
+    }
+  }
+  // What the last connection chose (e.g. which Facebook Page), so reconnecting keeps it.
+  const previous = await db.connection.findUnique({
+    where: { companyId_connectorId: { companyId, connectorId } },
+    select: { metadata: true },
+  });
 
   let accountLabel = connectorId;
   // Non-secret provider details discovered during verification (e.g. which
@@ -169,7 +191,10 @@ export async function completeOAuth(args: {
   // read one connection row instead of re-deriving it per call.
   let verifiedMetadata: Record<string, unknown> = {};
   try {
-    const verified = await provider.verify({ accessToken: tokens.accessToken });
+    const verified = await provider.verify({
+      accessToken: tokens.accessToken,
+      metadata: (previous?.metadata ?? {}) as Record<string, unknown>,
+    });
     accountLabel = verified.accountLabel;
     verifiedMetadata = verified.metadata ?? {};
   } catch (err) {
@@ -194,6 +219,7 @@ export async function completeOAuth(args: {
       scope: tokens.scope ?? provider.oauth.scopes.join(' '),
       accountLabel,
       metadata: verifiedMetadata as object,
+      errorMessage: upgradeWarning,
       connectedById: userId,
       lastSyncedAt: new Date(),
     },
@@ -212,7 +238,7 @@ export async function completeOAuth(args: {
       ...(Object.keys(verifiedMetadata).length > 0
         ? { metadata: verifiedMetadata as object }
         : {}),
-      errorMessage: null,
+      errorMessage: upgradeWarning,
       connectedById: userId,
       lastSyncedAt: new Date(),
     },

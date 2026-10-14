@@ -225,6 +225,23 @@ enum AuditAction {
   BRIEFING_GENERATED
   BRIEFING_FAILED
   AUTOPILOT_RUN
+  // --- WhatsApp Assistant (central Botella number) ---
+  WHATSAPP_OPTED_OUT
+  WHATSAPP_OPTED_IN
+  WHATSAPP_SEND_FAILED
+  /// Someone confirmed on Aura's website that a WhatsApp number is theirs.
+  WHATSAPP_LINK_CONFIRMED
+  /// The code came back from that WhatsApp number: the link is active.
+  WHATSAPP_LINKED
+  WHATSAPP_UNLINKED
+  WHATSAPP_WORKSPACE_SELECTED
+  /// Someone asked for approved content to be published to these networks.
+  CONTENT_PUBLISH_REQUESTED
+  /// A network refused, or could not be reached; the others are unaffected.
+  CONTENT_PUBLISH_FAILED
+  /// A workspace turned members' WhatsApp access on or off.
+  WHATSAPP_SETTINGS_UPDATED
+  WHATSAPP_ADMIN_MESSAGE_SENT
 }
 
 /// Which social network a post is aimed at.
@@ -473,6 +490,8 @@ model User {
   createdContent      ContentDraft[]       @relation("ContentCreatedBy")
   extensionTokens     ExtensionToken[]
   generatedAssets     GeneratedAsset[]     @relation("AssetCreatedBy")
+  whatsAppLinks       WhatsAppAccountLink[]
+  whatsAppChallenges  WhatsAppLinkChallenge[]
 
   @@index([email])
 }
@@ -595,6 +614,9 @@ model Company {
   opportunities         Opportunity[]
   recommendations       Recommendation[]
   signals               Signal[]
+  whatsAppLinks         WhatsAppAccountLink[]
+  whatsAppMessages      WhatsAppMessage[]
+  contentPublications   ContentPublication[]
 
   @@index([slug])
 }
@@ -763,6 +785,8 @@ model ContentDraft {
   /// Every graphic ever generated FOR this draft — the graphic history, which
   /// outlives any individual attachment.
   generatedAssets      GeneratedAsset[]
+  /// Where it has been (or is being) published — one row per network.
+  publications         ContentPublication[]
 
   @@index([companyId, status])
   @@index([companyId, scheduledFor])
@@ -2226,4 +2250,266 @@ model RecommendationEvidence {
 
   @@index([recommendationId])
   @@index([signalId])
+}
+
+// ---------------------------------------------------------------------------
+// WhatsApp Assistant — one central Botella number (Meta WhatsApp Cloud API)
+// ---------------------------------------------------------------------------
+
+/// Which way a WhatsApp message went.
+enum WhatsAppDirection {
+  INBOUND
+  OUTBOUND
+}
+
+/// Where a WhatsApp message stands. Inbound messages are RECEIVED; outbound
+/// ones move PENDING → SENT → DELIVERED → READ, or end FAILED.
+enum WhatsAppMessageStatus {
+  RECEIVED
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+/// One person who has messaged Botella's WhatsApp number. Their number is
+/// personal data: it is stored encrypted (lib/crypto.ts) and looked up by a
+/// keyed hash, never in plain text.
+model WhatsAppConversation {
+  id            String    @id @default(cuid())
+  /// HMAC-SHA256 of their WhatsApp id (phone number) — the lookup key.
+  waIdHash      String    @unique
+  /// Their WhatsApp id, AES-256-GCM encrypted — needed to reply.
+  waIdEncrypted String
+  /// Last four digits, so conversations can be told apart on the dashboard.
+  waIdLast4     String
+  /// The WhatsApp profile name they chose, as Meta sends it.
+  profileName   String?
+  /// Their latest message: free-form replies are allowed only within 24 hours
+  /// of it (Meta's customer-service window); after that, only templates.
+  lastInboundAt DateTime?
+  lastMessageAt DateTime  @default(now())
+  /// They asked not to be messaged (STOP). Nothing is sent until START.
+  optedOut      Boolean   @default(false)
+  optedOutAt    DateTime?
+  /// A worker holds this conversation until then, so its messages are
+  /// handled one at a time, in order. Expires on its own if the worker dies.
+  leaseUntil    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  messages   WhatsAppMessage[]
+  jobs       WhatsAppJob[]
+  link       WhatsAppAccountLink?
+  challenges WhatsAppLinkChallenge[]
+
+  @@index([lastMessageAt])
+}
+
+/// Where linking a WhatsApp number to an Aura account stands.
+///   ISSUED     a single-use link was sent to the WhatsApp number
+///   CONFIRMED  a signed-in Aura user confirmed it on the website and was
+///              shown a code
+///   COMPLETED  the code came back from that same WhatsApp number — linked
+///   CANCELLED  declined on the website, or replaced by a newer link
+enum WhatsAppLinkChallengeStatus {
+  ISSUED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+/// One attempt to link a WhatsApp number to an Aura account. Two-way on
+/// purpose: the link proves the person can sign in to Aura, and the code they
+/// send back proves the browser that confirmed belongs to the person holding
+/// the phone — so a link forwarded to someone else cannot attach the wrong
+/// number to their account. Secrets are stored only as hashes.
+model WhatsAppLinkChallenge {
+  id             String                      @id @default(cuid())
+  conversationId String
+  /// SHA-256 of the single-use token in the link.
+  tokenHash      String                      @unique
+  status         WhatsAppLinkChallengeStatus @default(ISSUED)
+  /// The Aura user who confirmed it on the website.
+  userId         String?
+  /// SHA-256 of the 6-digit code shown after confirming.
+  codeHash       String?
+  codeAttempts   Int                         @default(0)
+  /// The link, then the code, stop working at this time.
+  expiresAt      DateTime
+  confirmedAt    DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime                    @default(now())
+
+  conversation WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+/// A WhatsApp number linked to an Aura user — the WhatsApp "session". One per
+/// number. Expires, can be unlinked from either side, and is re-checked on
+/// every private request (the user's membership and role in the active
+/// workspace are read fresh each time, never trusted from here).
+model WhatsAppAccountLink {
+  id              String    @id @default(cuid())
+  conversationId  String    @unique
+  userId          String
+  /// The workspace their requests act on; null until they choose one.
+  activeCompanyId String?
+  linkedAt        DateTime  @default(now())
+  lastUsedAt      DateTime  @default(now())
+  /// Sign in again after this.
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  /// unlinked_by_user, unlinked_on_web, replaced, …
+  revokedReason   String?
+  /// Conversation context for this session (server/whatsapp/tools/state.ts):
+  /// the draft being worked on, a confirmation waiting for a yes, slow work
+  /// in flight. Never secrets; cleared when the link is replaced or revoked.
+  state           Json      @default("{}")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  conversation  WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeCompany Company?             @relation(fields: [activeCompanyId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+}
+
+/// Where a queued WhatsApp job stands. DEAD is the dead-letter state: out of
+/// attempts, kept with its error for the dashboard.
+enum WhatsAppJobStatus {
+  QUEUED
+  RUNNING
+  DONE
+  DEAD
+}
+
+/// Handling one inbound message, queued by the webhook so Meta gets its
+/// acknowledgement at once and the slow part (AI, Aura services) runs in a
+/// worker. One job per message.
+model WhatsAppJob {
+  id             String            @id @default(cuid())
+  conversationId String
+  messageId      String            @unique
+  status         WhatsAppJobStatus @default(QUEUED)
+  attempts       Int               @default(0)
+  /// Not before this time (back-off after a failure).
+  runAfter       DateTime          @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  lastError      String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  conversation WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      WhatsAppMessage      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAfter])
+  @@index([conversationId, status, createdAt])
+}
+
+/// One WhatsApp message, either way. Meta's message id is unique, so a
+/// webhook Meta delivers twice is stored — and answered — once.
+model WhatsAppMessage {
+  id             String                @id @default(cuid())
+  conversationId String
+  direction      WhatsAppDirection
+  /// Meta's message id (wamid). Null on an outbound message until Meta accepts it.
+  wamid          String?               @unique
+  /// Meta's message type: text, image, audio, interactive, …
+  type           String
+  /// The text, for text messages (for other types, a readable summary).
+  body           String?
+  /// Structured content: an interactive menu or image to send (so a retry
+  /// sends exactly the same thing), or the menu option someone tapped.
+  payload        Json?
+  status         WhatsAppMessageStatus
+  /// The inbound message an outbound one answers.
+  replyToId      String?
+  /// The workspace this message was handled in (the session's active one) —
+  /// what a workspace's WhatsApp dashboard may show. Null for sign-in and
+  /// other messages that belong to no workspace.
+  companyId      String?
+  /// Send attempts so far, and when the next retry is due (retryable failures).
+  attempts       Int                   @default(0)
+  nextAttemptAt  DateTime?
+  /// Meta's error code and message, when sending failed.
+  errorCode      String?
+  errorMessage   String?
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  failedAt       DateTime?
+  /// When it happened by Meta's clock (inbound), or when it was queued (outbound).
+  occurredAt     DateTime              @default(now())
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  conversation WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  company      Company?             @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  job          WhatsAppJob?
+
+  @@index([conversationId, createdAt])
+  @@index([status, nextAttemptAt])
+  @@index([companyId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Publishing — one record per network a piece is published to
+// ---------------------------------------------------------------------------
+
+/// Where publishing a piece to one network stands.
+///   PUBLISHING  an attempt holds it (claimed atomically before the network is called)
+///   PUBLISHED   the network accepted it — never published there again
+///   FAILED      the network refused or could not be reached; a person may retry
+///   MANUAL      it can't be posted through the API (not connected, no image, …);
+///               the text is ready to post by hand
+enum PublicationStatus {
+  PUBLISHING
+  /// Accepted by the network, which is still processing it (an Instagram
+  /// Reel or video carousel); finished by the publish sweep.
+  PROCESSING
+  PUBLISHED
+  FAILED
+  MANUAL
+}
+
+/// Publishing one approved piece to one network. Unique per (piece, network),
+/// and claimed with a compare-and-swap before the network is called — so a
+/// double click, a retry, a second tab or the scheduler running at the same
+/// time can never post it twice. Successes are kept when another network
+/// fails, and are never republished.
+model ContentPublication {
+  id             String            @id @default(cuid())
+  companyId      String
+  contentDraftId String
+  platform       SocialPlatform
+  status         PublicationStatus
+  /// The content fingerprint that was approved for publishing here. Content
+  /// changed since is refused (lib/approval.ts).
+  contentHash    String
+  attempts       Int               @default(0)
+  /// When the current attempt started; an attempt that never finished is
+  /// marked FAILED for a person to check, never silently retried.
+  startedAt      DateTime?
+  publishedAt    DateTime?
+  url            String?
+  /// While PROCESSING: the network's pending object (Instagram media
+  /// container ids, "container:<id>" or "children:<id>,<id>").
+  externalId     String?
+  /// Why it isn't published: the network's error, or what is missing.
+  message        String?           @db.Text
+  requestedById  String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contentDraft ContentDraft @relation(fields: [contentDraftId], references: [id], onDelete: Cascade)
+
+  @@unique([contentDraftId, platform])
+  @@index([companyId, status])
 }

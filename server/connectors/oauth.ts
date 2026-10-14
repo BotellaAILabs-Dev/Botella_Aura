@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 import { absoluteUrl } from '@/lib/app-url';
+import { challengeFor, createVerifier, openBinding, pkceEnabled, sealBinding } from '@/lib/pkce';
 import { getProvider, type OAuthConfig } from '@/server/connectors/providers';
 
 /**
@@ -10,6 +11,11 @@ import { getProvider, type OAuthConfig } from '@/server/connectors/providers';
  * carries the company id, connector id and a nonce, HMAC'd with NEXTAUTH_SECRET
  * and time-limited. That makes the callback stateless and immune to CSRF
  * without another table to keep clean.
+ *
+ * The flow is also bound to the browser that started it (lib/pkce.ts): an
+ * encrypted cookie carries the state's nonce and a PKCE code verifier, and
+ * the callback refuses a code without it. Providers that accept PKCE are also
+ * sent the S256 challenge and, at the token exchange, the verifier.
  */
 const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -33,11 +39,12 @@ export interface OAuthState {
 
 export function encodeState(
   input: Omit<OAuthState, 'issuedAt' | 'nonce'>,
+  nonce: string = crypto.randomBytes(12).toString('base64url'),
 ): string {
   const payload: OAuthState = {
     ...input,
     issuedAt: Date.now(),
-    nonce: crypto.randomBytes(12).toString('base64url'),
+    nonce,
   };
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig = crypto
@@ -99,11 +106,24 @@ export function redirectUri(connectorId: string): string {
   return absoluteUrl(cfg?.redirectPath ?? `/api/connectors/${connectorId}/callback`);
 }
 
+/** The cookie that binds an OAuth flow to its browser (one per connector). */
+export const bindingCookieName = (connectorId: string) => `aura_oauth_${connectorId.replace(/[^a-z0-9_-]/gi, '')}`;
+
+export interface AuthorizeStart {
+  url: string;
+  /** Set on the response that sends the browser to the provider. */
+  cookie: { name: string; value: string };
+}
+
+/**
+ * The provider's consent URL, and the cookie to set with it. The callback
+ * (`verifyBinding`) refuses a code from a browser without that cookie.
+ */
 export function buildAuthorizeUrl(args: {
   connectorId: string;
   companyId: string;
   userId: string;
-}): string {
+}): AuthorizeStart {
   const provider = getProvider(args.connectorId);
   if (!provider?.oauth) {
     throw new Error(`No OAuth configuration for connector "${args.connectorId}".`);
@@ -116,6 +136,8 @@ export function buildAuthorizeUrl(args: {
     );
   }
 
+  const nonce = crypto.randomBytes(12).toString('base64url');
+  const verifier = createVerifier();
   const url = new URL(cfg.authorizeUrl);
   url.searchParams.set('client_id', clientId);
   url.searchParams.set('redirect_uri', redirectUri(args.connectorId));
@@ -125,16 +147,40 @@ export function buildAuthorizeUrl(args: {
   }
   url.searchParams.set(
     'state',
-    encodeState({
-      companyId: args.companyId,
-      connectorId: args.connectorId,
-      userId: args.userId,
-    }),
+    encodeState(
+      {
+        companyId: args.companyId,
+        connectorId: args.connectorId,
+        userId: args.userId,
+      },
+      nonce,
+    ),
   );
   for (const [k, v] of Object.entries(cfg.authorizeParams ?? {})) {
     url.searchParams.set(k, v);
   }
-  return url.toString();
+  if (pkceEnabled(cfg.pkceEnv)) {
+    url.searchParams.set('code_challenge', challengeFor(verifier));
+    url.searchParams.set('code_challenge_method', 'S256');
+  }
+  return {
+    url: url.toString(),
+    cookie: { name: bindingCookieName(args.connectorId), value: sealBinding(nonce, verifier) },
+  };
+}
+
+/**
+ * The callback's check that this browser started the flow. Returns the PKCE
+ * verifier; throws when the cookie is missing or made for another flow.
+ */
+export function verifyBinding(state: OAuthState, cookieValue: string | null | undefined): string {
+  const verifier = openBinding(cookieValue, state.nonce);
+  if (!verifier) {
+    throw new InvalidOAuthStateError(
+      'Finish the connection in the same browser that started it (or start again from Connectors).',
+    );
+  }
+  return verifier;
 }
 
 export interface TokenResponse {
@@ -208,6 +254,8 @@ async function requestToken(
 export async function exchangeCode(
   connectorId: string,
   code: string,
+  /** The PKCE verifier from the browser binding; sent when the provider uses PKCE. */
+  verifier?: string,
 ): Promise<TokenResponse> {
   const cfg = getProvider(connectorId)?.oauth;
   if (!cfg) throw new Error(`No OAuth configuration for "${connectorId}".`);
@@ -215,6 +263,7 @@ export async function exchangeCode(
     grant_type: 'authorization_code',
     code,
     redirect_uri: redirectUri(connectorId),
+    ...(verifier && pkceEnabled(cfg.pkceEnv) ? { code_verifier: verifier } : {}),
   });
 }
 

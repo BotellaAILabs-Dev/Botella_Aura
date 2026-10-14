@@ -97,6 +97,27 @@ export async function putImage(args: {
   }
 }
 
+/**
+ * Persist a video. Bucket only — unlike images there is no database
+ * fallback: a video is too large for a row, and the server cannot hand it to
+ * a network itself (a function response is capped at a few MB on Vercel), so
+ * the network fetches it from the bucket URL. Throws when no bucket is set or
+ * the upload fails, so the caller can say so.
+ */
+export async function putVideo(args: {
+  companyId: string;
+  assetId: string;
+  data: Buffer;
+  mimeType: 'video/mp4' | 'video/quicktime';
+}): Promise<StoredObject> {
+  const config = s3Config();
+  if (!config) {
+    throw new Error('Videos need file storage: set the ASSET_S3_* variables (see .env.example).');
+  }
+  const key = `videos/${args.companyId}/${args.assetId}.${args.mimeType === 'video/quicktime' ? 'mov' : 'mp4'}`;
+  return { storage: 'EXTERNAL', storageUrl: await s3Put(config, key, args.data, args.mimeType) };
+}
+
 /** Fetch an EXTERNAL asset's bytes back (used when publishing needs the file). */
 export async function fetchExternal(url: string): Promise<Buffer | null> {
   const res = await httpRequest(url, { timeoutMs: 20_000, retries: 1 });

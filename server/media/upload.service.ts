@@ -8,7 +8,8 @@ import { recordAudit } from '@/server/services/audit.service';
 import { resolvePlatform } from '@/lib/platforms';
 import type { ContentTypeKey } from '@/lib/validations/content';
 import { validateImageBytes } from '@/server/media/validate';
-import { putImage } from '@/server/media/storage';
+import { putImage, putVideo } from '@/server/media/storage';
+import { inspectVideo, isSupportedCodec, VideoReadError } from '@/lib/video';
 import { createAsset, toAssetView, type AssetView } from '@/server/media/asset.service';
 import { closestRatioFor } from '@/server/media/aspect';
 
@@ -30,6 +31,12 @@ import { closestRatioFor } from '@/server/media/aspect';
 /** Ceiling for a fetched remote image, before it is even validated. */
 const MAX_REMOTE_BYTES = 15 * 1024 * 1024;
 const REMOTE_TIMEOUT_MS = 20_000;
+/**
+ * Ceiling for a video (Instagram itself takes up to 300 MB; this keeps one
+ * download and upload well inside a 60-second function).
+ */
+export const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+const VIDEO_TIMEOUT_MS = 45_000;
 
 export class MediaFetchError extends Error {
   readonly status: number;
@@ -128,6 +135,92 @@ export async function ingestImage(args: IngestArgs): Promise<AssetView> {
 }
 
 /**
+ * Validate and store a supplied VIDEO against a draft (for Instagram Reels
+ * and carousels). The format, size, length and codec are read from the bytes
+ * (lib/video.ts); it is kept in the bucket only (server/media/storage.ts).
+ */
+export async function ingestVideo(args: IngestArgs): Promise<AssetView> {
+  const { draft, userId, data, origin, sourceUrl, filename } = args;
+  if (data.byteLength > MAX_VIDEO_BYTES) {
+    throw new MediaFetchError(`That video is over ${MAX_VIDEO_BYTES / 1024 / 1024} MB.`, 413);
+  }
+  let facts;
+  try {
+    facts = inspectVideo(data);
+  } catch (err) {
+    if (err instanceof VideoReadError) throw new MediaFetchError(err.message);
+    throw err;
+  }
+  if (!isSupportedCodec(facts.codec)) {
+    throw new MediaFetchError(
+      `That video is encoded as ${facts.codec ?? 'an unknown format'}; Instagram takes H.264 or HEVC. Re-export it as a standard MP4.`,
+    );
+  }
+
+  const platform = resolvePlatform(draft.type as ContentTypeKey, draft.platform);
+  const assetId = `c${Date.now().toString(36)}${crypto.randomBytes(9).toString('base64url').toLowerCase()}`;
+  let stored;
+  try {
+    stored = await putVideo({ companyId: draft.companyId, assetId, data, mimeType: facts.mimeType });
+  } catch (err) {
+    const noBucket = err instanceof Error && /ASSET_S3/.test(err.message);
+    logger.error('media: video storage failed', { error: err instanceof Error ? err.message : String(err) });
+    throw new MediaFetchError(
+      noBucket ? 'Videos need file storage, which isn’t set up on this deployment yet.' : 'The video could not be stored. Try again.',
+      noBucket ? 409 : 502,
+    );
+  }
+
+  const asset = await createAsset({
+    id: assetId,
+    companyId: draft.companyId,
+    contentDraftId: draft.id,
+    createdById: userId,
+    provider: 'UPLOAD',
+    model: origin === 'url' ? 'remote-url' : 'upload',
+    kind: 'VIDEO',
+    prompt: filename ? `Uploaded: ${filename}` : 'Added from URL',
+    aspectRatio: closestRatioFor(facts.width, facts.height),
+    width: facts.width,
+    height: facts.height,
+    mimeType: facts.mimeType,
+    fileSize: data.byteLength,
+    storage: stored.storage,
+    data: null,
+    storageUrl: stored.storageUrl ?? null,
+    sourceUrl: sourceUrl ?? null,
+    platform,
+    metadata: {
+      origin,
+      durationSec: facts.durationSec,
+      codec: facts.codec,
+      ...(filename ? { filename } : {}),
+    },
+  });
+
+  await recordAudit({
+    action: 'GRAPHIC_GENERATED',
+    userId,
+    companyId: draft.companyId,
+    metadata: {
+      draftId: draft.id,
+      origin,
+      assetId: asset.id,
+      kind: 'VIDEO',
+      mimeType: facts.mimeType,
+      fileSize: data.byteLength,
+      durationSec: facts.durationSec,
+    },
+  });
+  return toAssetView(asset);
+}
+
+/** Fetch a remote video to store (same guards as images, larger cap). */
+export async function fetchRemoteVideo(rawUrl: string): Promise<Buffer> {
+  return fetchRemote(rawUrl, { maxBytes: MAX_VIDEO_BYTES, accept: 'video/*', timeoutMs: VIDEO_TIMEOUT_MS, noun: 'video' });
+}
+
+/**
  * Fetch a remote image so it can be stored locally.
  *
  * Storing a copy rather than referencing the URL is the whole point: a post
@@ -135,6 +228,14 @@ export async function ingestImage(args: IngestArgs): Promise<AssetView> {
  * serving that file, and LinkedIn needs the bytes to upload anyway.
  */
 export async function fetchRemoteImage(rawUrl: string): Promise<Buffer> {
+  return fetchRemote(rawUrl, { maxBytes: MAX_REMOTE_BYTES, accept: 'image/*', timeoutMs: REMOTE_TIMEOUT_MS, noun: 'image' });
+}
+
+async function fetchRemote(
+  rawUrl: string,
+  opts: { maxBytes: number; accept: string; timeoutMs: number; noun: 'image' | 'video' },
+): Promise<Buffer> {
+  const tooLarge = `That ${opts.noun} is too large (over ${Math.round(opts.maxBytes / 1024 / 1024)} MB).`;
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -145,7 +246,7 @@ export async function fetchRemoteImage(rawUrl: string): Promise<Buffer> {
   // Only real web URLs. This also blocks file: and data: schemes, which would
   // otherwise let a URL field read from the server itself.
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw new MediaFetchError('Only http(s) image URLs are supported.', 400);
+    throw new MediaFetchError(`Only http(s) ${opts.noun} URLs are supported.`, 400);
   }
   if (isPrivateHost(url.hostname)) {
     // SSRF guard: without this, an image URL is a request the server makes on
@@ -156,35 +257,48 @@ export async function fetchRemoteImage(rawUrl: string): Promise<Buffer> {
   let res: Response;
   try {
     res = await httpRequest(url.toString(), {
-      timeoutMs: REMOTE_TIMEOUT_MS,
+      timeoutMs: opts.timeoutMs,
       retries: 1,
-      headers: { accept: 'image/*' },
+      headers: { accept: opts.accept },
     });
   } catch (err) {
-    logger.warn('media: remote image fetch failed', {
+    logger.warn(`media: remote ${opts.noun} fetch failed`, {
       host: url.hostname,
       error: err instanceof Error ? err.message : String(err),
     });
-    throw new MediaFetchError('That image could not be downloaded.');
+    throw new MediaFetchError(`That ${opts.noun} could not be downloaded.`);
   }
 
   if (!res.ok) {
     throw new MediaFetchError(
-      `That URL returned HTTP ${res.status} instead of an image.`,
+      `That URL returned HTTP ${res.status} instead of ${opts.noun === 'image' ? 'an image' : 'a video'}.`,
     );
   }
 
   // Trust the header enough to reject early, but the bytes are what decide.
   const declaredLength = Number(res.headers.get('content-length') ?? 0);
-  if (declaredLength > MAX_REMOTE_BYTES) {
-    throw new MediaFetchError('That image is too large (over 15 MB).');
+  if (declaredLength > opts.maxBytes) {
+    throw new MediaFetchError(tooLarge, 413);
   }
 
-  const buffer = Buffer.from(await res.arrayBuffer());
-  if (buffer.byteLength > MAX_REMOTE_BYTES) {
-    throw new MediaFetchError('That image is too large (over 15 MB).');
+  // Read with a running total, so a server that lies about (or omits) its
+  // length cannot make us hold more than the cap in memory.
+  const chunks: Buffer[] = [];
+  let total = 0;
+  if (res.body) {
+    const reader = res.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > opts.maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new MediaFetchError(tooLarge, 413);
+      }
+      chunks.push(Buffer.from(value));
+    }
   }
-  return buffer;
+  return Buffer.concat(chunks);
 }
 
 /**

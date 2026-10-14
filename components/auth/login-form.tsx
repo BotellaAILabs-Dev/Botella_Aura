@@ -12,11 +12,13 @@ import { signInSchema, type SignInInput } from '@/lib/validations/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { safeRedirectPath } from '@/lib/safe-url';
 
 export function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const callbackUrl = params.get('callbackUrl') || '/dashboard';
+  // Same-site paths only: an external callbackUrl is an open redirect.
+  const callbackUrl = safeRedirectPath(params.get('callbackUrl'), '/dashboard');
   const [serverError, setServerError] = useState<string | null>(null);
 
   const {

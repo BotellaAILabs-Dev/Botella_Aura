@@ -9,6 +9,7 @@ import {
 } from '@/server/connectors/connection.service';
 import { getProvider, providerReadiness } from '@/server/connectors/providers';
 import { buildAuthorizeUrl } from '@/server/connectors/oauth';
+import { bindingCookieOptions } from '@/lib/pkce';
 import { preflightConnector } from '@/server/connectors/preflight';
 import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
@@ -75,15 +76,19 @@ export async function POST(
         );
       }
 
-      return jsonOk({
-        authorizeUrl: buildAuthorizeUrl({
-          connectorId: params.id,
-          companyId: company.id,
-          userId: user.id,
-        }),
+      const start = buildAuthorizeUrl({
+        connectorId: params.id,
+        companyId: company.id,
+        userId: user.id,
+      });
+      const res = jsonOk({
+        authorizeUrl: start.url,
         // Shown alongside a failure so an admin can fix it without digging.
         redirectUri: preflight.redirectUri,
       });
+      // Binds the flow to this browser (and carries the PKCE verifier).
+      res.cookies.set(start.cookie.name, start.cookie.value, bindingCookieOptions);
+      return res;
     }
 
     const input = saveApiKeySchema.parse(await req.json());

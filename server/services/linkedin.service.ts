@@ -1,4 +1,5 @@
 import type { LinkedInConnection } from '@prisma/client';
+import { pkceEnabled } from '@/lib/pkce';
 import { db } from '@/lib/db';
 import { decrypt, encrypt } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
@@ -45,14 +46,22 @@ export function getRedirectUri(): string {
   return `${base}/api/linkedin/callback`;
 }
 
+/**
+ * PKCE is sent to LinkedIn only when LINKEDIN_OAUTH_PKCE is on: LinkedIn
+ * enables PKCE per app on request (its docs describe it for native apps), so
+ * sending it to an app without it would break the connection.
+ */
+export const linkedInPkce = () => pkceEnabled('LINKEDIN_OAUTH_PKCE');
+
 /** Build the LinkedIn consent URL. `state` carries CSRF protection (see routes). */
-export function buildAuthorizeUrl(state: string): string {
+export function buildAuthorizeUrl(state: string, codeChallenge?: string): string {
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: process.env.LINKEDIN_CLIENT_ID!,
     redirect_uri: getRedirectUri(),
     state,
     scope: SCOPES,
+    ...(codeChallenge && linkedInPkce() ? { code_challenge: codeChallenge, code_challenge_method: 'S256' } : {}),
   });
   return `${AUTH_URL}?${params.toString()}`;
 }
@@ -65,7 +74,7 @@ interface TokenResponse {
   scope?: string;
 }
 
-async function exchangeCodeForTokens(code: string): Promise<TokenResponse> {
+async function exchangeCodeForTokens(code: string, verifier?: string): Promise<TokenResponse> {
   const res = await httpRequest(TOKEN_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -75,6 +84,7 @@ async function exchangeCodeForTokens(code: string): Promise<TokenResponse> {
       redirect_uri: getRedirectUri(),
       client_id: process.env.LINKEDIN_CLIENT_ID!,
       client_secret: process.env.LINKEDIN_CLIENT_SECRET!,
+      ...(verifier && linkedInPkce() ? { code_verifier: verifier } : {}),
     }).toString(),
     timeoutMs: 10_000,
   });
@@ -104,6 +114,8 @@ interface ConnectArgs {
   companyId: string;
   userId: string;
   code: string;
+  /** PKCE verifier from the browser that started (sent when LINKEDIN_OAUTH_PKCE is on). */
+  verifier?: string;
   requestMeta?: { ipAddress?: string | null; userAgent?: string | null };
 }
 
@@ -116,9 +128,10 @@ export async function connectCompany({
   companyId,
   userId,
   code,
+  verifier,
   requestMeta,
 }: ConnectArgs): Promise<LinkedInConnection> {
-  const tokens = await exchangeCodeForTokens(code);
+  const tokens = await exchangeCodeForTokens(code, verifier);
   const profile = await fetchUserInfo(tokens.access_token);
 
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);

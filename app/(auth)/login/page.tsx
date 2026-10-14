@@ -10,10 +10,18 @@ import {
 import { LoginForm } from '@/components/auth/login-form';
 import { GoogleButton } from '@/components/auth/google-button';
 import { AuthDivider } from '@/components/auth/auth-divider';
+import { safeRedirectPath } from '@/lib/safe-url';
 
 export const metadata: Metadata = { title: 'Log in' };
 
-export default function LoginPage() {
+export default function LoginPage({
+  searchParams,
+}: {
+  searchParams: { callbackUrl?: string };
+}) {
+  // Google sign-in returns to the same place as the password form does (an
+  // invite, a WhatsApp link) — same-site paths only.
+  const callbackUrl = safeRedirectPath(searchParams.callbackUrl, '/dashboard');
   const googleEnabled =
     !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_CLIENT_SECRET;
 
@@ -26,7 +34,7 @@ export default function LoginPage() {
       <CardContent>
         {googleEnabled && (
           <>
-            <GoogleButton />
+            <GoogleButton callbackUrl={callbackUrl} />
             <AuthDivider />
           </>
         )}

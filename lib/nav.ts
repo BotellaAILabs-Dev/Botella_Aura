@@ -230,6 +230,14 @@ export const NAV_ITEMS: NavItem[] = [
     description: 'Connect LinkedIn, analytics and your CRM so Aura uses real data.',
   },
   {
+    label: 'WhatsApp assistant',
+    href: '/dashboard/whatsapp-assistant',
+    section: 'setup',
+    icon: MessageCircle,
+    ready: true,
+    description: 'Use Aura from WhatsApp, link your number, and see how your team uses it.',
+  },
+  {
     label: 'Settings',
     href: '/dashboard/settings',
     icon: Settings,

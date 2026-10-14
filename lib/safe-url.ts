@@ -24,3 +24,20 @@ export function safeExternalUrl(raw: string | null | undefined): string | null {
 export function isWebUrl(raw: string): boolean {
   return safeExternalUrl(raw) !== null;
 }
+
+/**
+ * A post-login redirect target, only when it stays on this site: a path that
+ * starts with a single "/". Anything else — an absolute URL, a
+ * protocol-relative "//host", a backslash trick, a control character — falls
+ * back, so a crafted ?callbackUrl= can never send a freshly signed-in user to
+ * another site (an open redirect).
+ */
+export function safeRedirectPath(raw: string | null | undefined, fallback: string): string {
+  const v = raw?.trim() ?? '';
+  if (!v.startsWith('/') || v.startsWith('//')) return fallback;
+  // Browsers treat "\" like "/" ("/\host" is protocol-relative); control
+  // characters can be stripped into the same thing.
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\\]/.test(v)) return fallback;
+  return v;
+}

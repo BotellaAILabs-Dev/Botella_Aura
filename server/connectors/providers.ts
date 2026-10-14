@@ -12,6 +12,16 @@
  * code question — `providerReadiness()` reports the difference honestly instead
  * of showing an eternal "Coming soon".
  */
+import {
+  choosePage,
+  graphUrl,
+  META_GRAPH_VERSION,
+  META_SCOPES,
+  pageLabel,
+  pageMetadata,
+  pagesFrom,
+} from '@/lib/meta';
+
 export type ProviderAuth = 'oauth' | 'api_key';
 
 export interface OAuthConfig {
@@ -39,6 +49,18 @@ export interface OAuthConfig {
   clientSecretEnv: string;
   /** Send credentials as HTTP Basic instead of form fields (Mailchimp, X). */
   basicAuth?: boolean;
+  /**
+   * Swap the token the code exchange returned for a better one before it is
+   * stored — Meta's short-lived (1–2 h) user token for its long-lived one
+   * (about 60 days), which is what makes a Meta connection usable at all.
+   */
+  upgradeToken?: (token: { accessToken: string; expiresAt?: Date }) => Promise<{ accessToken: string; expiresAt?: Date }>;
+  /**
+   * Env flag that turns on sending PKCE (code_challenge / code_verifier) to
+   * this provider — only once it is confirmed to accept PKCE for this app.
+   * The browser binding (lib/pkce.ts) applies to every provider regardless.
+   */
+  pkceEnv?: string;
 }
 
 export interface ApiKeyConfig {
@@ -249,71 +271,60 @@ export const PROVIDERS: Record<string, ConnectorProvider> = {
     id: 'meta',
     auth: 'oauth',
     unlocks:
-      'Publishes approved posts with their generated graphic to an Instagram Business account, and reads Page insights.',
+      'Publishes approved posts, with their images, to your Facebook Page and the Instagram Business or Creator account linked to it.',
     oauth: {
-      authorizeUrl: 'https://www.facebook.com/v21.0/dialog/oauth',
-      tokenUrl: 'https://graph.facebook.com/v21.0/oauth/access_token',
-      scopes: [
-        'pages_show_list',
-        'business_management',
-        'instagram_basic',
-        'instagram_content_publish',
-        'pages_read_engagement',
-        // Facebook Page posting. Separate grant from the Instagram one — an
-        // app approved for instagram_content_publish still cannot touch a Page
-        // feed without it.
-        'pages_manage_posts',
-      ],
+      authorizeUrl: `https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth`,
+      tokenUrl: graphUrl('oauth/access_token'),
+      scopes: [...META_SCOPES],
       clientIdEnv: 'META_CLIENT_ID',
       clientSecretEnv: 'META_CLIENT_SECRET',
+      // Meta documents PKCE for its manual login flow (OIDC variant); turn on
+      // once tested with this app's permissions (docs/META-INTEGRATION.md).
+      pkceEnv: 'META_OAUTH_PKCE',
+      // Facebook Login returns a 1–2 hour token and no refresh token: without
+      // this exchange a connection silently expired the same afternoon. The
+      // long-lived token lasts about 60 days, and Page tokens derived from it
+      // do not expire — the publishers fetch one per post.
+      async upgradeToken({ accessToken }) {
+        const url = new URL(graphUrl('oauth/access_token'));
+        url.searchParams.set('grant_type', 'fb_exchange_token');
+        url.searchParams.set('client_id', process.env.META_CLIENT_ID ?? '');
+        url.searchParams.set('client_secret', process.env.META_CLIENT_SECRET ?? '');
+        url.searchParams.set('fb_exchange_token', accessToken);
+        const data = await getJsonOrThrow(url.toString(), {}, 'Meta');
+        const token = typeof data.access_token === 'string' ? data.access_token : '';
+        if (!token) throw new Error('Meta did not return a long-lived token.');
+        const expiresIn = Number(data.expires_in ?? 0);
+        return {
+          accessToken: token,
+          // No expires_in means Meta did not set one (rare): treat as not expiring.
+          ...(expiresIn > 0 ? { expiresAt: new Date(Date.now() + expiresIn * 1000) } : {}),
+        };
+      },
     },
-    async verify({ accessToken }) {
-      const version = process.env.META_GRAPH_VERSION || 'v21.0';
-      const data = await getJsonOrThrow(
-        `https://graph.facebook.com/${version}/me/accounts?fields=id,name,instagram_business_account{id,username}&access_token=${encodeURIComponent(
-          String(accessToken),
-        )}`,
-        {},
-        'Meta',
-      );
-
-      const pages = (data.data ?? []) as Array<{
-        id?: string;
-        name?: string;
-        instagram_business_account?: { id?: string; username?: string };
-      }>;
-
-      // A Page is the unit of publishing for BOTH networks, so a Page with no
-      // Instagram attached is a perfectly good connection — it just publishes
-      // to Facebook only. This used to hard-fail without a linked Instagram
-      // account, which locked every Facebook-only workspace out of a connector
-      // it had every right to use. Prefer a Page that has Instagram, since
-      // that one covers both; fall back to the first Page otherwise.
-      const linked = pages.find((p) => p.instagram_business_account?.id);
-      const page = linked ?? pages.find((p) => p.id);
-
+    /**
+     * Which Pages the person manages, and the Instagram professional account
+     * linked to each. Stored as ids and names only — Page tokens are never
+     * stored; the publishers derive a fresh one per post. Reconnecting keeps
+     * the Page chosen before, when it is still available.
+     */
+    async verify({ accessToken, metadata }) {
+      const token = encodeURIComponent(String(accessToken));
+      const [accounts, me] = await Promise.all([
+        getJsonOrThrow(graphUrl(`me/accounts?fields=id,name,instagram_business_account{id,username}&limit=50&access_token=${token}`), {}, 'Meta'),
+        getJsonOrThrow(graphUrl(`me?fields=id&access_token=${token}`), {}, 'Meta').catch(() => ({}) as Record<string, unknown>),
+      ]);
+      const pages = pagesFrom(accounts);
+      const previous = typeof metadata?.pageId === 'string' ? metadata.pageId : null;
+      const page = choosePage(pages, previous);
       if (!page) {
         throw new Error(
           'This Facebook account manages no Pages. Publishing needs a Page you administer — ' +
             'create one in Meta Business Suite, then reconnect.',
         );
       }
-
-      const ig = page.instagram_business_account;
-      return {
-        accountLabel: ig?.username
-          ? `@${ig.username} (${page.name ?? 'Facebook Page'})`
-          : (page.name ?? 'Meta account'),
-        // Non-secret ids only. The page ACCESS TOKEN is deliberately not stored
-        // here — server/media/publishers/facebook.ts exchanges the user token
-        // for a fresh one per publish, so a rotated page token self-heals.
-        metadata: {
-          ...(ig?.id ? { igUserId: ig.id } : {}),
-          ...(ig?.username ? { igUsername: ig.username } : {}),
-          ...(page.id ? { pageId: page.id } : {}),
-          ...(page.name ? { pageName: page.name } : {}),
-        },
-      };
+      const fbUserId = typeof me.id === 'string' ? me.id : null;
+      return { accountLabel: pageLabel(page), metadata: pageMetadata(page, pages, fbUserId) };
     },
   },
 

@@ -77,6 +77,8 @@ export const generateGraphicSchema = z.object({
 /** Attach an image the user supplies by URL rather than generating one. */
 export const importImageUrlSchema = z.object({
   url: z.string().url('That is not a valid URL.').max(2000),
+  /** "video" for an MP4/MOV (Instagram Reels and carousels); default image. */
+  kind: z.enum(['image', 'video']).optional(),
 });
 
 /**

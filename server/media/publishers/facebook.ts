@@ -1,6 +1,7 @@
 import { httpRequest } from '@/lib/http';
 import { logger } from '@/lib/logger';
 import { resolveCredential } from '@/server/connectors/connection.service';
+import { META_GRAPH_VERSION } from '@/lib/meta';
 
 /**
  * Facebook Page publishing, via the official Graph API.
@@ -30,8 +31,8 @@ import { resolveCredential } from '@/server/connectors/connection.service';
  * That costs one extra request per publish and means a rotated page token
  * repairs itself, instead of failing until someone reconnects.
  */
-const GRAPH_BASE = 'https://graph.facebook.com';
-const GRAPH_VERSION = process.env.META_GRAPH_VERSION || 'v21.0';
+// One Graph API version for every Meta call (lib/meta.ts).
+const GRAPH_VERSION = META_GRAPH_VERSION;
 
 export class FacebookPublishError extends Error {
   readonly status = 502;
@@ -77,7 +78,7 @@ export async function getFacebookContext(
   let pages: AccountsPage[];
   try {
     const res = await httpRequest(
-      `${GRAPH_BASE}/${GRAPH_VERSION}/me/accounts?fields=id,name,access_token&access_token=${encodeURIComponent(
+      `https://graph.facebook.com/${GRAPH_VERSION}/me/accounts?fields=id,name,access_token&access_token=${encodeURIComponent(
         credential.accessToken,
       )}`,
       { method: 'GET', timeoutMs: 20_000, retries: 1 },
@@ -97,9 +98,15 @@ export async function getFacebookContext(
     return null;
   }
 
-  const page =
-    (preferredPageId && pages.find((p) => p.id === preferredPageId)) ||
-    pages.find((p) => p.id && p.access_token);
+  // The Page the workspace chose — and only that one. If it is no longer
+  // available (the person lost admin rights, the Page was removed), nothing is
+  // published: it used to fall back to the first other Page and post there.
+  const page = preferredPageId
+    ? pages.find((p) => p.id === preferredPageId)
+    : pages.find((p) => p.id && p.access_token);
+  if (preferredPageId && !page) {
+    logger.warn('facebook: the chosen Page is no longer available to this connection', { pageId: preferredPageId });
+  }
 
   if (!page?.id || !page.access_token) return null;
 
@@ -133,7 +140,7 @@ export async function publishFacebookPost(args: {
   });
 
   const res = await httpRequest(
-    `${GRAPH_BASE}/${GRAPH_VERSION}/${context.pageId}/${endpoint}`,
+    `https://graph.facebook.com/${GRAPH_VERSION}/${context.pageId}/${endpoint}`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -173,7 +180,7 @@ async function fetchPermalink(
 ): Promise<string | null> {
   try {
     const res = await httpRequest(
-      `${GRAPH_BASE}/${GRAPH_VERSION}/${postId}?fields=permalink_url&access_token=${encodeURIComponent(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${postId}?fields=permalink_url&access_token=${encodeURIComponent(
         context.pageAccessToken,
       )}`,
       { method: 'GET', timeoutMs: 15_000, retries: 1 },

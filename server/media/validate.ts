@@ -223,9 +223,10 @@ export interface PlatformMediaCheck {
  * composer, not as a rejected post an hour after it was scheduled.
  */
 export function validateForPlatform(
-  asset: { mimeType: string; width: number; height: number; fileSize: number },
+  asset: { mimeType: string; width: number; height: number; fileSize: number; kind?: string; metadata?: unknown },
   platform: SocialPlatformKey,
 ): PlatformMediaCheck {
+  if (asset.kind === 'VIDEO' || asset.mimeType.startsWith('video/')) return validateVideoForPlatform(asset, platform);
   const spec = platformSpec(platform);
   const problems: string[] = [];
 
@@ -257,4 +258,70 @@ export function validateForPlatform(
   }
 
   return { ok: problems.length === 0, problems };
+}
+
+// ---------------------------------------------------------------------------
+// Video (Instagram Reels and carousel videos)
+// ---------------------------------------------------------------------------
+
+/**
+ * Instagram's published video requirements (Content Publishing API): MP4 or
+ * MOV, H.264/HEVC (checked at upload, lib/video.ts), up to 300 MB, 3 seconds
+ * to 15 minutes. Aura publishes video to Instagram only; elsewhere it is
+ * posted by hand.
+ */
+export const VIDEO_RULES = {
+  mimeTypes: ['video/mp4', 'video/quicktime'],
+  maxBytes: 300 * 1024 * 1024,
+  minSeconds: 3,
+  maxSeconds: 15 * 60,
+} as const;
+
+export const durationOf = (metadata: unknown): number | null => {
+  const d = (metadata as { durationSec?: unknown } | null)?.durationSec;
+  return typeof d === 'number' && Number.isFinite(d) ? d : null;
+};
+
+export function validateVideoForPlatform(
+  asset: { mimeType: string; fileSize: number; metadata?: unknown },
+  platform: SocialPlatformKey,
+): PlatformMediaCheck {
+  const label = platformSpec(platform).label;
+  if (platform !== 'INSTAGRAM') {
+    return { ok: false, problems: [`Aura publishes video to Instagram only — post the video to ${label} by hand.`] };
+  }
+  const problems: string[] = [];
+  if (!(VIDEO_RULES.mimeTypes as readonly string[]).includes(asset.mimeType)) {
+    problems.push(`Instagram takes MP4 or MOV video, not ${asset.mimeType}.`);
+  }
+  if (asset.fileSize > VIDEO_RULES.maxBytes) {
+    problems.push(`The video is ${(asset.fileSize / 1024 / 1024).toFixed(0)} MB; Instagram allows up to 300 MB.`);
+  }
+  const seconds = durationOf(asset.metadata);
+  if (seconds !== null && (seconds < VIDEO_RULES.minSeconds || seconds > VIDEO_RULES.maxSeconds)) {
+    problems.push(`The video is ${seconds.toFixed(1)} s long; Instagram takes 3 seconds to 15 minutes.`);
+  }
+  return { ok: problems.length === 0, problems };
+}
+
+/** Instagram carousels hold 2–10 items (images, videos or a mix). */
+export const MAX_CAROUSEL_ITEMS = 10;
+
+/**
+ * What is wrong with a post's media AS A SET for a network (each item is
+ * checked by validateForPlatform). Instagram needs media, and at most 10;
+ * video goes to Instagram only.
+ */
+export function validateMediaSet(
+  media: { kind?: string; mimeType: string }[],
+  platform: SocialPlatformKey,
+): string[] {
+  const problems: string[] = [];
+  if (platform === 'INSTAGRAM') {
+    if (media.length === 0) problems.push('Instagram posts need an image or a video — attach one first.');
+    if (media.length > MAX_CAROUSEL_ITEMS) {
+      problems.push(`Instagram carousels take up to ${MAX_CAROUSEL_ITEMS} items; this post has ${media.length}. Remove some first.`);
+    }
+  }
+  return problems;
 }

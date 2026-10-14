@@ -179,16 +179,27 @@ export function PostComposer({
                       m.aspectRatio,
                     )}`}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={m.url}
-                      alt={m.altText ?? 'Attached graphic'}
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                      decoding="async"
-                      width={m.width}
-                      height={m.height}
-                    />
+                    {m.mimeType.startsWith('video/') ? (
+                      <video
+                        src={m.url}
+                        className="h-full w-full object-cover"
+                        muted
+                        playsInline
+                        preload="metadata"
+                        aria-label="Attached video"
+                      />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={m.url}
+                        alt={m.altText ?? 'Attached graphic'}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                        decoding="async"
+                        width={m.width}
+                        height={m.height}
+                      />
+                    )}
                   </div>
                   {canEdit && (
                     <button
@@ -319,6 +330,10 @@ function localProblems(
 ): string[] {
   const spec = platformSpec(platform);
   const problems: string[] = [];
+  // Video: Instagram only (length and format are checked on the server).
+  if (media.mimeType.startsWith('video/')) {
+    return platform === 'INSTAGRAM' ? [] : [`Aura publishes video to Instagram only — post the video to ${spec.label} by hand.`];
+  }
   if (!spec.acceptedMimeTypes.includes(media.mimeType)) {
     problems.push(
       `${spec.label} does not accept ${media.mimeType} (it takes ${spec.acceptedMimeTypes.join(', ')}).`,

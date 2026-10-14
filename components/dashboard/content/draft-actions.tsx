@@ -203,10 +203,14 @@ export function DraftActions({
     const result = (await res.json()) as
       | { mode: 'published'; url: string | null }
       | { mode: 'manual'; text: string; reason: string }
-      | { mode: 'reconnect'; message: string };
+      | { mode: 'reconnect'; message: string }
+      | { mode: 'processing'; message: string };
 
     if (result.mode === 'published') {
       toast.success('Published to LinkedIn.');
+      router.refresh();
+    } else if (result.mode === 'processing') {
+      toast(result.message, { duration: 8000 });
       router.refresh();
     } else if (result.mode === 'reconnect') {
       toast.error(result.message);

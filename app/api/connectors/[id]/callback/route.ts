@@ -1,3 +1,4 @@
+import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { requireUser } from '@/lib/auth-helpers';
@@ -5,9 +6,10 @@ import { getMembership } from '@/server/services/company.service';
 import { can } from '@/lib/rbac';
 import { absoluteUrl } from '@/lib/app-url';
 import { logger } from '@/lib/logger';
-import { decodeState } from '@/server/connectors/oauth';
+import { bindingCookieName, decodeState, verifyBinding } from '@/server/connectors/oauth';
 import { completeOAuth } from '@/server/connectors/connection.service';
 import { getRequestMeta } from '@/lib/api';
+import { notifyUser } from '@/server/whatsapp/notify';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -65,6 +67,10 @@ export async function GET(
     const state = decodeState(stateRaw);
     // Authoritative: the path may be a shared alias (e.g. "google").
     connectorId = state.connectorId;
+    // This browser started the flow (and holds the PKCE verifier). Single use.
+    const cookieName = bindingCookieName(connectorId);
+    const verifier = verifyBinding(state, cookies().get(cookieName)?.value);
+    cookies().delete(cookieName);
 
     // Re-authenticate: the state proves the request came from us, the session
     // proves who is completing it, and membership proves they may.
@@ -88,7 +94,14 @@ export async function GET(
       userId: user.id,
       connectorId,
       code,
+      verifier,
       requestMeta: getRequestMeta(req),
+    });
+    // Started from WhatsApp? Confirm there (best effort, never fails this).
+    await notifyUser({
+      userId: user.id,
+      companyId: state.companyId,
+      text: `✅ ${connectorId === 'meta' ? 'Facebook & Instagram' : connectorId} connected${connection.accountLabel ? ` (${connection.accountLabel})` : ''}.`,
     });
 
     return back('connected', {

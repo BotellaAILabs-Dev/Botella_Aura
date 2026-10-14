@@ -6,7 +6,7 @@ import { logger } from '@/lib/logger';
 import { recordAudit } from '@/server/services/audit.service';
 import { assetFileUrl } from '@/server/media/asset-url';
 import { deleteExternal, fetchExternal } from '@/server/media/storage';
-import { validateForPlatform } from '@/server/media/validate';
+import { durationOf, validateForPlatform } from '@/server/media/validate';
 import { resolvePlatform, type SocialPlatformKey } from '@/lib/platforms';
 import type { ContentTypeKey } from '@/lib/validations/content';
 
@@ -200,6 +200,9 @@ export interface AttachedMedia {
   mimeType: string;
   fileSize: number;
   aspectRatio: string;
+  kind: 'IMAGE' | 'VIDEO';
+  /** Seconds, for a video. */
+  durationSec: number | null;
   /** Platform problems with this specific image, empty when it is fine. */
   problems: string[];
 }
@@ -231,6 +234,8 @@ export async function getAttachedMedia(args: {
           mimeType: true,
           fileSize: true,
           aspectRatio: true,
+          kind: true,
+          metadata: true,
         },
       },
     },
@@ -248,6 +253,8 @@ export async function getAttachedMedia(args: {
     mimeType: row.asset.mimeType,
     fileSize: row.asset.fileSize,
     aspectRatio: row.asset.aspectRatio,
+    kind: row.asset.kind,
+    durationSec: durationOf(row.asset.metadata),
     problems: validateForPlatform(row.asset, platform).problems,
   }));
 }

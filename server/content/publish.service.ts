@@ -1,7 +1,8 @@
 import type { ContentDraft } from '@prisma/client';
 
 import { db } from '@/lib/db';
-import { assertContentIntact } from '@/server/approval/approval.service';
+import { assertContentIntact, contentHash } from '@/server/approval/approval.service';
+import { claimPublication, finishPublication, type Outcome } from '@/server/content/publication-store';
 import { httpRequest } from '@/lib/http';
 import { logger } from '@/lib/logger';
 import { getPublishContext } from '@/server/services/linkedin.service';
@@ -15,7 +16,7 @@ import { renderForManual, renderLinkedInCommentary } from '@/server/content/rend
 import { isCopyOnlyType, type ContentTypeKey } from '@/lib/validations/content';
 import { resolvePlatform, platformSpec, type SocialPlatformKey } from '@/lib/platforms';
 import { getAsset, readAssetBytes } from '@/server/media/asset.service';
-import { validateForPlatform } from '@/server/media/validate';
+import { validateForPlatform, validateMediaSet } from '@/server/media/validate';
 import { signedAssetUrl } from '@/server/media/asset-url';
 import {
   buildMediaContent,
@@ -29,8 +30,9 @@ import {
 } from '@/server/media/publishers/facebook';
 import {
   getInstagramContext,
-  publishInstagramImage,
+  startInstagramPost,
   InstagramPublishError,
+  type InstagramItem,
 } from '@/server/media/publishers/instagram';
 
 /**
@@ -75,7 +77,16 @@ const INSTAGRAM_ASSET_URL_TTL_MS = 15 * 60 * 1000;
 export type PublishResult =
   | { mode: 'published'; url: string | null }
   | { mode: 'manual'; text: string; reason: string }
-  | { mode: 'reconnect'; message: string };
+  | { mode: 'reconnect'; message: string }
+  /**
+   * Accepted by the network, which is still processing it (an Instagram Reel
+   * or video carousel). The publish sweep finishes it
+   * (server/content/processing.service.ts) — it is NOT published yet.
+   */
+  | { mode: 'processing'; externalId: string; message: string };
+
+export const PROCESSING_MESSAGE =
+  'Instagram is processing the video. It goes live once processing finishes, usually within a few minutes.';
 
 /** Which types can auto-publish through an official API at all. */
 export function canAutoPublish(type: ContentTypeKey): boolean {
@@ -114,10 +125,14 @@ interface PublishArgs {
 interface ResolvedMedia {
   assetId: string;
   altText: string | null;
+  kind: 'IMAGE' | 'VIDEO';
   mimeType: string;
   width: number;
   height: number;
   fileSize: number;
+  metadata: unknown;
+  /** The bucket URL (videos are fetched from there by the network). */
+  storageUrl: string | null;
 }
 
 async function loadMedia(
@@ -131,10 +146,13 @@ async function loadMedia(
       asset: {
         select: {
           id: true,
+          kind: true,
           mimeType: true,
           width: true,
           height: true,
           fileSize: true,
+          metadata: true,
+          storageUrl: true,
         },
       },
     },
@@ -142,18 +160,100 @@ async function loadMedia(
   return rows.map((row) => ({
     assetId: row.assetId,
     altText: row.altText,
+    kind: row.asset.kind,
     mimeType: row.asset.mimeType,
     width: row.asset.width,
     height: row.asset.height,
     fileSize: row.asset.fileSize,
+    metadata: row.asset.metadata,
+    storageUrl: row.asset.storageUrl,
   }));
 }
+
+/**
+ * Publish approved content to ONE network, through its official API, and say
+ * what happened. Does not change the draft or any record — the callers
+ * (publishDraft, the multi-network publish) claim the publication first and
+ * record the outcome, so the same network can never be posted to twice.
+ */
+export async function publishTo(args: {
+  companyId: string;
+  userId: string | null;
+  draft: ContentDraft;
+  platform: SocialPlatformKey;
+}): Promise<PublishResult> {
+  const { companyId, userId, draft, platform } = args;
+  const draftId = draft.id;
+  const type = draft.type as ContentTypeKey;
+  const media = await loadMedia(companyId, draftId);
+
+  // Every attached image is checked against the destination BEFORE anything is
+  // uploaded, so a size mismatch is an explanation rather than a half-finished
+  // publish with an image the platform rejected.
+  const problems = [
+    ...new Set(media.flatMap((item) => validateForPlatform(item, platform).problems)),
+  ];
+  if (problems.length > 0) {
+    return {
+      mode: 'manual',
+      text: renderForManual(draft),
+      reason: media.some((m) => m.kind === 'VIDEO')
+        ? `The attached media isn't valid for ${platformSpec(platform).label}: ${problems.join(' ')}`
+        : `The attached graphic isn't valid for ${platformSpec(platform).label}: ${problems.join(' ')} Regenerate it at a supported format, then publish.`,
+    };
+  }
+  // Too many items for a carousel is caught here too (no media is the
+  // Instagram publisher's own explanation, below).
+  const setProblems = validateMediaSet(media, platform).filter(() => media.length > 0);
+  if (setProblems.length > 0) {
+    return { mode: 'manual', text: renderForManual(draft), reason: setProblems.join(' ') };
+  }
+
+  if (platform === 'INSTAGRAM') {
+    return publishToInstagram({ companyId, userId, draftId, draft, media });
+  }
+  if (platform === 'FACEBOOK') {
+    return publishToFacebook({ companyId, userId, draftId, draft, media });
+  }
+  if (platform === 'LINKEDIN') {
+    return publishToLinkedIn({ companyId, userId, draftId, draft, type, media });
+  }
+
+  // X has no publishing integration in this codebase. Saying so is the honest
+  // outcome; the extension/manual path still gets the post out.
+  return {
+    mode: 'manual',
+    text: renderForManual(draft),
+    reason: `${platformSpec(platform).label} publishing isn't connected in this workspace. The formatted text is copied — paste it there, or use the extension${
+      media.length > 0 ? ' (which carries the graphic too)' : ''
+    }.`,
+  };
+}
+
+/** A publish result as a publication record's outcome. */
+export function outcomeOf(result: PublishResult): Outcome {
+  if (result.mode === 'published') return { status: 'PUBLISHED', url: result.url };
+  if (result.mode === 'processing') return { status: 'PROCESSING', externalId: result.externalId, message: result.message };
+  if (result.mode === 'reconnect') return { status: 'MANUAL', message: result.message };
+  return { status: 'MANUAL', message: result.reason };
+}
+
+const CLAIM_REFUSED: Record<'in_progress' | 'interrupted' | 'needs_person', string> = {
+  in_progress: 'This is being published right now — refresh in a moment.',
+  interrupted:
+    'An earlier attempt was interrupted before the network answered. Check the account for the post before retrying, so it is not posted twice.',
+  needs_person: 'An earlier attempt did not go through; a person needs to retry it.',
+};
 
 export async function publishDraft({
   companyId,
   userId,
   draftId,
-}: PublishArgs): Promise<PublishResult> {
+  automatic = false,
+}: PublishArgs & {
+  /** The scheduler: starts a first attempt, never retries a failed one. */
+  automatic?: boolean;
+}): Promise<PublishResult> {
   const draft = await getDraft(companyId, draftId);
   if (!draft) throw new DraftNotFoundError();
   assertPublishable(draft); // hard gate — must be APPROVED
@@ -174,41 +274,37 @@ export async function publishDraft({
     };
   }
   const platform = resolvePlatform(type, draft.platform);
-  const media = await loadMedia(companyId, draftId);
 
-  // Every attached image is checked against the destination BEFORE anything is
-  // uploaded, so a size mismatch is an explanation rather than a half-finished
-  // publish with an image the platform rejected.
-  const problems = media.flatMap(
-    (item) => validateForPlatform(item, platform).problems,
-  );
-  if (problems.length > 0) {
-    return {
-      mode: 'manual',
-      text: renderForManual(draft),
-      reason: `The attached graphic isn't valid for ${platformSpec(platform).label}: ${problems.join(' ')} Regenerate it at a supported format, then publish.`,
-    };
-  }
-
-  if (platform === 'INSTAGRAM') {
-    return publishToInstagram({ companyId, userId, draftId, draft, media });
-  }
-  if (platform === 'FACEBOOK') {
-    return publishToFacebook({ companyId, userId, draftId, draft, media });
-  }
-  if (platform === 'LINKEDIN') {
-    return publishToLinkedIn({ companyId, userId, draftId, draft, type, media });
+  // Claimed before the network is called: two clicks, two tabs, or a click
+  // racing the scheduler can no longer post it twice.
+  const claim = await claimPublication({
+    companyId,
+    draftId,
+    platform,
+    contentHash: await contentHash(draft),
+    userId,
+    automatic,
+  });
+  if (!claim.claimed) {
+    if (claim.reason === 'already_published') return { mode: 'published', url: claim.publication.url };
+    return { mode: 'manual', text: renderForManual(draft), reason: CLAIM_REFUSED[claim.reason] };
   }
 
-  // X and Facebook have no publishing integration in this codebase. Saying so
-  // is the honest outcome; the extension/manual path still gets the post out.
-  return {
-    mode: 'manual',
-    text: renderForManual(draft),
-    reason: `${platformSpec(platform).label} publishing isn't connected in this workspace. The formatted text is copied — paste it there, or use the extension${
-      media.length > 0 ? ' (which carries the graphic too)' : ''
-    }.`,
-  };
+  let result: PublishResult;
+  try {
+    result = await publishTo({ companyId, userId, draft, platform });
+  } catch (err) {
+    await finishPublication(claim.publication.id, {
+      status: 'FAILED',
+      message: err instanceof Error ? err.message : 'The network could not be reached.',
+    });
+    throw err;
+  }
+  await finishPublication(claim.publication.id, outcomeOf(result));
+  if (result.mode === 'published') {
+    await markPublished({ companyId, userId, draftId, publishedUrl: result.url });
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -296,7 +392,6 @@ async function publishToLinkedIn(args: {
   }
 
   const url = await postToLinkedIn(ctx.token, author, commentary, mediaContent);
-  await markPublished({ companyId, userId, draftId, publishedUrl: url });
   return { mode: 'published', url };
 }
 
@@ -425,7 +520,6 @@ async function publishToFacebook(args: {
       message: message.slice(0, 2200),
       imageUrl,
     });
-    await markPublished({ companyId, userId, draftId, publishedUrl: permalink });
     return { mode: 'published', url: permalink };
   } catch (err) {
     if (err instanceof FacebookPublishError) {
@@ -453,7 +547,7 @@ async function publishToInstagram(args: {
       mode: 'manual',
       text: caption,
       reason:
-        'Instagram posts must have an image. Generate a graphic in Content Studio and attach it, then publish.',
+        'Instagram posts must have an image or a video. Generate a graphic in Content Studio (or add a video) and attach it, then publish.',
     };
   }
 
@@ -469,20 +563,33 @@ async function publishToInstagram(args: {
     };
   }
 
-  // Meta fetches the image itself, so it needs a URL it can reach. Signed and
-  // short-lived — see server/media/asset-url.ts.
-  const first = media[0]!;
-  const { url: imageUrl } = signedAssetUrl(first.assetId, INSTAGRAM_ASSET_URL_TTL_MS);
+  // Meta fetches the media itself, so it needs URLs it can reach: a signed,
+  // short-lived link for an image (server/media/asset-url.ts); the bucket URL
+  // for a video (too large to serve through a function).
+  // One image → a feed post; one video → a Reel; 2–10 items → a carousel.
+  const items: InstagramItem[] = [];
+  for (const m of media) {
+    if (m.kind === 'VIDEO') {
+      if (!m.storageUrl) {
+        return { mode: 'manual', text: caption, reason: 'The video’s stored file is missing. Add the video again, then publish.' };
+      }
+      items.push({ kind: 'VIDEO', url: m.storageUrl });
+    } else {
+      items.push({ kind: 'IMAGE', url: signedAssetUrl(m.assetId, INSTAGRAM_ASSET_URL_TTL_MS).url });
+    }
+  }
 
   try {
-    const permalink = await publishInstagramImage({
+    const outcome = await startInstagramPost({
       context,
-      imageUrl,
+      items,
       // Instagram captions cap at 2,200 characters.
       caption: caption.slice(0, 2200),
     });
-    await markPublished({ companyId, userId, draftId, publishedUrl: permalink });
-    return { mode: 'published', url: permalink };
+    if (outcome.state === 'processing') {
+      return { mode: 'processing', externalId: outcome.externalId, message: PROCESSING_MESSAGE };
+    }
+    return { mode: 'published', url: outcome.url };
   } catch (err) {
     if (err instanceof InstagramPublishError) {
       logger.error('Instagram publish failed', { draftId, error: err.message });
@@ -525,6 +632,9 @@ export async function runScheduledPublishes(now: Date = new Date()): Promise<{
         companyId: d.companyId,
         userId: null, // system-triggered; audit userId null
         draftId: d.id,
+        // A failed or manual attempt waits for a person: the scheduler never
+        // retries it (it used to, every day, for ever).
+        automatic: true,
       });
       if (result.mode === 'published') published++;
       else skipped++;

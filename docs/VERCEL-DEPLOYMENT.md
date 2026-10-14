@@ -102,7 +102,7 @@ Graphic generation does **not** depend on cron. The browser calls
 
 ### Restoring the full schedule on Pro
 
-There are twelve cron routes. On Pro, replace the `crons` array in `vercel.json`
+There are thirteen cron routes. On Pro, replace the `crons` array in `vercel.json`
 with the complete set — each schedule is the one documented in that route's own
 header comment:
 
@@ -119,9 +119,16 @@ header comment:
   { "path": "/api/cron/analytics",    "schedule": "0 8 * * 1" },
   { "path": "/api/cron/memory",       "schedule": "0 10 * * 1" },
   { "path": "/api/cron/discovery",    "schedule": "0 11 * * 1" },
-  { "path": "/api/cron/competitors",  "schedule": "0 13 * * 1" }
+  { "path": "/api/cron/competitors",  "schedule": "0 13 * * 1" },
+  { "path": "/api/cron/whatsapp",     "schedule": "*/5 * * * *" }
 ]
 ```
+
+The WhatsApp sweep (`/api/cron/whatsapp`) retries replies Meta throttled,
+picks up messages a lost `waitUntil` left behind, and deletes message text
+past its retention period. Normal replies do not wait for it. On Hobby, call
+it from any free external scheduler every few minutes with
+`Authorization: Bearer $CRON_SECRET` (see docs/WHATSAPP-ASSISTANT.md).
 
 On Pro you may also raise `maxDuration` back to `300` on the AI-heavy routes
 (`api/jobs/[id]/run`, `api/advisor`, `api/briefing`, `api/competitors/reports`,

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import { requireActiveCompany } from '@/lib/auth-helpers';
-import { handleRouteError, jsonOk } from '@/lib/api';
+import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
+import { can } from '@/lib/rbac';
 
 /**
  * Campaigns — minimal CRUD so Content Studio can tag a draft to a campaign.
@@ -28,7 +29,11 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const { company } = await requireActiveCompany();
+    const { company, membership } = await requireActiveCompany();
+    // Creating a campaign is creating content work: VIEWERs cannot.
+    if (!can(membership.role, 'content:create')) {
+      return jsonError('You don’t have permission to create campaigns.', 403);
+    }
     const input = createSchema.parse(await req.json());
     const campaign = await db.campaign.create({
       data: { companyId: company.id, name: input.name, goal: input.goal ?? null },

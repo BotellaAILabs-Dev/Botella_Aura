@@ -71,3 +71,16 @@ export function sha256(input: string): string {
 export function generateToken(bytes = 32): string {
   return crypto.randomBytes(bytes).toString('base64url');
 }
+
+/**
+ * Keyed SHA-256 (HMAC, with ENCRYPTION_KEY) — a stable lookup key for a value
+ * that is stored encrypted, such as a WhatsApp number. Unlike a plain hash it
+ * cannot be reversed by hashing every phone number. `purpose` keeps keys for
+ * different kinds of value apart.
+ */
+export function keyedHash(value: string, purpose: string): string {
+  return crypto
+    .createHmac('sha256', getKey())
+    .update(`${purpose}:${value}`)
+    .digest('hex');
+}

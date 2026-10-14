@@ -5,8 +5,10 @@ import { getMembership } from '@/server/services/company.service';
 import { can } from '@/lib/rbac';
 import { connectCompany } from '@/server/services/linkedin.service';
 import { sha256 } from '@/lib/crypto';
+import { openBinding } from '@/lib/pkce';
 import { getRequestMeta } from '@/lib/api';
 import { logger } from '@/lib/logger';
+import { notifyUser } from '@/server/whatsapp/notify';
 
 /**
  * GET /api/linkedin/callback — OAuth redirect target. Verifies CSRF state,
@@ -44,8 +46,10 @@ export async function GET(req: Request) {
   }
 
   const cookieNonce = cookies().get('li_oauth_nonce')?.value;
+  const verifier = openBinding(cookies().get('li_oauth_pkce')?.value, nonce);
   cookies().delete('li_oauth_nonce');
-  if (!cookieNonce || cookieNonce !== sha256(nonce)) {
+  cookies().delete('li_oauth_pkce');
+  if (!cookieNonce || cookieNonce !== sha256(nonce) || !verifier) {
     return redirectTo(req, 'error=state_mismatch');
   }
 
@@ -60,8 +64,11 @@ export async function GET(req: Request) {
       companyId,
       userId: user.id,
       code,
+      verifier,
       requestMeta: getRequestMeta(req),
     });
+    // Started from WhatsApp? Confirm there (best effort, never fails this).
+    await notifyUser({ userId: user.id, companyId, text: '✅ LinkedIn is now connected to this workspace.' });
     return redirectTo(req, 'connected=1');
   } catch (err) {
     logger.error('LinkedIn callback failed', {

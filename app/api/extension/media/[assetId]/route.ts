@@ -35,6 +35,11 @@ export async function GET(
   try {
     const ctx = await requireExtensionAuth(req);
     const asset = await getAsset(ctx.companyId, params.assetId);
+    // Videos are published to Instagram by Aura itself (too large to pass
+    // through here as base64); the extension carries images only.
+    if (asset.kind === 'VIDEO') {
+      return extError(req, 'Videos aren’t carried by the extension — Aura publishes them to Instagram directly.', 422);
+    }
 
     const bytes = await readAssetBytes(asset);
     if (!bytes) {

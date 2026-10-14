@@ -566,7 +566,8 @@ async function assetImage(
 ): Promise<{ image: RenderImage | null; provider: ImageProvider | null }> {
   if (!assetId) return { image: null, provider: null };
   const asset = await db.generatedAsset.findFirst({
-    where: { id: assetId, companyId },
+    // A video can't be a creative's photo.
+    where: { id: assetId, companyId, kind: 'IMAGE' },
   });
   if (!asset) return { image: null, provider: null };
   return {

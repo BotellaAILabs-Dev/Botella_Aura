@@ -8,9 +8,12 @@ import { getDraft } from '@/server/content/content.service';
 import { importImageUrlSchema } from '@/lib/validations/media';
 import {
   fetchRemoteImage,
+  fetchRemoteVideo,
   ingestImage,
+  ingestVideo,
   MediaFetchError,
 } from '@/server/media/upload.service';
+import { looksLikeVideo } from '@/lib/video';
 import { MediaValidationError } from '@/server/media/validate';
 
 /**
@@ -20,6 +23,12 @@ import { MediaValidationError } from '@/server/media/validate';
  * Two ways in, one pipeline:
  *   multipart/form-data with `file`  → a file from their machine
  *   application/json with `url`      → a remote image, downloaded and stored
+ *   … with `kind: "video"`           → a remote MP4/MOV (Instagram Reels and
+ *                                      carousels; up to 100 MB, needs file
+ *                                      storage — server/media/storage.ts)
+ *
+ * A file upload that is a video (read from its bytes, not its name) goes the
+ * video way too, within the same body-size cap — larger videos come by URL.
  *
  * Both land in the same validate → store → persist path as a generated image,
  * so the resulting asset is indistinguishable downstream: same gallery, same
@@ -95,10 +104,11 @@ export async function POST(req: Request) {
         );
       }
 
-      const asset = await ingestImage({
+      const data = Buffer.from(await file.arrayBuffer());
+      const asset = await (looksLikeVideo(data) ? ingestVideo : ingestImage)({
         draft,
         userId: user.id,
-        data: Buffer.from(await file.arrayBuffer()),
+        data,
         origin: 'upload',
         filename: file.name,
       });
@@ -106,7 +116,12 @@ export async function POST(req: Request) {
     }
 
     // --- a remote image URL ----------------------------------------------
-    const { url } = importImageUrlSchema.parse(await req.json());
+    const { url, kind } = importImageUrlSchema.parse(await req.json());
+    if (kind === 'video') {
+      const video = await fetchRemoteVideo(url);
+      const asset = await ingestVideo({ draft, userId: user.id, data: video, origin: 'url', sourceUrl: url });
+      return jsonOk({ asset }, 201);
+    }
     const data = await fetchRemoteImage(url);
     const asset = await ingestImage({
       draft,

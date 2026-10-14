@@ -10,13 +10,18 @@ import { logger } from '@/lib/logger';
  * status to the caller, which is responsible for respecting each API's
  * documented limits (see the per-source comments in server/trends/sources/*).
  */
+/** A URL safe to log: credentials in the query string are masked. */
+export function redactUrl(url: string): string {
+  return url.replace(/([?&](?:access_token|client_secret|appsecret_proof|fb_exchange_token|key|api_key|token)=)[^&#]*/gi, '$1[redacted]');
+}
+
 export class HttpError extends Error {
   constructor(
     readonly status: number,
     readonly url: string,
     readonly body?: string,
   ) {
-    super(`HTTP ${status} for ${url}`);
+    super(`HTTP ${status} for ${redactUrl(url)}`);
     this.name = 'HttpError';
   }
 }
@@ -68,12 +73,12 @@ export async function httpRequest(
     }
   }
   logger.warn('httpRequest exhausted retries', {
-    url,
+    url: redactUrl(url),
     error: lastError instanceof Error ? lastError.message : String(lastError),
   });
   throw lastError instanceof Error
     ? lastError
-    : new Error(`Request failed: ${url}`);
+    : new Error(`Request failed: ${redactUrl(url)}`);
 }
 
 /** JSON GET helper. Throws HttpError on non-2xx. */

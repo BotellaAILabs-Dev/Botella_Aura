@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { connectorInitials, CONNECTOR_CATEGORIES } from '@/lib/connectors';
+import { MetaPagePicker } from '@/components/dashboard/connectors/meta-page-picker';
 
 export interface ConnectorCardData {
   id: string;
@@ -301,6 +302,9 @@ function ConnectorCard({
             {connector.connection.accountLabel}
           </p>
         )}
+
+        {/* Which Page (and Instagram) Meta publishes to; expiry warning. */}
+        {connected && connector.id === 'meta' && <MetaPagePicker canManage={canManage} />}
 
         {connector.usingEnvFallback && !connected && (
           <p className="mt-2 text-xs text-muted-foreground">

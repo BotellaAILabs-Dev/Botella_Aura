@@ -11,13 +11,15 @@ import { signUpSchema, type SignUpInput } from '@/lib/validations/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { safeRedirectPath } from '@/lib/safe-url';
 
 export function SignupForm() {
   const router = useRouter();
   const params = useSearchParams();
   // Invited users arrive with ?callbackUrl=/invite/… — return them there so they
   // land on the accept screen instead of creating their own workspace.
-  const callbackUrl = params.get('callbackUrl');
+  // Same-site paths only: an external callbackUrl is an open redirect.
+  const callbackUrl = safeRedirectPath(params.get('callbackUrl'), '') || null;
   const [serverError, setServerError] = useState<string | null>(null);
 
   const {

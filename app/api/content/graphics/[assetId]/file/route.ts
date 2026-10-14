@@ -43,7 +43,7 @@ export async function GET(
   // refused request — paid for a full read.)
   const owner = await db.generatedAsset.findUnique({
     where: { id: params.assetId },
-    select: { companyId: true },
+    select: { companyId: true, kind: true, storageUrl: true },
   });
   if (!owner) return notFound();
 
@@ -52,6 +52,16 @@ export async function GET(
     if (!user) return notFound();
     const membership = await getMembership(user.id, owner.companyId);
     if (!membership) return notFound();
+  }
+
+  // A video is never streamed through here (too large for a function
+  // response): once the caller is allowed it, send them to the bucket copy.
+  if (owner.kind === 'VIDEO') {
+    if (!owner.storageUrl) return notFound();
+    return new Response(null, {
+      status: 302,
+      headers: { location: owner.storageUrl, 'cache-control': 'private, no-store' },
+    });
   }
 
   const asset = await db.generatedAsset.findUnique({
@@ -85,5 +95,7 @@ function notFound(): Response {
 function extensionFor(mimeType: string): string {
   if (mimeType === 'image/jpeg') return 'jpg';
   if (mimeType === 'image/webp') return 'webp';
+  if (mimeType === 'video/mp4') return 'mp4';
+  if (mimeType === 'video/quicktime') return 'mov';
   return 'png';
 }

@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { can } from '@/lib/rbac';
 import {
   assertContentIntact,
   contentHash,
@@ -71,6 +72,12 @@ async function completeContentDraft(
   postedUrl: string | null,
   requestMeta?: Meta,
 ): Promise<void> {
+  // Marking content published is publishing: the same permission as the
+  // Publish button (OWNER/ADMIN), checked against the membership re-read for
+  // this request — a MEMBER's or VIEWER's extension token cannot do it.
+  if (!can(ctx.membership.role, 'content:publish')) {
+    throw new ActionItemError('Only owners and admins can mark content as published.', 403);
+  }
   const draft = await db.contentDraft.findFirst({
     where: { id: draftId, companyId: ctx.companyId },
   });

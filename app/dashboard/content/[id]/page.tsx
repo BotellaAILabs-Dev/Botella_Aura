@@ -52,6 +52,7 @@ import { DraftActions } from '@/components/dashboard/content/draft-actions';
 import { GraphicStudio } from '@/components/dashboard/content/graphic-studio';
 import { CreativeStudio } from '@/components/dashboard/content/creative-studio';
 import { AgnesImageGenerator } from '@/components/dashboard/content/agnes-image-generator';
+import { MultiPublish } from '@/components/dashboard/content/multi-publish';
 import { googleImageProvider } from '@/server/media/providers/gemini';
 import { agnesImageProvider } from '@/server/media/providers/agnes';
 import { PostComposer } from '@/components/dashboard/content/post-composer';
@@ -279,6 +280,10 @@ export default async function DraftDetailPage({
               }}
             />
           )}
+
+          {/* One action, several networks: Facebook, Instagram, LinkedIn —
+              also after publishing, for the history and to retry a failure. */}
+          {!copyOnly && <MultiPublish draftId={draft.id} />}
 
           {/* Email and ad copy are copied out, never queued or posted. */}
           {!copyOnly && (

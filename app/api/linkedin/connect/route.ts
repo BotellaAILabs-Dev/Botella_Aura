@@ -9,6 +9,7 @@ import {
   isLinkedInConfigured,
 } from '@/server/services/linkedin.service';
 import { generateToken, sha256 } from '@/lib/crypto';
+import { bindingCookieOptions, challengeFor, createVerifier, sealBinding } from '@/lib/pkce';
 
 /**
  * GET /api/linkedin/connect — begin the official LinkedIn OAuth flow.
@@ -49,5 +50,9 @@ export async function GET(req: Request) {
     maxAge: 600, // 10 minutes
   });
 
-  return NextResponse.redirect(buildAuthorizeUrl(state));
+  // PKCE: the verifier stays in this browser (encrypted, bound to the nonce).
+  const verifier = createVerifier();
+  cookies().set('li_oauth_pkce', sealBinding(nonce, verifier), bindingCookieOptions);
+
+  return NextResponse.redirect(buildAuthorizeUrl(state, challengeFor(verifier)));
 }
