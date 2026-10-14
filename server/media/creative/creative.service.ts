@@ -21,6 +21,7 @@ import {
   type TextSource,
 } from '@/lib/creative/spec';
 import { buildPhotoPrompt } from '@/lib/creative/photo-prompt';
+import { draftContext, type DraftContext } from '@/lib/draft-context';
 import { resolvePlatform } from '@/lib/platforms';
 import type { ContentTypeKey } from '@/lib/validations/content';
 import { completeStructured, isClaudeConfigured } from '@/server/ai/claude';
@@ -178,8 +179,11 @@ async function askCopy(args: {
   request: string;
   type: CreativeSpec['type'] | null;
   locked: Partial<Record<TextField | 'eventName', string>>;
+  /** The recommendation the draft was written for, when it was. */
+  context?: DraftContext | null;
 }): Promise<Copy> {
   const { brand } = args;
+  const c = args.context?.fromRecommendation ? args.context : null;
   return completeStructured({
     schema: copySchema,
     tier: 'standard',
@@ -194,7 +198,19 @@ async function askCopy(args: {
     prompt: [
       `BUSINESS: ${brand.name}${brand.description ? ` — ${brand.description}` : ''}`,
       brand.offerings ? `WHAT IT SELLS: ${brand.offerings}` : '',
-      brand.audience ? `AUDIENCE: ${brand.audience}` : '',
+      (c?.audience ?? brand.audience) ? `AUDIENCE: ${c?.audience ?? brand.audience}` : '',
+      // Written for Aura's suggestion: the poster carries the same message.
+      c
+        ? [
+            `WHAT THIS POSTER IS FOR (Aura's suggestion${c.title ? `: "${c.title}"` : ''}):`,
+            c.keyMessage ? `- Key message (the headline should carry it): ${c.keyMessage}` : '',
+            c.goal ? `- Marketing goal: ${c.goal}` : '',
+            c.expectedOutcome ? `- Expected outcome: ${c.expectedOutcome}` : '',
+            c.evidence.length ? `- Evidence (cite only this): ${c.evidence.join('; ')}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n')
+        : '',
       brand.tone.length ? `BRAND TONE: ${brand.tone.join(', ')}` : '',
       args.request ? `THE REQUEST (from the person):\n${args.request}` : '',
       Object.keys(args.locked).length
@@ -242,6 +258,7 @@ export async function writeCopy(args: {
     source?: { brief?: string | null };
   };
   const request = meta.source?.brief?.trim() ?? '';
+  const context = draftContext(draft.aiMetadata);
   const post = renderForManual(draft);
   const locked: Partial<Record<TextField | 'eventName', string>> = {};
   for (const k of [
@@ -264,6 +281,9 @@ export async function writeCopy(args: {
   const trusted = [
     userText,
     post,
+    // The recommendation's evidence is checked material, so a figure from it
+    // may appear; details (dates, venues, offers) still need the request.
+    ...context.evidence,
     brand.name,
     brand.description ?? '',
     brand.offerings ?? '',
@@ -280,6 +300,7 @@ export async function writeCopy(args: {
         request,
         type: input.type ?? null,
         locked,
+        context,
       });
     } catch (err) {
       logger.warn('creative: copy model failed, using the post', {

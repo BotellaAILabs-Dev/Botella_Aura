@@ -31,22 +31,32 @@ interface Campaign {
   name: string;
 }
 
+type SourceKind = 'BRIEF' | 'CAMPAIGN' | 'SUGGESTION';
+
 /**
- * Modal to create a new draft from a brief or campaign, then open its editor.
+ * Modal to create a new draft from a brief or campaign, then open its editor —
+ * or to start from an Aura suggestion, which opens the recommendation workflow
+ * (`/dashboard/content/new?rec=`) with its Content Brief filled in.
  *
  * `types` is the workspace's enabled format list, resolved on the server. It
  * defaults to every format so the component keeps working anywhere it is
- * rendered without one.
+ * rendered without one. `suggestions` are the accepted ones Content Studio
+ * carries out; without them the option is shown as unavailable.
  */
 export function CreateContentDialog({
   types = [...CONTENT_TYPES],
+  suggestions = [],
 }: {
   types?: ContentTypeKey[];
+  suggestions?: { id: string; title: string }[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<ContentTypeKey>(types[0] ?? 'LINKEDIN_POST');
-  const [sourceKind, setSourceKind] = useState<'BRIEF' | 'CAMPAIGN'>('BRIEF');
+  const [sourceKind, setSourceKind] = useState<SourceKind>('BRIEF');
+  const [suggestionId, setSuggestionId] = useState(
+    suggestions.length === 1 ? suggestions[0]!.id : '',
+  );
   const [brief, setBrief] = useState('');
   const [campaignId, setCampaignId] = useState('');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -72,8 +82,22 @@ export function CreateContentDialog({
 
   const noCampaigns = campaignsLoaded && campaigns.length === 0;
   const campaignMissing = sourceKind === 'CAMPAIGN' && !campaignId;
+  const fromSuggestion = sourceKind === 'SUGGESTION';
 
   async function generate() {
+    if (fromSuggestion) {
+      // The suggestion's own workflow: its brief, format and network filled
+      // in and checked, and the draft linked back to it.
+      if (!suggestionId) {
+        toast.error('Pick a suggestion first.');
+        return;
+      }
+      setOpen(false);
+      router.push(
+        `/dashboard/content/new?rec=${encodeURIComponent(suggestionId)}`,
+      );
+      return;
+    }
     if (sourceKind === 'BRIEF' && brief.trim().length < 3) {
       toast.error('Write a short brief first.');
       return;
@@ -131,22 +155,30 @@ export function CreateContentDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="type">Type</Label>
-            <select
-              id="type"
-              className={selectCls}
-              value={type}
-              onChange={(e) => setType(e.target.value as ContentTypeKey)}
-            >
-              {types.map((t) => (
-                <option key={t} value={t}>
-                  {TYPE_LABELS[t]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <GenerationOptions type={type} value={choices} onChange={setChoices} />
+          {!fromSuggestion && (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="type">Type</Label>
+                <select
+                  id="type"
+                  className={selectCls}
+                  value={type}
+                  onChange={(e) => setType(e.target.value as ContentTypeKey)}
+                >
+                  {types.map((t) => (
+                    <option key={t} value={t}>
+                      {TYPE_LABELS[t]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <GenerationOptions
+                type={type}
+                value={choices}
+                onChange={setChoices}
+              />
+            </>
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="source">From</Label>
@@ -154,11 +186,15 @@ export function CreateContentDialog({
               id="source"
               className={selectCls}
               value={sourceKind}
-              onChange={(e) => setSourceKind(e.target.value as 'BRIEF' | 'CAMPAIGN')}
+              onChange={(e) => setSourceKind(e.target.value as SourceKind)}
             >
               <option value="BRIEF">A brief I write</option>
               <option value="CAMPAIGN" disabled={noCampaigns}>
                 A campaign{noCampaigns ? ' (none yet)' : ''}
+              </option>
+              <option value="SUGGESTION" disabled={suggestions.length === 0}>
+                An Aura suggestion
+                {suggestions.length === 0 ? ' (none accepted yet)' : ''}
               </option>
             </select>
             <p className="text-xs text-muted-foreground">
@@ -207,23 +243,58 @@ export function CreateContentDialog({
               </div>
             ))}
 
-          <div className="space-y-1.5">
-            <Label htmlFor="brief">
-              Brief {sourceKind === 'CAMPAIGN' && '(optional)'}
-            </Label>
-            <Textarea
-              id="brief"
-              rows={4}
-              value={brief}
-              onChange={(e) => setBrief(e.target.value)}
-              placeholder="e.g. Write about our new usage-based pricing and why it's fairer for small teams"
-            />
-          </div>
+          {fromSuggestion && (
+            <div className="space-y-1.5">
+              <Label htmlFor="suggestion">Suggestion</Label>
+              <select
+                id="suggestion"
+                className={selectCls}
+                value={suggestionId}
+                onChange={(e) => setSuggestionId(e.target.value)}
+              >
+                {suggestions.length > 1 && (
+                  <option value="">Select a suggestion…</option>
+                )}
+                {suggestions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Opens the suggestion&apos;s brief — format, network, key message
+                and evidence filled in — for you to check and edit before
+                generating.
+              </p>
+            </div>
+          )}
+
+          {!fromSuggestion && (
+            <div className="space-y-1.5">
+              <Label htmlFor="brief">
+                Brief {sourceKind === 'CAMPAIGN' && '(optional)'}
+              </Label>
+              <Textarea
+                id="brief"
+                rows={4}
+                value={brief}
+                onChange={(e) => setBrief(e.target.value)}
+                placeholder="e.g. Write about our new usage-based pricing and why it's fairer for small teams"
+              />
+            </div>
+          )}
         </div>
 
         <DialogFooter>
-          <Button onClick={generate} loading={loading} disabled={campaignMissing}>
-            <Sparkles className="h-4 w-4" /> Generate draft
+          <Button
+            onClick={generate}
+            loading={loading}
+            disabled={campaignMissing || (fromSuggestion && !suggestionId)}
+          >
+            <Sparkles className="h-4 w-4" />{' '}
+            {fromSuggestion
+              ? 'Continue with this suggestion'
+              : 'Generate draft'}
           </Button>
         </DialogFooter>
       </DialogContent>

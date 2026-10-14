@@ -156,9 +156,14 @@ export class NoImageProviderError extends Error {
  * is prompt material and stays server-side.
  */
 export const STYLE_DIRECTION: Record<ImageStyleKey, string> = {
+  // The default. It used to add "clean vector accents" to the photography,
+  // which is exactly what made results read as AI graphics: a real photograph
+  // has no overlays.
   professional:
-    'Polished corporate photography and clean vector accents. Balanced, ' +
-    'trustworthy, premium. Soft realistic lighting, muted confident palette.',
+    'Polished commercial photography for a professional brand: a real setting, ' +
+    'soft natural or window light, credible people and real products, muted ' +
+    'confident palette, clean uncluttered composition. A photograph, not a ' +
+    'graphic — no vector shapes, overlays or icons.',
   photo:
     'Photorealistic commercial photography: natural or studio lighting, realistic ' +
     'textures, accurate proportions, editorial advertising quality. Never ' +

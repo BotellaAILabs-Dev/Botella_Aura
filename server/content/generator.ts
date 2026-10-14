@@ -21,6 +21,7 @@ import {
 } from '@/lib/platforms';
 import type { CreationProvenance } from '@/lib/recommendation-creation';
 import type { ContentBrief } from '@/lib/content-brief';
+import { draftContext, draftContextPrompt } from '@/lib/draft-context';
 import { FORMAT_SPECS, ctaRequired, formatInstructions } from '@/lib/content-formats';
 import {
   generationContextRecord,
@@ -528,6 +529,10 @@ export async function refineDraft({
     { personal: true },
   ).text;
   const brief = ((meta.source ?? {}) as { brief?: string | null }).brief ?? '';
+  // Written for a recommendation: a rewrite stays on its key message,
+  // audience and evidence rather than drifting from what was asked for.
+  const context = draftContext(meta);
+  const contextText = draftContextPrompt(context);
   const currentIssues = (((meta.quality ?? {}) as QualityReport).issues ?? [])
     .map((i) => `- ${i.message}`)
     .join('\n');
@@ -540,6 +545,7 @@ export async function refineDraft({
     `CURRENT DRAFT (JSON):\n${JSON.stringify(draft.body)}`,
     '',
     `WHAT TO CHANGE: ${instructionFor(action, { tone, feedback, issues: currentIssues })}`,
+    contextText ? `\n${contextText}` : '',
     knowledge
       ? `\nCOMPANY KNOWLEDGE (facts you may use):\n${knowledge.slice(0, 6000)}`
       : '',
@@ -561,7 +567,7 @@ export async function refineDraft({
     body: raw,
     w,
     platform,
-    sources: groundingSources(brief, '', knowledge),
+    sources: groundingSources(brief, context.evidence.join('\n'), knowledge),
     // A revision keeps the format's rule; the brief it was written from, if
     // any, decides an optional one.
     ctaRequired: ctaRequired(

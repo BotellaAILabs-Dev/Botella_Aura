@@ -17,6 +17,9 @@ import { QueueBoard, type DraftCard } from '@/components/dashboard/content/queue
 import type { ContentTypeKey } from '@/lib/validations/content';
 import { isReviewCurrent, type ContentReview } from '@/lib/content-review';
 import { getPolicyContext } from '@/server/content/compliance.service';
+import { listRecommendations } from '@/server/recommendations/recommendation.service';
+import { routeFor } from '@/lib/aura-modules';
+import { draftContext } from '@/lib/draft-context';
 
 export const metadata: Metadata = { title: 'Content Studio' };
 
@@ -25,11 +28,20 @@ export default async function ContentPage() {
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const [drafts, enabledTypes, policy] = await Promise.all([
+  const [drafts, enabledTypes, policy, recommendations] = await Promise.all([
     listDrafts(active.id),
     getEnabledContentTypes(active.id),
     getPolicyContext(active.id),
+    // Suggestions already said yes to that Content Studio carries out, so
+    // the create dialog can start from one (the ?rec= workflow).
+    listRecommendations(active.id, {
+      status: ['ACCEPTED', 'EDITED', 'IN_PROGRESS'],
+      limit: 20,
+    }),
   ]);
+  const suggestions = recommendations
+    .filter((r) => routeFor(r).primary === 'content-studio')
+    .map((r) => ({ id: r.id, title: r.title }));
   const cards: DraftCard[] = drafts.map((d) => {
     const meta = (d.aiMetadata ?? {}) as {
       source?: { kind?: string };
@@ -39,6 +51,7 @@ export default async function ContentPage() {
     const review = isReviewCurrent(meta.review, d.body, policy.hash) ? meta.review! : null;
     const type = d.type as ContentTypeKey;
     const platform = resolvePlatform(type, d.platform);
+    const rec = draftContext(d.aiMetadata);
     return {
       id: d.id,
       type,
@@ -46,6 +59,9 @@ export default async function ContentPage() {
       title: d.title,
       snippet: draftSnippet(type, d.body),
       sourceKind: meta.source?.kind ?? null,
+      recommendationTitle: rec.fromRecommendation
+        ? (rec.title ?? 'Aura’s suggestion')
+        : null,
       campaignName: d.campaign?.name ?? null,
       scheduledFor: d.scheduledFor ? d.scheduledFor.toISOString() : null,
       updatedAt: d.updatedAt.toISOString(),
@@ -74,7 +90,10 @@ export default async function ContentPage() {
                 <BookOpen className="h-4 w-4" /> Knowledge base
               </Link>
             </Button>
-            <CreateContentDialog types={enabledTypes} />
+            <CreateContentDialog
+              types={enabledTypes}
+              suggestions={suggestions}
+            />
           </div>
         }
       />
@@ -84,7 +103,12 @@ export default async function ContentPage() {
           icon={PenLine}
           title="No content yet"
           description="Generate your first draft from a brief or a trend. It lands here in Draft, and nothing publishes until you approve it."
-          action={<CreateContentDialog types={enabledTypes} />}
+          action={
+            <CreateContentDialog
+              types={enabledTypes}
+              suggestions={suggestions}
+            />
+          }
         />
       ) : (
         <QueueBoard drafts={cards} />

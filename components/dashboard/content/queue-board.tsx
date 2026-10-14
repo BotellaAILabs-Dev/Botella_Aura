@@ -18,6 +18,8 @@ export interface DraftCard {
   title: string | null;
   snippet: string;
   sourceKind: string | null;
+  /** The Aura suggestion it was written for, when it was. */
+  recommendationTitle?: string | null;
   campaignName: string | null;
   scheduledFor: string | null;
   updatedAt: string;
@@ -212,7 +214,15 @@ function Card({
             {draft.mediaCount > 1 ? draft.mediaCount : ''}
           </span>
         )}
-        {draft.sourceKind && <span>· from {draft.sourceKind.toLowerCase()}</span>}
+        {draft.recommendationTitle ? (
+          <span title={draft.recommendationTitle}>
+            · from Aura’s suggestion
+          </span>
+        ) : (
+          draft.sourceKind && (
+            <span>· from {draft.sourceKind.toLowerCase()}</span>
+          )
+        )}
         {draft.campaignName && <span>· {draft.campaignName}</span>}
         {draft.scheduledFor && (
           <span className="inline-flex items-center gap-1 text-primary">

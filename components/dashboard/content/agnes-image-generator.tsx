@@ -63,7 +63,13 @@ interface GenerateResponse {
 
 export function AgnesImageGenerator({
   configured,
+  initialPrompt,
 }: {
+  /**
+   * A starting prompt from the draft's visual brief, when it was written for
+   * an Aura suggestion. Editable; without it the box starts empty as before.
+   */
+  initialPrompt?: string | null;
   /**
    * Which models this deployment has a key for (decided server-side; the
    * keys themselves never reach the browser). Unconfigured ones are shown but
@@ -73,11 +79,13 @@ export function AgnesImageGenerator({
   configured?: Partial<Record<ModelValue, boolean>>;
 } = {}) {
   const isOn = (v: ModelValue) => configured?.[v] ?? true;
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState(initialPrompt ?? '');
   const [model, setModel] = useState<ModelValue>(
     () => MODELS.find((m) => isOn(m.value))?.value ?? 'huggingface',
   );
   const [loading, setLoading] = useState(false);
+  /** A real-looking marketing photograph (lib/photo-realism.ts), unless turned off. */
+  const [realistic, setRealistic] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   /** The model that produced the image on screen, which may not be the
@@ -102,7 +110,7 @@ export function AgnesImageGenerator({
       const res = await fetch('/api/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: prompt.trim(), model }),
+        body: JSON.stringify({ prompt: prompt.trim(), model, realistic }),
       });
 
       const data = (await res.json().catch(() => ({}))) as GenerateResponse;
@@ -136,8 +144,9 @@ export function AgnesImageGenerator({
           <Sparkles className="h-4 w-4 text-primary" /> Generate an image
         </CardTitle>
         <CardDescription>
-          Describe the picture you want. Be concrete about subject, setting and
-          mood — a vague prompt produces a generic stock image.
+          {initialPrompt
+            ? 'Started from the visual brief for Aura’s suggestion — edit it freely.'
+            : 'Describe the picture you want. Be concrete about subject, setting and mood — a vague prompt produces a generic stock image.'}
         </CardDescription>
       </CardHeader>
 
@@ -201,6 +210,24 @@ export function AgnesImageGenerator({
             )}
           </div>
         </div>
+
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 accent-primary"
+            checked={realistic}
+            disabled={loading}
+            onChange={(e) => setRealistic(e.target.checked)}
+          />
+          <span>
+            <span className="font-medium text-foreground">Real photograph</span>
+            <span className="block text-xs text-muted-foreground">
+              Natural light, real textures and authentic people — not an AI-art
+              look. Prompts asking for an illustration or 3D are kept as
+              written.
+            </span>
+          </span>
+        </label>
 
         <Button onClick={generate} disabled={!canSubmit}>
           {loading ? (

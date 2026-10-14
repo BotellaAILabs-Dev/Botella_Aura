@@ -11,6 +11,17 @@ import { STYLE_DIRECTION } from '@/server/media/types';
 import { isImageStyle, type ImageStyleKey } from '@/lib/graphics-ui';
 import { visualBriefToPrompt, type VisualBrief } from '@/lib/visual-brief';
 import { visualBriefForDraft } from '@/server/media/visual-brief.service';
+import {
+  AI_LOOK_NEGATIVE,
+  NO_TEXT_NEGATIVE,
+  PEOPLE_DIRECTION,
+  PLATFORM_PHOTO_DIRECTION,
+  REALISM_DIRECTION,
+  cameraFor,
+  isPhotographic,
+  mergeNegative,
+  shotKindOf,
+} from '@/lib/photo-realism';
 
 /**
  * Content to image prompt.
@@ -31,7 +42,7 @@ import { visualBriefForDraft } from '@/server/media/visual-brief.service';
  * hook and the platform/style direction rather than pretending to have analysed
  * anything, and the caller reports `source: 'heuristic'` so the UI can say so.
  */
-const PROMPT_VERSION = 'graphics.1';
+const PROMPT_VERSION = 'graphics.2';
 
 const imagePromptSchema = z.object({
   /** The prompt sent to the image model. */
@@ -61,7 +72,7 @@ export type ImagePromptResult = z.infer<typeof imagePromptSchema> & {
  */
 const UNIVERSAL_RULES = [
   'No lettering, words, logos, watermarks or UI chrome anywhere in the image.',
-  'No real people, recognisable faces, or brand marks.',
+  'No celebrities, identifiable public figures or other brands’ marks; any people are anonymous.',
   'Composed as a single, coherent image — not a collage or a grid of panels.',
   'High production value: deliberate composition, controlled colour, clean edges.',
 ].join(' ');
@@ -82,6 +93,13 @@ export async function generateImagePrompt(
   const contentText = renderForManual(draft).slice(0, 3000);
   const spec = platformSpec(platform);
   const styleDirection = STYLE_DIRECTION[style];
+  // A photographic style is briefed as a photograph, in the network's
+  // photographic register — the platform's own art direction is written for
+  // graphics, and asking for "designed" imagery is what reads as AI art.
+  const photographic = isPhotographic(style);
+  const platformDirection = photographic
+    ? PLATFORM_PHOTO_DIRECTION[platform]
+    : spec.artDirection;
   // What the image is for: from the recommendation's brief when the draft has
   // one, else from the business context and the post (lib/visual-brief.ts).
   const visual = await visualBriefForDraft(draft, platform);
@@ -90,7 +108,17 @@ export async function generateImagePrompt(
   if (isClaudeConfigured() && contentText.length > 0) {
     try {
       result = {
-        ...(await askModel(draft, contentText, visual.brief, styleDirection, guidance)),
+        ...(await askModel(
+          draft,
+          contentText,
+          visual.brief,
+          styleDirection,
+          guidance,
+          {
+            photographic,
+            platformDirection,
+          },
+        )),
         source: 'ai',
       };
     } catch (err) {
@@ -100,10 +128,28 @@ export async function generateImagePrompt(
         draftId: draft.id,
         error: err instanceof Error ? err.message : String(err),
       });
-      result = heuristicPrompt(contentText, spec.artDirection, styleDirection, guidance, visual.brief);
+      result = heuristicPrompt(
+        contentText,
+        platformDirection,
+        styleDirection,
+        guidance,
+        visual.brief,
+        {
+          photographic,
+        },
+      );
     }
   } else {
-    result = heuristicPrompt(contentText, spec.artDirection, styleDirection, guidance, visual.brief);
+    result = heuristicPrompt(
+      contentText,
+      platformDirection,
+      styleDirection,
+      guidance,
+      visual.brief,
+      {
+        photographic,
+      },
+    );
   }
   result = { ...result, visual: visual.brief };
 
@@ -132,7 +178,8 @@ async function askModel(
   contentText: string,
   visual: VisualBrief,
   styleDirection: string,
-  guidance?: string,
+  guidance: string | undefined,
+  opts: { photographic: boolean; platformDirection: string },
 ): Promise<z.infer<typeof imagePromptSchema>> {
   const company = await db.company.findUnique({
     where: { id: draft.companyId },
@@ -150,6 +197,20 @@ async function askModel(
     'Never restate the post as text-in-image. The image carries the idea; the',
     'post carries the words.',
     '',
+    ...(opts.photographic
+      ? [
+          'This is a PHOTOGRAPH for a branded marketing post, and it must look',
+          'like a real one — never like AI art. Brief it the way a commercial',
+          'photographer is briefed: the real place, the real moment, who or what',
+          'is in it and what they are doing, the camera, lens and aperture, the',
+          'light source and time of day, and the materials. Show the business’s',
+          'actual product, premises or work, not a metaphor, a concept or',
+          'something "futuristic". Avoid the tells of generated images: glossy',
+          'over-polish, waxy skin, perfect symmetry, HDR glow, floating objects,',
+          'posed stock-photo smiles.',
+          '',
+        ]
+      : []),
     'Respond with ONLY valid JSON. No markdown, no prose.',
   ].join('\n');
 
@@ -166,6 +227,11 @@ async function askModel(
     '',
     `STYLE:\n${styleDirection}`,
     '',
+    `PLATFORM:\n${opts.platformDirection}`,
+    '',
+    opts.photographic
+      ? `PHOTOGRAPHIC REALISM (fold this into the prompt):\n${REALISM_DIRECTION}\n${PEOPLE_DIRECTION}\n`
+      : '',
     guidance ? `THE USER ALSO ASKED FOR:\n${guidance}\n` : '',
     `HARD RULES (fold these into the prompt):\n${UNIVERSAL_RULES}`,
     '',
@@ -177,7 +243,7 @@ async function askModel(
     .filter(Boolean)
     .join('\n');
 
-  return completeStructured({
+  const out = await completeStructured({
     schema: imagePromptSchema,
     system,
     prompt,
@@ -188,7 +254,21 @@ async function askModel(
     effort: 'low',
     tier: 'standard',
   });
+  // The tells of a generated image are always kept out of a photograph,
+  // whatever the model remembered to list — ours first, so they always fit.
+  return opts.photographic
+    ? {
+        ...out,
+        negativePrompt: mergeNegative(PHOTO_NEGATIVE, out.negativePrompt),
+      }
+    : out;
 }
+
+/**
+ * The negative prompt for a photograph: any text first (garbled lettering is
+ * the worst failure), then the tells of a generated image.
+ */
+export const PHOTO_NEGATIVE = mergeNegative(NO_TEXT_NEGATIVE, AI_LOOK_NEGATIVE);
 
 /**
  * Deterministic prompt composition, used when no AI provider is configured or
@@ -204,11 +284,51 @@ export function heuristicPrompt(
   styleDirection: string,
   guidance?: string,
   visual?: VisualBrief,
+  { photographic = true }: { photographic?: boolean } = {},
 ): ImagePromptResult {
   // The brief's subject (the recommendation's key message) when there is one;
   // else the post's own opening line.
   const hook = firstMeaningfulLine(contentText);
   const subject = visual?.subject?.value || hook || 'the theme of this post';
+
+  if (photographic) {
+    // A real photograph of a real moment for this business — the product,
+    // the premises, the people it serves — not a "graphic" or a metaphor.
+    const scene = [guidance, visual?.product?.value, subject]
+      .filter(Boolean)
+      .join(' ');
+    // The realism and the hard rules always reach the model; the person's
+    // own direction is clipped to the room left; the rest are added whole,
+    // most important first, while they fit (fitPrompt).
+    const opening = sentence(
+      `A real, professional marketing photograph for a social media post about: ${clip(subject, 200).replace(/[.!?\s]+$/, '')}. Show a specific, real moment that carries it — the actual product, place or people — not a metaphor or concept art`,
+    );
+    const required = [
+      opening,
+      cameraFor(shotKindOf(scene)),
+      REALISM_DIRECTION,
+      PEOPLE_DIRECTION,
+    ];
+    const optional = [
+      visual?.brand.avoid.length
+        ? sentence(`Never depict: ${visual.brand.avoid.join(', ')}`)
+        : '',
+      visual?.product
+        ? sentence(`Where it fits, show: ${clip(visual.product.value, 200)}`)
+        : '',
+      visual?.brand.palette.length
+        ? `Colour: built around ${visual.brand.palette.join(', ')} in light and surfaces, not as flat blocks.`
+        : '',
+      platformDirection,
+      visual?.setting ?? '',
+    ];
+    return {
+      prompt: fitPrompt({ required, guidance, optional }),
+      negativePrompt: PHOTO_NEGATIVE,
+      subject: subject.slice(0, 200),
+      source: 'heuristic',
+    };
+  }
 
   const prompt = [
     `A premium social-media graphic representing: ${subject}.`,
@@ -236,6 +356,54 @@ export function heuristicPrompt(
     subject: subject.slice(0, 200),
     source: 'heuristic',
   };
+}
+
+/**
+ * Whole parts, in order, within the schema's 1,500 characters, then the hard
+ * rules (no text, no public figures), which always survive. A part that does
+ * not fit is left out entirely — never cut mid-sentence.
+ */
+function fitPrompt(args: {
+  required: string[];
+  guidance?: string;
+  optional: string[];
+}): string {
+  const room = 1500 - PHOTO_RULES.length - 1;
+  const [opening, ...rest] = args.required;
+  let used = args.required.join(' ').length;
+  // The person's direction comes straight after the opening, clipped to fit.
+  const left = Math.min(400, room - used - ' Additional direction: .'.length);
+  const guidance =
+    args.guidance?.trim() && left > 40
+      ? sentence(`Additional direction: ${clip(args.guidance, left)}`)
+      : '';
+  if (guidance) used += guidance.length + 1;
+  const extra: string[] = [];
+  for (const part of args.optional.filter(Boolean)) {
+    if (used + part.length + 1 <= room) {
+      extra.push(part);
+      used += part.length + 1;
+    }
+  }
+  return [opening, guidance, ...rest, ...extra, PHOTO_RULES]
+    .filter(Boolean)
+    .join(' ');
+}
+
+/** The hard rules for a photograph — UNIVERSAL_RULES, in fewer words. */
+const PHOTO_RULES =
+  'No lettering, words, logos or watermarks anywhere in the image. No celebrities, identifiable public figures or other brands’ marks. One coherent photograph, not a collage.';
+
+/** One sentence: trailing punctuation the text already had, once. */
+const sentence = (s: string) => `${s.trim().replace(/[.!?\s]+$/, '')}.`;
+
+/** At most `max` characters, on a word boundary. */
+function clip(s: string, max: number): string {
+  const t = s.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const space = cut.lastIndexOf(' ');
+  return space > max * 0.6 ? cut.slice(0, space) : cut;
 }
 
 /** First real sentence of the rendered post — its hook, in practice. */

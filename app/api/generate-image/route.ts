@@ -8,6 +8,7 @@ import { agnesImageProvider } from '@/server/media/providers/agnes';
 import { googleImageProvider } from '@/server/media/providers/gemini';
 import { ImageProviderError } from '@/server/media/types';
 import type { ImageGenerationProvider } from '@/server/media/types';
+import { withPhotoRealism } from '@/lib/photo-realism';
 
 /**
  * POST /api/generate-image — text-to-image across several providers.
@@ -63,7 +64,18 @@ const bodySchema = z.object({
     .max(2000, 'Keep the prompt under 2000 characters.'),
   /** Defaults to Hugging Face, the only one with a free tier. */
   model: z.string().trim().max(120).optional(),
+  /**
+   * Make it look like a real marketing photograph (lib/photo-realism.ts).
+   * On unless turned off; a prompt asking for an illustration, 3D or the like
+   * is sent as written either way.
+   */
+  realistic: z.boolean().optional().default(true),
 });
+
+interface ImageRequest {
+  prompt: string;
+  negativePrompt: string | null;
+}
 
 export async function POST(req: Request) {
   try {
@@ -86,20 +98,32 @@ export async function POST(req: Request) {
     if (raw === null) {
       return jsonError('Send a JSON body of the form { "prompt": "..." }.', 400);
     }
-    const { prompt, model } = bodySchema.parse(raw);
+    const { prompt: written, model, realistic } = bodySchema.parse(raw);
+    // The person's words first, then the photographic direction.
+    const request: ImageRequest = realistic
+      ? withPhotoRealism(written)
+      : { prompt: written, negativePrompt: null };
 
     const choice = (model ?? 'huggingface').toLowerCase();
 
     // Prefix match as well as exact, so "flux-1-schnell" or a future FLUX
     // variant reaches Hugging Face without a schema change.
     if (choice === 'huggingface' || choice.startsWith('flux')) {
-      return await generateWithHuggingFace(prompt);
+      return await generateWithHuggingFace(request);
     }
-    if (choice === 'nano-banana' || choice === 'gemini' || choice === 'google') {
-      return await generateWithProvider(googleImageProvider, 'Gemini', prompt);
+    if (
+      choice === 'nano-banana' ||
+      choice === 'gemini' ||
+      choice === 'google'
+    ) {
+      return await generateWithProvider(googleImageProvider, 'Gemini', request);
     }
     if (choice === 'agnes') {
-      return await generateWithProvider(agnesImageProvider, 'Agnes AI', prompt);
+      return await generateWithProvider(
+        agnesImageProvider,
+        'Agnes AI',
+        request,
+      );
     }
 
     return jsonError(
@@ -123,7 +147,10 @@ export async function POST(req: Request) {
  * .json() on an HTML error page throws, and the user would see a parser
  * message instead of the reason.
  */
-async function generateWithHuggingFace(prompt: string) {
+async function generateWithHuggingFace({
+  prompt,
+  negativePrompt,
+}: ImageRequest) {
   const apiKey = process.env.HUGGINGFACE_API_KEY;
   if (!apiKey) {
     return jsonError(
@@ -147,7 +174,12 @@ async function generateWithHuggingFace(prompt: string) {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ inputs: prompt }),
+      body: JSON.stringify({
+        inputs: prompt,
+        ...(negativePrompt
+          ? { parameters: { negative_prompt: negativePrompt } }
+          : {}),
+      }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (err) {
@@ -257,7 +289,7 @@ async function generateWithHuggingFace(prompt: string) {
 async function generateWithProvider(
   provider: ImageGenerationProvider,
   label: string,
-  prompt: string,
+  { prompt, negativePrompt }: ImageRequest,
 ) {
   if (!provider.isConfigured()) {
     return jsonError(
@@ -269,6 +301,7 @@ async function generateWithProvider(
   try {
     const images = await provider.generateImage({
       prompt,
+      ...(negativePrompt ? { negativePrompt } : {}),
       aspectRatio: '1:1',
       width: 1024,
       height: 1024,

@@ -45,6 +45,7 @@ import { getPolicyContext } from '@/server/content/compliance.service';
 import { claimsToReview } from '@/lib/fact-check';
 import { factCheckDraft } from '@/server/content/fact-check.service';
 import { VisualBriefPanel } from '@/components/dashboard/content/visual-brief-panel';
+import { visualBriefStarterPrompt } from '@/lib/visual-brief';
 import { visualBriefForDraft } from '@/server/media/visual-brief.service';
 import type { CreationProvenance } from '@/lib/recommendation-creation';
 import { DraftActions } from '@/components/dashboard/content/draft-actions';
@@ -265,6 +266,12 @@ export default async function DraftDetailPage({
               holds the credential server-side — the browser never sees it. */}
           {canEdit && (
             <AgnesImageGenerator
+              // Written for a suggestion: start from its visual brief.
+              initialPrompt={
+                visual.source === 'content_brief'
+                  ? visualBriefStarterPrompt(visual.brief)
+                  : null
+              }
               configured={{
                 huggingface: Boolean(process.env.HUGGINGFACE_API_KEY),
                 'nano-banana': googleImageProvider.isConfigured(),

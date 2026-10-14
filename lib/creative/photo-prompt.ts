@@ -3,6 +3,13 @@ import type {
   CreativeType,
   PhotoMood,
 } from '@/lib/creative/spec';
+import {
+  AI_LOOK_NEGATIVE,
+  NO_TEXT_NEGATIVE,
+  PEOPLE_DIRECTION,
+  REALISM_DIRECTION,
+  mergeNegative,
+} from '@/lib/photo-realism';
 
 /**
  * The brief for a creative's photograph: commercial photography of the right
@@ -85,18 +92,17 @@ const SPACE: Record<CreativeLayout, string> = {
 const LANDSCAPE_SPACE =
   'Keep the left half of the frame calm and uncluttered — text will be placed there; the subject sits right of centre.';
 
-export const PHOTO_NEGATIVE =
-  'text, letters, words, typography, captions, logos, watermarks, signage with writing, illustration, cartoon, painting, drawing, 3D render, CGI, plastic skin, distorted hands, extra fingers, deformed faces, warped products, blurry subject, oversaturated colours, collage, frame, border';
+/** Generated-image tells (lib/photo-realism.ts) and anything written. */
+export const PHOTO_NEGATIVE = mergeNegative(
+  NO_TEXT_NEGATIVE,
+  AI_LOOK_NEGATIVE,
+  'drawing',
+);
 
 export function buildPhotoPrompt(i: PhotoPromptInput): {
   prompt: string;
   negativePrompt: string;
 } {
-  const scene = (
-    i.direction?.trim() ||
-    i.scene?.trim() ||
-    TYPE_SCENE[i.type](i.business, i.consumer)
-  ).replace(/[.\s]+$/, '');
   const landscape = i.aspectRatio === '16:9';
   const lens =
     i.type === 'product_launch' || i.mood === 'studio'
@@ -104,14 +110,36 @@ export function buildPhotoPrompt(i: PhotoPromptInput): {
       : i.type === 'event' || i.type === 'b2b'
         ? 'Shot on a full-frame camera with a 35mm lens, f/2.8, natural perspective.'
         : 'Shot on a full-frame camera with a 50mm lens, f/2, shallow depth of field.';
-  const prompt = [
-    `Professional commercial photograph for ${i.business.name}${i.business.industry ? `, a ${i.business.industry} business` : ''}: ${scene}.`,
-    `Lighting: ${MOOD[i.mood]}.`,
-    lens,
-    'Photorealistic, editorial advertising quality: realistic textures and materials, accurate proportions, natural skin, true-to-life colour grading, sharp focus on the subject.',
-    'Any people are anonymous, natural and diverse — no celebrities.',
+  const rules = [
     landscape ? LANDSCAPE_SPACE : SPACE[i.layout],
     'Absolutely no text, letters, logos, signage or watermarks anywhere in the image.',
   ].join(' ');
-  return { prompt: prompt.slice(0, 1500), negativePrompt: PHOTO_NEGATIVE };
+  const lead = `Professional commercial photograph for ${i.business.name}${i.business.industry ? `, a ${i.business.industry} business` : ''}: `;
+  // Within 1,500 characters: the light, lens, realism, where the text goes
+  // and the no-text rule always reach the model; the scene is clipped to the
+  // room that leaves, and the extra quality line is added only if it fits.
+  const fixed = [`Lighting: ${MOOD[i.mood]}.`, lens];
+  const after = [REALISM_DIRECTION, PEOPLE_DIRECTION, rules];
+  const extra =
+    'Photorealistic, editorial advertising quality: realistic textures and materials, accurate proportions, natural skin, true-to-life colour grading, sharp focus on the subject.';
+  const reserved = [lead, ...fixed, ...after].join(' ').length + 2;
+  const scene = clip(
+    i.direction?.trim() ||
+      i.scene?.trim() ||
+      TYPE_SCENE[i.type](i.business, i.consumer),
+    Math.min(500, 1500 - reserved),
+  ).replace(/[.\s]+$/, '');
+  const core = [`${lead}${scene}.`, ...fixed];
+  const withExtra = [...core, extra, ...after].join(' ');
+  const prompt =
+    withExtra.length <= 1500 ? withExtra : [...core, ...after].join(' ');
+  return { prompt, negativePrompt: PHOTO_NEGATIVE };
+}
+
+/** At most `max` characters, on a word boundary. */
+function clip(s: string, max: number): string {
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  const space = cut.lastIndexOf(' ');
+  return space > max * 0.6 ? cut.slice(0, space) : cut;
 }

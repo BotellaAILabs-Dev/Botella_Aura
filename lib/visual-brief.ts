@@ -28,7 +28,7 @@ import {
  *   brand        palette, mood (from the brand voice), what never to show
  *   format       aspect ratio and pixel size for the channel, the other ratios
  *                it takes, file limits and the channel's art direction
- *   rules        what is never in the image — text, logos, real people, and
+ *   rules        what is never in the image — text, logos, identifiable people, and
  *                any offer, price or claim the brief does not carry
  *   missing      what Aura does not have, what that means for the picture, and
  *                where to add it — nothing is invented
@@ -108,7 +108,9 @@ export type VisualBrief = z.infer<typeof visualBriefSchema>;
 /** What never appears in a generated image. */
 export const VISUAL_RULES = [
   'No lettering, words, logos, watermarks or UI chrome anywhere in the image — the post carries the words; a logo is added by the business, not drawn.',
-  'No real people, recognisable faces or other brands’ marks.',
+  // People are welcome — a real customer or member of staff is what makes a
+  // marketing photo credible — but never someone identifiable.
+  'No celebrities, identifiable public figures or other brands’ marks; any people are realistic and anonymous.',
   'Do not depict an offer, price, discount, award or claim that the brief does not state.',
   'One coherent image, not a collage or a grid of panels.',
 ];
@@ -288,9 +290,31 @@ export function visualBriefToPrompt(v: VisualBrief): string {
       v.format.artDirection ? ` ${v.format.artDirection}` : ''
     }`,
   );
-  out.push(`Hard rules: ${v.rules.join(' ')}`);
+  // The rules in force now, not the copy a draft saved: briefs saved before
+  // people were allowed still carry "No real people".
+  out.push(`Hard rules: ${VISUAL_RULES.join(' ')}`);
   const gaps = v.missing.map((m) => m.field);
   if (gaps.length)
     out.push(`Not provided — do not invent: ${gaps.join(', ')}.`);
   return out.join('\n');
+}
+
+/**
+ * A short, editable starting prompt for the free-form image generator — the
+ * visual brief in a person's words rather than the model's. Within the
+ * generator's 2,000-character limit.
+ */
+export function visualBriefStarterPrompt(v: VisualBrief): string {
+  return [
+    v.subject ? `${v.subject.value}.` : '',
+    v.product ? `Show ${v.product.value}.` : '',
+    v.setting ? `Setting: ${v.setting}.` : '',
+    v.brand.mood.length ? `Mood: ${v.brand.mood.join(', ')}.` : '',
+    v.brand.palette.length ? `Colours: ${v.brand.palette.join(', ')}.` : '',
+    `Photorealistic, ${v.format.aspectRatio}, no text in the image.`,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\.\./g, '.')
+    .slice(0, 2000);
 }
