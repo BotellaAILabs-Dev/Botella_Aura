@@ -82,7 +82,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {
     if (!isSameOrigin(req)) return jsonError('Cross-site request refused.', 403);
-    const { company } = await requireActiveCompany();
+    const { company, membership } = await requireActiveCompany();
+    if (!can(membership.role, 'content:publish')) return jsonError('Only people who can publish can do this.', 403);
     const draft = await getDraft(company.id, params.id);
     if (!draft) return jsonError('Not found.', 404);
     return jsonOk(await advanceProcessing({ companyId: company.id, draftId: draft.id, limit: 3 }));

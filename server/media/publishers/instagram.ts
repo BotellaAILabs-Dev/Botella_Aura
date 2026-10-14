@@ -289,7 +289,7 @@ function failedContainer(kind: 'video' | 'item', code: ContainerStatus, detail: 
   return new InstagramPublishError(
     kind === 'video'
       ? 'Instagram could not process the video. Check it is a standard MP4 (H.264, 3 s – 15 min) and that file storage is publicly reachable, then try again.'
-      : 'Instagram could not fetch one of the carousel items. Check that this deployment and its file storage are reachable from the public internet, then try again.',
+      : 'Instagram could not fetch or accept the image. Check that this deployment is reachable from the public internet, then try again.',
   );
 }
 
@@ -356,10 +356,11 @@ export async function startInstagramPost(args: {
   if (items.length > 10) throw new InstagramPublishError('Instagram carousels take up to 10 items.');
 
   if (items.length === 1 && items[0]!.kind === 'IMAGE') {
-    return {
-      state: 'published',
-      url: await publishInstagramImage({ context, imageUrl: items[0]!.url, caption }),
-    };
+    // Waits no longer than the budget (the request is capped at 60 s); a slow
+    // fetch by Meta becomes "processing", finished later, not a killed request.
+    const image = await createMediaContainer(context, { image_url: items[0]!.url, caption });
+    if (!(await waitAll(context, [image], waitMs, 'item'))) return { state: 'processing', externalId: `container:${image}` };
+    return publishFinished(context, image);
   }
   if (items.length === 1) {
     // A Reel. share_to_feed: shown on the profile grid as well as in Reels.

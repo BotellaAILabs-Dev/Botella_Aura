@@ -3,6 +3,7 @@ import { logger } from '@/lib/logger';
 import { whatsAppConfig, withinServiceWindow } from '@/lib/whatsapp';
 import { sessionState } from '@/lib/whatsapp-link';
 import { sendContent } from '@/server/whatsapp/whatsapp.service';
+import { enabledWorkspaces } from '@/server/whatsapp/settings';
 
 /**
  * Tell a user on WhatsApp that something they started has finished (a
@@ -18,6 +19,8 @@ export async function notifyUser(args: { userId: string; companyId: string; text
   try {
     const config = whatsAppConfig();
     if (!config) return 0;
+    // Nothing for a workspace that turned WhatsApp off.
+    if (!(await enabledWorkspaces([args.companyId])).has(args.companyId)) return 0;
     const links = await db.whatsAppAccountLink.findMany({
       where: { userId: args.userId, activeCompanyId: args.companyId, revokedAt: null },
       include: { conversation: true },

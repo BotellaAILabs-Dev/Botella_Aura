@@ -23,6 +23,7 @@ import {
 } from '@/server/whatsapp/link.service';
 import { route } from '@/server/whatsapp/router';
 import { mainMenu } from '@/server/whatsapp/tools/registry';
+import { writeState } from '@/server/whatsapp/tools/state';
 
 /**
  * What the assistant says to one inbound message.
@@ -166,6 +167,11 @@ export async function decide(input: {
 
   // 5. Account commands.
   const command = parseCommand(message.body, replyId);
+  // Any account command (menu, switch, logout, a workspace) means they moved
+  // on: a pending approve/publish lapses, so a later "ok" cannot run it.
+  if (command && session.active) {
+    await writeState(session.link.id, session.active.companyId, { pending: undefined });
+  }
   if (command?.kind === 'logout') {
     await unlinkConversation(conversation.id);
     return { contents: [text(LOGGED_OUT_TEXT)] };

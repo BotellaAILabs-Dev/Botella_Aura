@@ -4,6 +4,7 @@ import { sessionState } from '@/lib/whatsapp-link';
 import { getMembership } from '@/server/services/company.service';
 import { recordAudit } from '@/server/services/audit.service';
 import { sendContent } from '@/server/whatsapp/whatsapp.service';
+import { enabledWorkspaces } from '@/server/whatsapp/settings';
 
 /**
  * An owner or admin messaging a member of THEIR workspace on WhatsApp, from
@@ -51,6 +52,9 @@ export async function sendAdminMessage(args: {
   const text = args.text.trim();
   if (!text || text.length > ADMIN_MESSAGE_MAX) {
     throw new AdminMessageError(`Write 1–${ADMIN_MESSAGE_MAX} characters.`, 400);
+  }
+  if (!(await enabledWorkspaces([args.companyId])).has(args.companyId)) {
+    throw new AdminMessageError('WhatsApp is turned off for this workspace.', 409);
   }
   // Same answer for "not a member" and "no such person": nothing to learn.
   if (!(await getMembership(args.recipientUserId, args.companyId))) {

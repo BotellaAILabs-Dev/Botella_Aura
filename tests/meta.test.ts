@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 /**
@@ -249,6 +250,12 @@ describe('Meta callbacks', () => {
     expect(parseSignedRequest(`${sig}`, 'meta-app-secret')).toBeNull();
     expect(parseSignedRequest(signRequest({ user_id: 'x', algorithm: 'NONE' }, 'meta-app-secret'), 'meta-app-secret')).toBeNull();
     void body;
+  });
+
+  it('signed requests: one without issued_at is refused', () => {
+    const body = Buffer.from(JSON.stringify({ user_id: 'U', algorithm: 'HMAC-SHA256' })).toString('base64url');
+    const sig = crypto.createHmac('sha256', 'meta-app-secret').update(body).digest('base64url');
+    expect(parseSignedRequest(`${sig}.${body}`, 'meta-app-secret')).toBeNull();
   });
 
   it('signed requests: an old one replayed is refused', () => {

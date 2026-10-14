@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ContentDraft } from '@prisma/client';
 
+import { db } from '@/lib/db';
 import { can } from '@/lib/rbac';
 import { rateLimit } from '@/lib/rate-limit';
 import { CONTENT_STATUS_LABELS, CONTENT_TYPE_LABELS } from '@/lib/content-ui';
@@ -63,6 +64,12 @@ function inFlightFor(state: SessionState, messageId: string): boolean {
   const f = state.inFlight;
   return Boolean(f && f.messageId === messageId && Date.now() - new Date(f.startedAt).getTime() < 3 * 60_000);
 }
+
+/**
+ * No request runs longer than this (maxDuration 60 s on the webhook and the
+ * sweep): an attempt started earlier that never cleared its marker was killed.
+ */
+const ATTEMPT_DEAD_AFTER_MS = 75_000;
 
 const noDraft = (): ToolResult => ({
   contents: [text('Which post do you mean? Say “show my drafts” to pick one, or “write a LinkedIn post about …” to start a new one.')],
@@ -140,7 +147,21 @@ export const generatePostTool: Tool<typeof generateArgs> = {
     // A retried job must not write (and pay for) the same post twice.
     const state = await readState(ctx.linkId, ctx.companyId);
     if (inFlightFor(state, ctx.messageId)) {
-      return { contents: [text('I’m still finishing that post — it will be in your drafts in Content Studio.')] };
+      const startedAt = new Date(state.inFlight!.startedAt);
+      // The earlier attempt saved the draft, then died before replying: show it.
+      const written = await db.contentDraft.findFirst({
+        where: { companyId: ctx.companyId, createdById: ctx.userId, type, createdAt: { gte: startedAt } },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (written) {
+        await writeState(ctx.linkId, ctx.companyId, { draftId: written.id, inFlight: undefined });
+        return { contents: [draftMessage(ctx, written, '✅ Saved as a draft in Content Studio.')] };
+      }
+      // Still running elsewhere — say so, without claiming a draft exists.
+      if (Date.now() - startedAt.getTime() < ATTEMPT_DEAD_AFTER_MS) {
+        return { contents: [text('I’m still writing that post — I’ll send it here as soon as it’s ready.')] };
+      }
+      // Otherwise the earlier attempt was cut off before saving: write it now.
     }
     await writeState(ctx.linkId, ctx.companyId, {
       inFlight: { messageId: ctx.messageId, tool: 'generate_post', startedAt: new Date().toISOString() },

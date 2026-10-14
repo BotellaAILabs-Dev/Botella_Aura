@@ -72,8 +72,9 @@ App Review justification.
 - Instagram's documented limit is 100 API-published posts per 24 hours per
   account (a carousel counts as one).
 - Instagram's documentation states that JPEG is the only supported image
-  format. PNG graphics are sent as they are today; if Meta refuses one, the
-  reason is shown and the post can be re-exported as JPEG.
+  format. Aura's PNG (and WebP) graphics are therefore served to Instagram
+  re-encoded as JPEG (`server/media/jpeg.ts`, quality 90, transparency on
+  white); the stored graphic is unchanged.
 
 ## 3. Tokens
 

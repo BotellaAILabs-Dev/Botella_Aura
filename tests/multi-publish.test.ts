@@ -291,3 +291,14 @@ describe('Instagram still processing (Reels)', () => {
     expect(s.pubs.find((p) => p.platform === 'INSTAGRAM')).toMatchObject({ status: 'PROCESSING', externalId: 'container:9' });
   });
 });
+
+describe('posts published before per-network tracking', () => {
+  it('a draft already PUBLISHED on its own network (no record) is not offered there again', async () => {
+    s.draft = { ...s.draft, status: 'PUBLISHED' };
+    const pv = await previewPublishing('co1', s.draft);
+    const li = pv.find((p) => p.platform === 'LINKEDIN')!;
+    expect(li.ready).toBe(false);
+    expect(li.blockers).toContain('Already published here.');
+    expect(pv.find((p) => p.platform === 'FACEBOOK')!.blockers).not.toContain('Already published here.');
+  });
+});

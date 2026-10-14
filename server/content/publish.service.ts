@@ -575,7 +575,12 @@ async function publishToInstagram(args: {
       }
       items.push({ kind: 'VIDEO', url: m.storageUrl });
     } else {
-      items.push({ kind: 'IMAGE', url: signedAssetUrl(m.assetId, INSTAGRAM_ASSET_URL_TTL_MS).url });
+      // Instagram takes JPEG only: a PNG/WebP is served re-encoded (the
+      // stored image is unchanged).
+      items.push({
+        kind: 'IMAGE',
+        url: signedAssetUrl(m.assetId, INSTAGRAM_ASSET_URL_TTL_MS, m.mimeType === 'image/jpeg' ? {} : { format: 'jpeg' }).url,
+      });
     }
   }
 

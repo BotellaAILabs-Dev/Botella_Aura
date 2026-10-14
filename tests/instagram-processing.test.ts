@@ -132,6 +132,15 @@ describe('publishing to Instagram from Aura', () => {
     const items = g2.calls.filter((c) => c.params.is_carousel_item === 'true');
     expect(items).toHaveLength(2);
     expect(items[0]!.params.image_url).toMatch(/^https:\/\/aura\.example\/api\/content\/graphics\/a1\/file\?exp=\d+&sig=/);
+    // JPEG already: sent as stored.
+    expect(items[0]!.params.image_url).not.toMatch(/format=jpeg/);
+
+    const g3 = fakeGraph(new Set());
+    vi.stubGlobal('fetch', g3.impl);
+    s.media = [{ ...asset('IMAGE', 5), asset: { ...asset('IMAGE', 5).asset, mimeType: 'image/png' } }];
+    await publishTo({ companyId: 'co1', userId: 'u1', draft: s.draft, platform: 'INSTAGRAM' });
+    // PNG: Instagram is given the JPEG rendition (it takes JPEG only).
+    expect(g3.calls[0]!.params.image_url).toMatch(/&format=jpeg$/);
   });
 
   it('still processing: the result says so — it is not reported as published', async () => {

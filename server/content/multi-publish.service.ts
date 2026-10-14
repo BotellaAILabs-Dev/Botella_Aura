@@ -3,7 +3,7 @@ import type { CompanyRole, ContentDraft, ContentPublication } from '@prisma/clie
 import { db } from '@/lib/db';
 import { can } from '@/lib/rbac';
 import { tokenHealth } from '@/lib/meta';
-import { platformSpec, type SocialPlatformKey } from '@/lib/platforms';
+import { platformSpec, resolvePlatform, type SocialPlatformKey } from '@/lib/platforms';
 import { isCopyOnlyType, type ContentTypeKey } from '@/lib/validations/content';
 import { logger } from '@/lib/logger';
 import { assertContentIntact, contentHash } from '@/server/approval/approval.service';
@@ -95,6 +95,11 @@ export async function previewPublishing(companyId: string, draft: ContentDraft):
   return MULTI_PLATFORMS.map((platform) => {
     const blockers: string[] = [];
     const pub = publications.find((p) => p.platform === platform) ?? null;
+    // Published on its own network before per-network records existed (or by
+    // the browser extension, which keeps none): never offered there again.
+    const publishedUntracked =
+      !pub && draft.status === 'PUBLISHED' && resolvePlatform(type, draft.platform) === platform;
+    if (publishedUntracked) blockers.push('Already published here.');
     if (isCopyOnlyType(type)) blockers.push('This format is copied out, not posted to social networks.');
     else if (!canAutoPublishTo(type, platform)) blockers.push(`${platformSpec(platform).label}’s API doesn’t take this format — post it by hand.`);
     if (connections[platform]) blockers.push(connections[platform]!);

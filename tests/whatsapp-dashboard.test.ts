@@ -24,7 +24,7 @@ vi.mock('@/lib/db', () => {
       whatsAppAccountLink: {
         findMany: rec('whatsAppAccountLink', 'findMany', (a) =>
           a.where.userId
-            ? [{ id: 'l1', userId: 'u1', activeCompanyId: 'co_A', linkedAt: now, lastUsedAt: now, expiresAt: new Date(now.getTime() + 1e9), revokedAt: null, conversation: { waIdLast4: '3210', profileName: 'Asha' } }]
+            ? [{ id: 'l1', userId: 'u1', conversationId: 'c1', activeCompanyId: 'co_A', linkedAt: now, lastUsedAt: now, expiresAt: new Date(now.getTime() + 1e9), revokedAt: null, conversation: { waIdLast4: '3210', profileName: 'Asha' } }]
             : [{ lastUsedAt: now, expiresAt: new Date(now.getTime() + 1e9), revokedAt: null, user: { name: 'Asha', email: 'a@acme.test', memberships: [{ role: 'OWNER' }] }, conversation: { waIdLast4: '3210' } }],
         ),
       },
@@ -108,9 +108,12 @@ describe('GET /api/whatsapp/conversations (listWorkspaceConversations)', () => {
     expect(all.args.where).toEqual({ companyId: 'co_A' });
 
     calls.length = 0;
-    await listWorkspaceConversations({ companyId: 'co_A', userId: 'u_member' });
+    await listWorkspaceConversations({ companyId: 'co_A', userId: 'u1' });
+    const linksQuery = calls.find((c) => c.model === 'whatsAppAccountLink')!;
+    expect(linksQuery.args.where).toEqual({ userId: 'u1', revokedAt: null });
     const mine = calls.find((c) => c.model === 'whatsAppMessage')!;
-    expect(mine.args.where).toEqual({ companyId: 'co_A', conversation: { link: { is: { userId: 'u_member' } } } });
+    // Only their own number, and only since THEY linked it (it may have been someone else's before).
+    expect(mine.args.where).toEqual({ companyId: 'co_A', OR: [{ conversationId: 'c1', createdAt: { gte: expect.any(Date) } }] });
   });
 
   it('limits are clamped (no unbounded reads from a query string)', async () => {

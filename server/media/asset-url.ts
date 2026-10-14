@@ -49,10 +49,12 @@ export interface SignedAssetUrl {
 export function signedAssetUrl(
   assetId: string,
   ttlMs = DEFAULT_TTL_MS,
+  /** "jpeg": served re-encoded as JPEG (Instagram takes JPEG only). */
+  opts: { format?: 'jpeg' } = {},
 ): SignedAssetUrl {
   const expiresAt = Date.now() + ttlMs;
   const token = sign(assetId, expiresAt);
-  const path = `/api/content/graphics/${assetId}/file?exp=${expiresAt}&sig=${token}`;
+  const path = `/api/content/graphics/${assetId}/file?exp=${expiresAt}&sig=${token}${opts.format === 'jpeg' ? '&format=jpeg' : ''}`;
   return { url: absoluteUrl(path), expiresAt };
 }
 

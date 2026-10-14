@@ -21,6 +21,7 @@ export const store = {
   companies: [] as any[],
   members: [] as any[],
   audits: [] as any[],
+  drafts: [] as any[],
   seq: 0,
 };
 
@@ -46,6 +47,7 @@ export function matches(row: Row, where: Row = {}): boolean {
       if (k === 'link' && 'is' in v && v.is === null) return !store.links.some((l) => l.conversationId === row.id);
       if ('in' in v) return v.in.includes(row[k]);
       if ('lte' in v) return row[k] != null && row[k] <= v.lte;
+      if ('gte' in v) return row[k] != null && row[k] >= v.gte;
       if ('lt' in v) return row[k] != null && row[k] < v.lt;
       if ('gt' in v) return row[k] != null && row[k] > v.gt;
     }
@@ -187,6 +189,10 @@ export const db: Row = {
         role: m.role,
         company: store.companies.find((c) => c.id === m.companyId),
       })),
+  },
+  /** Only what the WhatsApp tools read directly (a retried post's draft). */
+  contentDraft: {
+    findFirst: async ({ where }: Row) => sorted(store.drafts.filter((d) => matches(d, where)), { createdAt: 'desc' })[0] ?? null,
   },
   auditLog: {
     create: async ({ data }: Row) => {

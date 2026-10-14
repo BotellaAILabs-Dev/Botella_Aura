@@ -173,7 +173,7 @@ describe('Instagram carousels', () => {
   it('an item Instagram cannot fetch: nothing is published, and the reason is plain', async () => {
     g = fakeGraph({ errors: new Set(['ITEM']) });
     vi.stubGlobal('fetch', g.impl);
-    await expect(startInstagramPost({ context, items: [img(1), img(2)], caption: 'x' })).rejects.toThrow(/could not fetch one of the carousel items/);
+    await expect(startInstagramPost({ context, items: [img(1), img(2)], caption: 'x' })).rejects.toThrow(/could not fetch or accept the image/);
     expect(g.publishes()).toHaveLength(0);
   });
 });
@@ -231,5 +231,23 @@ describe('Instagram Reels', () => {
     await expect(continueInstagramPost({ context, externalId: 'container:../me/accounts', caption: 'x' })).rejects.toThrow(/could not be found/);
     await expect(continueInstagramPost({ context, externalId: 'nonsense', caption: 'x' })).rejects.toThrow();
     expect(g.calls).toHaveLength(0);
+  });
+});
+
+describe('JPEG for Instagram', () => {
+  it('a PNG with transparency becomes a valid JPEG, same size, transparency flattened onto white', async () => {
+    const sharp = (await import('sharp')).default;
+    const { toJpeg, needsJpeg } = await import('@/server/media/jpeg');
+    const png = await sharp({ create: { width: 40, height: 30, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+    const jpg = await toJpeg(png);
+    expect(jpg.subarray(0, 3).toString('hex')).toBe('ffd8ff');
+    const meta = await sharp(jpg).metadata();
+    expect(meta).toMatchObject({ format: 'jpeg', width: 40, height: 30 });
+    const { data } = await sharp(jpg).raw().toBuffer({ resolveWithObject: true });
+    expect(data[0]).toBeGreaterThan(240); // white, not black
+    expect(needsJpeg('image/png')).toBe(true);
+    expect(needsJpeg('image/webp')).toBe(true);
+    expect(needsJpeg('image/jpeg')).toBe(false);
+    expect(needsJpeg('video/mp4')).toBe(false);
   });
 });

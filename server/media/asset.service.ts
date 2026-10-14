@@ -354,6 +354,10 @@ export async function detachAsset(args: {
   assetId: string;
 }): Promise<void> {
   const { companyId, userId, draftId, assetId } = args;
+  const draft = await db.contentDraft.findFirst({ where: { id: draftId, companyId }, select: { status: true } });
+  if (draft?.status === 'PUBLISHED') {
+    throw Object.assign(new Error('This post is already published — its media cannot change.'), { status: 409 });
+  }
   let count = 0;
   await recordContentChange({
     draftId,

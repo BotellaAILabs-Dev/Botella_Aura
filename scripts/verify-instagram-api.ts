@@ -161,6 +161,24 @@ async function main() {
     const local = await ownerWeb.req('POST', upload, { url: 'http://127.0.0.1:5432/x.mp4', kind: 'video' });
     check('a video URL on a private address is refused (SSRF guard)', local.status === 400, `${local.status} ${local.json.error}`);
 
+    console.log('JPEG for Instagram');
+    {
+      const sharp = (await import('sharp')).default;
+      const png = await sharp({ create: { width: 1080, height: 1080, channels: 4, background: { r: 200, g: 40, b: 40, alpha: 0.6 } } }).png().toBuffer();
+      const added = await ownerWeb.upload(upload, new Blob([new Uint8Array(png)], { type: 'image/png' }), 'poster.png');
+      check('a PNG graphic is added', added.status === 201 && added.json.asset?.mimeType === 'image/png', `${added.status} ${added.json.error ?? ''}`);
+      const file = `${BASE}/api/content/graphics/${added.json.asset?.id}/file`;
+      const asJpeg = await fetch(`${file}?format=jpeg`, { headers: { cookie: ownerWeb.cookie() } });
+      const bytes = Buffer.from(await asJpeg.arrayBuffer());
+      check(
+        'served to Instagram as a real JPEG (the format Instagram takes)',
+        asJpeg.status === 200 && asJpeg.headers.get('content-type') === 'image/jpeg' && bytes.subarray(0, 3).toString('hex') === 'ffd8ff',
+        `${asJpeg.status} ${asJpeg.headers.get('content-type')}`,
+      );
+      const asStored = await fetch(file, { headers: { cookie: ownerWeb.cookie() } });
+      check('the stored graphic itself is unchanged (still PNG)', asStored.headers.get('content-type') === 'image/png', asStored.headers.get('content-type') ?? '');
+    }
+
     console.log('Processing');
     const pub = await db.contentPublication.create({
       data: {

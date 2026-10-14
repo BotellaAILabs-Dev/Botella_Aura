@@ -78,7 +78,7 @@ export async function getFacebookContext(
   let pages: AccountsPage[];
   try {
     const res = await httpRequest(
-      `https://graph.facebook.com/${GRAPH_VERSION}/me/accounts?fields=id,name,access_token&access_token=${encodeURIComponent(
+      `https://graph.facebook.com/${GRAPH_VERSION}/me/accounts?fields=id,name,access_token&limit=100&access_token=${encodeURIComponent(
         credential.accessToken,
       )}`,
       { method: 'GET', timeoutMs: 20_000, retries: 1 },

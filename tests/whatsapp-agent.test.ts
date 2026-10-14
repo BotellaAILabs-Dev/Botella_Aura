@@ -369,6 +369,18 @@ describe('approvals need an explicit, single-use yes', () => {
     expect(m.runReviewAction).not.toHaveBeenCalled();
   });
 
+  it('“menu” or “switch” in between also drops it: a later “ok” approves nothing', async () => {
+    for (const between of ['menu', 'switch']) {
+      const meta = fakeMeta();
+      resetStore();
+      m.runReviewAction.mockReset();
+      await ownerWithPending(meta);
+      await say(meta, between);
+      await say(meta, 'ok');
+      expect(m.runReviewAction).not.toHaveBeenCalled();
+    }
+  });
+
   it('a typed yes straight after the question still works', async () => {
     const meta = fakeMeta();
     const { d } = await ownerWithPending(meta);
@@ -543,5 +555,63 @@ describe('notifications', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('a retried “write a post” never claims a draft that does not exist', () => {
+  async function ctxFor() {
+    const meta = fakeMeta();
+    const { company, user } = await signedIn(meta, 'OWNER');
+    const link = store.links[0];
+    const ctx: any = {
+      conversationId: link.conversationId,
+      linkId: link.id,
+      userId: user.id,
+      companyId: company.id,
+      companyName: company.name,
+      role: 'OWNER',
+      messageId: 'msg_retry',
+      config,
+      sendNow: async () => undefined,
+    };
+    return { ctx, company, user };
+  }
+  const markInFlight = async (ctx: any, agoMs: number) => {
+    const { writeState } = await import('@/server/whatsapp/tools/state');
+    await writeState(ctx.linkId, ctx.companyId, {
+      inFlight: { messageId: ctx.messageId, tool: 'generate_post', startedAt: new Date(Date.now() - agoMs).toISOString() },
+    });
+  };
+  const run = async (ctx: any) => {
+    const { generatePostTool } = await import('@/server/whatsapp/tools/content');
+    const r = await generatePostTool.run(ctx, { topic: 'brunch' } as any);
+    return (r.contents[0] as any).text ?? (r.contents[0] as any).body ?? '';
+  };
+
+  it('the earlier attempt saved it before dying: the saved draft is shown, nothing is written twice', async () => {
+    const { ctx, company, user } = await ctxFor();
+    await markInFlight(ctx, 10_000);
+    const saved = draft(company.id, { createdById: user.id, createdAt: new Date() });
+    store.drafts.push({ ...saved, createdById: user.id, createdAt: new Date() });
+    const said = await run(ctx);
+    expect(m.generateDraft).not.toHaveBeenCalled();
+    expect(said).toMatch(/Saved as a draft/);
+  });
+
+  it('still running elsewhere (recent): says so, without claiming a draft exists', async () => {
+    const { ctx } = await ctxFor();
+    await markInFlight(ctx, 10_000);
+    const said = await run(ctx);
+    expect(m.generateDraft).not.toHaveBeenCalled();
+    expect(said).toMatch(/still writing/);
+    expect(said).not.toMatch(/in your drafts/);
+  });
+
+  it('the earlier attempt was cut off (older than any request can run): it is written now', async () => {
+    const { ctx, company } = await ctxFor();
+    await markInFlight(ctx, 90_000);
+    m.generateDraft.mockResolvedValue(draft(company.id));
+    await run(ctx);
+    expect(m.generateDraft).toHaveBeenCalledTimes(1);
   });
 });

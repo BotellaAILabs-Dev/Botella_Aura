@@ -3,6 +3,8 @@ import { getCurrentUser } from '@/lib/auth-helpers';
 import { getMembership } from '@/server/services/company.service';
 import { readAssetBytes } from '@/server/media/asset.service';
 import { verifyAssetSignature } from '@/server/media/asset-url';
+import { needsJpeg, toJpeg } from '@/server/media/jpeg';
+import { logger } from '@/lib/logger';
 
 /**
  * GET /api/content/graphics/:assetId/file — the image bytes.
@@ -68,19 +70,34 @@ export async function GET(
     where: { id: params.assetId },
   });
   if (!asset) return notFound();
-  const bytes = await readAssetBytes(asset);
+  let bytes = await readAssetBytes(asset);
   if (!bytes) return notFound();
+  let mimeType = asset.mimeType;
+
+  // ?format=jpeg — Instagram takes JPEG only, and fetches through this route.
+  if (url.searchParams.get('format') === 'jpeg' && needsJpeg(mimeType)) {
+    try {
+      bytes = await toJpeg(bytes);
+      mimeType = 'image/jpeg';
+    } catch (err) {
+      // Served as stored: Instagram's refusal then says what is wrong.
+      logger.warn('asset file: JPEG conversion failed', {
+        assetId: asset.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   return new Response(new Uint8Array(bytes), {
     status: 200,
     headers: {
-      'content-type': asset.mimeType,
+      'content-type': mimeType,
       'content-length': String(bytes.byteLength),
       // Assets are immutable once generated — regenerating produces a new row
       // with a new id — so this can be cached hard. `private` keeps it out of
       // shared caches, since the URL is either session-gated or signed.
       'cache-control': 'private, max-age=31536000, immutable',
-      'content-disposition': `inline; filename="graphic-${asset.id}.${extensionFor(asset.mimeType)}"`,
+      'content-disposition': `inline; filename="graphic-${asset.id}.${extensionFor(mimeType)}"`,
       // The bytes are ours, but they came from a generative model — never let a
       // browser sniff this into something executable.
       'x-content-type-options': 'nosniff',

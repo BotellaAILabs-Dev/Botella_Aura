@@ -94,8 +94,8 @@ export const PLATFORM_SPECS: Record<SocialPlatformKey, PlatformSpec> = {
     color: '#E1306C',
     ratios: ['1:1', '4:5', '9:16'],
     defaultRatio: '4:5',
-    // The Instagram Graph API accepts JPEG for feed publishing. PNG is listed
-    // so validation can explain the conversion rather than fail silently.
+    // The Instagram Graph API accepts JPEG only. PNG is accepted here because
+    // publishing serves it re-encoded as JPEG (server/media/jpeg.ts).
     acceptedMimeTypes: ['image/jpeg', 'image/png'],
     maxFileSizeBytes: 8 * 1024 * 1024,
     minDimension: 320,

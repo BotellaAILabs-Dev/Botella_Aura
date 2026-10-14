@@ -48,8 +48,20 @@ export async function listWorkspaceConversations(args: {
   const { companyId } = args;
   const limit = Math.min(Math.max(args.limit ?? 20, 1), 50);
   const each = Math.min(Math.max(args.messagesEach ?? 20, 1), 50);
+  // A person's own numbers, from when THEY linked each one (a number can have
+  // been someone else's before).
+  const mine = args.userId
+    ? await db.whatsAppAccountLink.findMany({
+        where: { userId: args.userId, revokedAt: null },
+        select: { conversationId: true, linkedAt: true },
+      })
+    : null;
+  if (mine && mine.length === 0) return [];
   const recent = await db.whatsAppMessage.findMany({
-    where: { companyId, ...(args.userId ? { conversation: { link: { is: { userId: args.userId } } } } : {}) },
+    where: {
+      companyId,
+      ...(mine ? { OR: mine.map((l) => ({ conversationId: l.conversationId, createdAt: { gte: l.linkedAt } })) } : {}),
+    },
     orderBy: { createdAt: 'desc' },
     take: limit * each,
     select: { conversationId: true, direction: true, body: true, status: true, createdAt: true, errorMessage: true },

@@ -128,7 +128,7 @@ export function parseSignedRequest(
     const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { user_id?: string; algorithm?: string; issued_at?: number };
     if (data.algorithm && data.algorithm.toUpperCase() !== 'HMAC-SHA256') return null;
     // A replayed old request is refused (Meta sends it at once).
-    if (typeof data.issued_at === 'number' && Math.abs(now.getTime() / 1000 - data.issued_at) > SIGNED_REQUEST_MAX_AGE_S) return null;
+    if (typeof data.issued_at !== 'number' || Math.abs(now.getTime() / 1000 - data.issued_at) > SIGNED_REQUEST_MAX_AGE_S) return null;
     return data;
   } catch {
     return null;
@@ -137,7 +137,8 @@ export function parseSignedRequest(
 
 /** For tests and tooling: sign a payload the way Meta does. */
 export function signRequest(payload: Record<string, unknown>, appSecret: string): string {
-  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  // Meta always includes issued_at (seconds); parseSignedRequest requires it.
+  const body = Buffer.from(JSON.stringify({ issued_at: Math.floor(Date.now() / 1000), ...payload })).toString('base64url');
   const sig = crypto.createHmac('sha256', appSecret).update(body).digest('base64url');
   return `${sig}.${body}`;
 }

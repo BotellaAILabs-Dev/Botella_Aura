@@ -19,8 +19,20 @@ const TIMEOUT_MS = 15_000;
  * to Meta would be refused and could get the sender rate-limited. Unset in
  * every real deployment.
  */
+const META_GRAPH = 'https://graph.facebook.com';
+
 function graphBase(): string {
-  return (process.env.WHATSAPP_GRAPH_BASE_URL?.trim() || 'https://graph.facebook.com').replace(/\/$/, '');
+  const override = process.env.WHATSAPP_GRAPH_BASE_URL?.trim();
+  if (!override) return META_GRAPH;
+  // Loopback only: the access token goes with every request, so a mistaken
+  // value must never send it to another host.
+  try {
+    const host = new URL(override).hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') return override.replace(/\/$/, '');
+  } catch {
+    /* not a URL */
+  }
+  return META_GRAPH;
 }
 
 export class WhatsAppApiError extends Error {
@@ -56,6 +68,7 @@ const RETRYABLE_CODES = new Set([
 /** Plain-language reasons for the errors a person will see on the dashboard. */
 const KNOWN: Record<string, string> = {
   '131047': 'More than 24 hours since their last message — only an approved template can be sent.',
+  '131030': 'This number is not on the test number’s allowed recipient list (Meta test mode) — add it under WhatsApp → API Setup.',
   '131026': 'The message could not be delivered to this number.',
   '131051': 'This message type is not supported.',
   '131049': 'Meta held this message back to protect the recipient experience.',

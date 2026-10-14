@@ -140,7 +140,8 @@ async function aiRoute(ctx: ToolContext, message: string, hasDraft: boolean): Pr
   if (!isClaudeConfigured()) return null;
   const usable = TOOLS.filter((t) => mayUse(t, ctx.role) && (hasDraft || !['edit_draft', 'submit_draft', 'generate_image', 'use_image', 'approve_draft', 'reject_draft', 'publish_draft', 'publish_preview'].includes(t.id)));
   const history = await db.whatsAppMessage.findMany({
-    where: { conversationId: ctx.conversationId, id: { not: ctx.messageId } },
+    // This workspace only: never another workspace's (or a previous owner's) text.
+    where: { conversationId: ctx.conversationId, companyId: ctx.companyId, id: { not: ctx.messageId } },
     orderBy: { createdAt: 'desc' },
     take: 6,
     select: { direction: true, body: true },
