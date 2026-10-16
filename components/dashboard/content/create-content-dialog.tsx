@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Plus, Sparkles } from 'lucide-react';
@@ -16,6 +16,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  keepWork,
+  keptWork,
+  newIdempotencyKey,
+  showFailure,
+  showNetworkFailure,
+  type FailureBody,
+} from '@/lib/client-failure';
 import { toast } from '@/components/ui/toaster';
 import { CONTENT_TYPES, type ContentTypeKey } from '@/lib/validations/content';
 import { CONTENT_TYPE_LABELS as TYPE_LABELS } from '@/lib/content-ui';
@@ -43,6 +51,9 @@ type SourceKind = 'BRIEF' | 'CAMPAIGN' | 'SUGGESTION';
  * rendered without one. `suggestions` are the accepted ones Content Studio
  * carries out; without them the option is shown as unavailable.
  */
+/** The quick-create brief, kept across a lost session (sessionStorage). */
+const WORK_KEY = 'aura-create-content-dialog';
+
 export function CreateContentDialog({
   types = [...CONTENT_TYPES],
   suggestions = [],
@@ -58,6 +69,16 @@ export function CreateContentDialog({
     suggestions.length === 1 ? suggestions[0]!.id : '',
   );
   const [brief, setBrief] = useState('');
+  // Failure & recovery (lib/client-failure.ts): a retried generate returns the
+  // same draft; the brief survives a lost session or a reload.
+  const idempotency = useRef(newIdempotencyKey());
+  useEffect(() => {
+    const kept = keptWork<{ brief: string }>(WORK_KEY);
+    if (kept?.brief) setBrief(kept.brief);
+  }, []);
+  useEffect(() => {
+    keepWork(WORK_KEY, brief.trim() ? { brief } : null);
+  }, [brief]);
   const [campaignId, setCampaignId] = useState('');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [campaignsLoaded, setCampaignsLoaded] = useState(false);
@@ -120,17 +141,22 @@ export function CreateContentDialog({
           },
           campaignId: sourceKind === 'CAMPAIGN' ? campaignId || undefined : undefined,
           ...choicesPayload(choices),
+          idempotencyKey: idempotency.current,
         }),
       });
       if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        toast.error(b.error ?? 'Generation failed.');
+        const b = (await res.json().catch(() => ({}))) as FailureBody;
+        showFailure(res.status, b, 'Generation failed — your brief is kept. Try again.');
         return;
       }
       const data = (await res.json()) as { id: string };
+      keepWork(WORK_KEY, null);
+      idempotency.current = newIdempotencyKey();
       toast.success('Draft generated.');
       setOpen(false);
       router.push(`/dashboard/content/${data.id}`);
+    } catch {
+      showNetworkFailure();
     } finally {
       setLoading(false);
     }

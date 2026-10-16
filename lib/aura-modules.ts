@@ -104,11 +104,13 @@ export const AURA_MODULES: Record<AuraModuleId, AuraModule> = {
     label: 'Outreach',
     description: 'Personal messages to the people worth contacting.',
     route: '/dashboard/outreach',
-    entryRoute: '/dashboard/outreach',
+    // Drafting outreach for chosen leads from a recommendation
+    // (lib/creation-handoff.ts); sending waits for execution (lib/execution-gate.ts).
+    entryRoute: '/dashboard/outreach/new',
     capabilities: ['Draft personal outreach to leads', 'Track replies'],
-    accepts: ['audience', 'brief'],
-    handoff: 'context',
-    creates: null,
+    accepts: ['audience', 'brief', 'goal'],
+    handoff: 'prefill',
+    creates: 'outreach drafts',
   },
   analytics: {
     id: 'analytics',
@@ -209,7 +211,8 @@ export const CREATION_KIND: Record<AuraModuleId, CreationKind> = {
   'content-studio': 'content',
   campaigns: 'workflow',
   'content-plan': 'workflow',
-  outreach: 'action',
+  // Outreach drafts for chosen leads (lib/creation-handoff.ts).
+  outreach: 'workflow',
   analytics: 'action',
   memory: 'action',
   competitors: 'action',

@@ -20,6 +20,7 @@ export function OutreachQueueBar({
   confidentCount,
   threshold,
   staleApproved,
+  heldForExecution = 0,
   canApprove,
 }: {
   pendingCount: number;
@@ -28,6 +29,8 @@ export function OutreachQueueBar({
   threshold: number;
   /** Approved messages that have been waiting long enough to flag. */
   staleApproved: { count: number; oldestDays: number };
+  /** Approved messages drafted from Aura's suggestions, held until execution arrives. */
+  heldForExecution?: number;
   canApprove: boolean;
 }) {
   const router = useRouter();
@@ -120,6 +123,12 @@ export function OutreachQueueBar({
         </p>
       </div>
 
+      {heldForExecution > 0 && (
+        <p className="rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+          {heldForExecution} approved message{heldForExecution === 1 ? '' : 's'} drafted from Aura’s suggestions{' '}
+          {heldForExecution === 1 ? 'is' : 'are'} held: sending these arrives with execution. Nothing is sent until then.
+        </p>
+      )}
       {staleApproved.count > 0 && (
         <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/5 p-3 text-sm">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />

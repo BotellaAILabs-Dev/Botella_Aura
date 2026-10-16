@@ -30,6 +30,10 @@ const STUCK_AFTER_MS = 10 * 60 * 1000;
  */
 const STUCK_AFTER_MS_BY_KIND: Partial<Record<GenerationJobKind, number>> = {
   MARKETING_PLAN: 2 * 60 * 1000,
+  // One image run is capped at 60 s (api/jobs/[id]/run); with no activity for
+  // three minutes it was killed. Measured from the job's LAST activity, so a
+  // run that resumes (only the shortfall) stays alive while it progresses.
+  IMAGE_GENERATION: 3 * 60 * 1000,
 };
 
 export function stuckAfterMs(kind: GenerationJobKind): number {
@@ -125,7 +129,10 @@ export async function enqueueJob(args: {
       },
       orderBy: { createdAt: 'desc' },
     });
-    if (active && Date.now() - active.createdAt.getTime() < stuckAfterMs(kind)) {
+    // Alive = active recently (progress writes move updatedAt), not merely
+    // created recently: a slow live run is reused, a dead one is replaced.
+    const lastActivity = Math.max(active?.createdAt.getTime() ?? 0, active?.startedAt?.getTime() ?? 0, active?.updatedAt?.getTime() ?? 0);
+    if (active && Date.now() - lastActivity < stuckAfterMs(kind)) {
       return {
         job: active,
         reused: true,

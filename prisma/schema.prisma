@@ -242,6 +242,8 @@ enum AuditAction {
   /// A workspace turned members' WhatsApp access on or off.
   WHATSAPP_SETTINGS_UPDATED
   WHATSAPP_ADMIN_MESSAGE_SENT
+  EXECUTION_HANDOFF_READY
+  EXECUTION_HANDOFF_BLOCKED
 }
 
 /// Which social network a post is aimed at.
@@ -617,6 +619,7 @@ model Company {
   whatsAppLinks         WhatsAppAccountLink[]
   whatsAppMessages      WhatsAppMessage[]
   contentPublications   ContentPublication[]
+  executionHandoffs ExecutionHandoff[]
 
   @@index([slug])
 }
@@ -787,6 +790,7 @@ model ContentDraft {
   generatedAssets      GeneratedAsset[]
   /// Where it has been (or is being) published — one row per network.
   publications         ContentPublication[]
+  executionHandoffs ExecutionHandoff[]
 
   @@index([companyId, status])
   @@index([companyId, scheduledFor])
@@ -867,6 +871,12 @@ model Campaign {
   themes          String[]       @default([])
   /// The AI-generated day-by-day plan (validated by campaignPlanSchema).
   plan            Json           @default("{}")
+  /// Planned from an Aura recommendation: the recommendation it came from…
+  recommendationId String?
+  /// …and the context it carries (lib/creation-handoff.ts: audience, goal,
+  /// CTA, channel, content requirements, provenance). Its execution is held
+  /// by lib/execution-gate.ts until Sprint 10.
+  creationContext Json?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -875,6 +885,7 @@ model Campaign {
   tasks   CampaignTask[]
 
   @@index([companyId, status])
+  @@index([companyId, recommendationId])
 
   @@index([companyId, createdAt])
 }
@@ -2512,4 +2523,42 @@ model ContentPublication {
 
   @@unique([contentDraftId, platform])
   @@index([companyId, status])
+}
+
+/// Approval → Execution handoff (lib/execution-handoff.ts): the structured
+/// package the Execution Engine (Sprint 10) consumes for one approved piece and
+/// network — asset, recommendation/opportunity, channel, provider, account,
+/// audience, CTA, schedule, content version, approval record, requirements.
+/// Prepared when content is approved and refreshed on read; READY means the
+/// executor can take it, BLOCKED lists what must be fixed (never silent).
+enum ExecutionHandoffStatus {
+  READY
+  BLOCKED
+  SUPERSEDED
+  EXECUTED
+}
+
+model ExecutionHandoff {
+  id             String                 @id @default(cuid())
+  companyId      String
+  contentDraftId String
+  platform       SocialPlatform
+  status         ExecutionHandoffStatus
+  /// The validated payload (executionHandoffSchema).
+  payload        Json
+  /// Readiness issues: [{ code, message, fix }].
+  issues         Json                   @default("[]")
+  /// What was approved: the content version and fingerprint it carries.
+  contentVersion Int
+  contentHash    String
+  scheduledFor   DateTime?
+  preparedAt     DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contentDraft ContentDraft @relation(fields: [contentDraftId], references: [id], onDelete: Cascade)
+
+  @@unique([contentDraftId, platform])
+  @@index([companyId, status])
+  @@index([status, scheduledFor])
 }

@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import type { AuraModuleId } from '@/lib/aura-modules';
+import { routeRecommendation, type AuraModuleId } from '@/lib/aura-modules';
 import type { ContextHandoff } from '@/lib/recommendation-context-handoff';
 import {
   creationPlan,
@@ -38,6 +38,8 @@ export interface Creation {
   handoff: ContextHandoff;
   /** What anything created from it keeps (null when it cannot be created from). */
   provenance: CreationProvenance | null;
+  /** The other modules it is carried out in (routeRecommendation). */
+  related: AuraModuleId[];
 }
 
 export async function getCreation(
@@ -51,18 +53,17 @@ export async function getCreation(
   if (!r) return null;
   const handoff = await getContextHandoff(companyId, r.id);
   if (!handoff) return null;
-  const plan = creationPlan(
-    {
-      ...r,
-      type: r.type as RecommendationType,
-      status: r.status as RecommendationStatus,
-    },
-    { ...(module ? { module } : {}), handoff },
-  );
+  const routable = {
+    ...r,
+    type: r.type as RecommendationType,
+    status: r.status as RecommendationStatus,
+  };
+  const plan = creationPlan(routable, { ...(module ? { module } : {}), handoff });
   return {
     plan,
     handoff,
     provenance: plan.canCreate ? creationProvenance(handoff) : null,
+    related: routeRecommendation(routable).related.map((d) => d.module),
   };
 }
 

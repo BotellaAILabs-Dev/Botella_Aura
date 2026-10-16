@@ -12,6 +12,11 @@ import {
 } from '@/server/recommendations/creation.service';
 import { validateContentBrief } from '@/lib/content-brief';
 import { getContentBrief } from '@/server/content/content-brief.service';
+import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
+
+// Writing makes several model calls; give it the platform's full budget.
+export const maxDuration = 60;
 
 /**
  * POST /api/content/generate — generate a new draft from a trend/brief/campaign.
@@ -24,6 +29,15 @@ export async function POST(req: Request) {
       return jsonError('Your role is read-only and cannot create content.', 403);
     }
     const input = generateContentSchema.parse(await req.json());
+
+    // A retry of a request that already wrote its draft gets that draft back.
+    if (input.idempotencyKey) {
+      const already = await db.contentDraft.findFirst({
+        where: { companyId: company.id, createdById: user.id, aiMetadata: { path: ['idempotencyKey'], equals: input.idempotencyKey } },
+        select: { id: true, type: true, status: true },
+      });
+      if (already) return jsonOk({ ...already, reused: true }, 200);
+    }
 
     // The composer already hides formats this workspace turned off; this is
     // what stops the same request succeeding when posted directly.
@@ -41,6 +55,17 @@ export async function POST(req: Request) {
     const creation = input.recommendationId
       ? await getCreation(company.id, input.recommendationId, 'content-studio')
       : null;
+    // Asked to write for a suggestion that is gone (removed, or not this
+    // workspace's): say so — never write an unlinked, generic draft instead.
+    if (input.recommendationId && !creation) {
+      return jsonOk(
+        {
+          error: 'This suggestion is no longer available. Your brief is kept — write the post without it, or pick another suggestion.',
+          fix: { label: 'See Aura Suggests', href: '/dashboard/suggestions' },
+        },
+        409,
+      );
+    }
     if (creation && !creation.plan.canCreate) {
       // Nothing to write (connect a channel), already closed, or missing
       // something required — said plainly, with where to go instead.
@@ -103,15 +128,25 @@ export async function POST(req: Request) {
       variations: input.variations,
       tone: input.tone,
       recommendation,
+      ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
     });
     if (recommendation) {
-      await recordCreation({
-        companyId: company.id,
-        recommendationId: recommendation.id,
-        module: 'content-studio',
-        created: { type: 'content-draft', id: draft.id, label: draft.title },
-        actorId: user.id,
-      });
+      // The draft exists and keeps its provenance either way; a failure to
+      // record it in the suggestion's history must not lose the person's draft.
+      try {
+        await recordCreation({
+          companyId: company.id,
+          recommendationId: recommendation.id,
+          module: 'content-studio',
+          created: { type: 'content-draft', id: draft.id, label: draft.title },
+          actorId: user.id,
+        });
+      } catch (err) {
+        logger.warn('generate: draft written but not recorded on the suggestion', {
+          draftId: draft.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
     return jsonOk({ id: draft.id, type: draft.type, status: draft.status }, 201);

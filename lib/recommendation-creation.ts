@@ -32,6 +32,8 @@ import {
  *              COMPETITIVE_RESPONSE, AUDIENCE)        → a draft in Content Studio
  *   workflow   series (type CAMPAIGN)                  → a campaign plan
  *              apply-pattern · plan-it (OPTIMIZATION, OTHER) → a month's content plan
+ *              outreach, where the suggestion is aimed at people (targeted-post,
+ *              AUDIENCE: related)                       → outreach drafts for chosen leads
  *   action     connect-channel (CHANNEL) · update-audience → nothing to create:
  *              the suggestion is done in Connections / About my business
  *
@@ -83,7 +85,7 @@ const CREATES: Record<AuraModuleId, string | null> = {
   'content-studio': 'a content draft',
   campaigns: 'a campaign plan',
   'content-plan': 'a month’s content plan',
-  outreach: null,
+  outreach: 'outreach drafts',
   analytics: null,
   memory: null,
   competitors: null,
@@ -171,6 +173,20 @@ export function creationPlan(
       primaryKind === 'action'
         ? `This suggestion doesn’t need new content — it’s done in ${primary.label}.`
         : `This suggestion is carried out in ${primary.label}, not ${AURA_MODULES[target].label}.`,
+      { label: primary.verb, href: primary.href },
+    );
+  }
+
+  // Outreach is personal messages to particular people: only a suggestion
+  // carried out (or related to work) there is eligible — not every post.
+  if (
+    target === 'outreach' &&
+    primary.module !== 'outreach' &&
+    !route.related.some((d) => d.module === 'outreach')
+  ) {
+    return plan(
+      'not_creatable',
+      'This suggestion isn’t aimed at particular people, so there is no outreach to draft from it.',
       { label: primary.verb, href: primary.href },
     );
   }

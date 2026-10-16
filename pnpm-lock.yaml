@@ -150,6 +150,9 @@ importers:
       jsdom:
         specifier: ^25.0.1
         version: 25.0.1
+      playwright-core:
+        specifier: 1.56.1
+        version: 1.56.1
       postcss:
         specifier: ^8.4.49
         version: 8.5.21
@@ -3206,6 +3209,11 @@ packages:
   pirates@4.0.7:
     resolution: {integrity: sha512-TfySrs/5nm8fQJDcBDuUng3VOUKsd7S+zqvbOTiGXHfxX4wK31ard+hoNuvkicM/2YFzlpDgABOevKSsB4G/FA==}
     engines: {node: '>= 6'}
+
+  playwright-core@1.56.1:
+    resolution: {integrity: sha512-hutraynyn31F+Bifme+Ps9Vq59hKuUCz7H1kDOcBs+2oGguKkWTU50bBWrtz34OUWmIwpBTWDxaRPXrIXkgvmQ==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
@@ -6980,6 +6988,8 @@ snapshots:
   pify@2.3.0: {}
 
   pirates@4.0.7: {}
+
+  playwright-core@1.56.1: {}
 
   possible-typed-array-names@1.1.0: {}
 

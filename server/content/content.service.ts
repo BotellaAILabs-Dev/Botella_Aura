@@ -7,6 +7,7 @@ import type {
   SocialPlatform,
 } from '@prisma/client';
 import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { recordAudit } from '@/server/services/audit.service';
 import {
   bodySchemaFor,
@@ -132,6 +133,11 @@ export async function transition({
     throw Object.assign(new Error('Only owners and admins can approve or reject content.'), {
       status: 403,
     });
+  }
+  // Any other move (submit for approval, send back to draft) changes the
+  // work: read-only roles cannot.
+  if (role && !can(role, 'content:create')) {
+    throw Object.assign(new Error('Your role is read-only and cannot change content.'), { status: 403 });
   }
   let draft = await loadOwned(companyId, draftId);
   if (draft.status === to && (to === 'APPROVED' || to === 'REJECTED')) {
@@ -298,7 +304,9 @@ export async function transition({
 
   // Only from the state it was read in: a second, concurrent approval (a
   // double click, two approvers) finds it already moved and is refused.
-  const { count } = await db.contentDraft.updateMany({ where: { id: draft.id, status: draft.status }, data });
+  // …and only the version that was reviewed and checked: an edit landing
+  // while the review ran makes this a no-op, refused below.
+  const { count } = await db.contentDraft.updateMany({ where: { id: draft.id, status: draft.status, updatedAt: draft.updatedAt }, data });
   if (count === 0) {
     throw Object.assign(new Error('Someone else changed this at the same moment. Reload to see where it is now.'), {
       status: 409,
@@ -338,6 +346,12 @@ export async function transition({
     },
     ...requestMeta,
   });
+  // Approval → Execution handoff (lib/execution-handoff.ts): prepared on
+  // approval; leaving approval supersedes it. Best effort — never fails this.
+  if (to === 'APPROVED' || draft.status === 'APPROVED') {
+    const { refreshExecutionHandoff } = await import('@/server/execution/execution-handoff.service');
+    await refreshExecutionHandoff({ companyId, draftId: draft.id, userId });
+  }
   return updated;
 }
 
@@ -349,18 +363,38 @@ export async function bulkTransition(args: {
   to: ContentStatus;
   reason?: string;
   role?: CompanyRole;
-}): Promise<{ ok: string[]; failed: Array<{ id: string; error: string }> }> {
+  /**
+   * Stop starting new items after this (each approval runs the reviewer and
+   * fact check). Items not reached are returned as `notProcessed` — nothing
+   * half-done, and retrying them is safe (approving twice is refused).
+   */
+  deadline?: number;
+}): Promise<{ ok: string[]; failed: Array<{ id: string; error: string; code?: string }>; notProcessed: string[] }> {
   const ok: string[] = [];
-  const failed: Array<{ id: string; error: string }> = [];
+  const failed: Array<{ id: string; error: string; code?: string }> = [];
+  const notProcessed: string[] = [];
   for (const id of args.draftIds) {
+    if (args.deadline && Date.now() > args.deadline) {
+      notProcessed.push(id);
+      continue;
+    }
     try {
       await transition({ ...args, draftId: id });
       ok.push(id);
     } catch (err) {
-      failed.push({ id, error: err instanceof Error ? err.message : 'failed' });
+      const code = (err as { code?: unknown })?.code;
+      failed.push({ id, error: err instanceof Error ? err.message : 'failed', ...(typeof code === 'string' ? { code } : {}) });
     }
   }
-  return { ok, failed };
+  if (failed.length || notProcessed.length) {
+    logger.warn('content: bulk transition left items unchanged', {
+      companyId: args.companyId,
+      to: args.to,
+      failed: failed.map((f) => f.code ?? 'error'),
+      notProcessed: notProcessed.length,
+    });
+  }
+  return { ok, failed, notProcessed };
 }
 
 /**
@@ -377,12 +411,22 @@ export async function updateDraftBody(args: {
   versionSource?: VersionSource;
   /** For a restore: the version brought back. */
   basedOn?: number | null;
+  /** The draft's updatedAt the edit was made on (the editor sends it). */
+  baseUpdatedAt?: string | null;
 }): Promise<ContentDraft> {
   const draft = await loadOwned(args.companyId, args.draftId);
   if (draft.status === 'PUBLISHED') {
     throw Object.assign(new Error('Published content cannot be edited.'), {
       status: 409,
     });
+  }
+  // Edited on a version that has since changed (another person, a rewrite):
+  // refused, never silently overwriting — the caller keeps the edits.
+  if (args.baseUpdatedAt && draft.updatedAt.toISOString() !== args.baseUpdatedAt) {
+    throw Object.assign(
+      new Error('This draft changed since you opened it. Your edits are kept here — reload to see the new version, then apply them again.'),
+      { status: 409, code: 'stale' },
+    );
   }
   const body = bodySchemaFor(draft.type as ContentTypeKey).parse(args.body);
   const nextStatus: ContentStatus =
@@ -399,8 +443,11 @@ export async function updateDraftBody(args: {
   // The edit is recorded: the version moves on and the previous text is kept.
   // An approved piece is reopened, never changed while approved.
   const media = await contentMedia(draft.id);
-  const updated = await db.contentDraft.update({
-    where: { id: draft.id },
+  // Only onto the version read above: a write that landed meanwhile makes
+  // this fail (P2025), answered as a conflict below — never lost silently.
+  const updated = await db.contentDraft
+    .update({
+    where: { id: draft.id, updatedAt: draft.updatedAt },
     data: {
       body: body as object,
       title: args.title ?? draft.title,
@@ -434,7 +481,16 @@ export async function updateDraftBody(args: {
         },
       ),
     },
-  });
+  })
+    .catch((err: unknown) => {
+      if ((err as { code?: string })?.code === 'P2025') {
+        throw Object.assign(
+          new Error('Someone changed this draft at the same moment. Your edits are kept here — reload, then apply them again.'),
+          { status: 409, code: 'concurrent_change' },
+        );
+      }
+      throw err;
+    });
   if (draft.status === 'APPROVED') await syncCampaignTask(draft.id, nextStatus);
   await recordAudit({
     action: 'CONTENT_CHANGES_REQUESTED',
@@ -489,6 +545,9 @@ export async function scheduleDraft(args: {
     companyId: args.companyId,
     metadata: { draftId: draft.id, scheduledFor: args.scheduledFor.toISOString() },
   });
+  // The execution handoff carries the scheduled time.
+  const { refreshExecutionHandoff } = await import('@/server/execution/execution-handoff.service');
+  await refreshExecutionHandoff({ companyId: args.companyId, draftId: draft.id, userId: args.userId });
   return updated;
 }
 
@@ -655,6 +714,8 @@ export async function markPublished(args: {
     companyId: args.companyId,
     metadata: { draftId: draft.id, publishedUrl: args.publishedUrl ?? undefined, trace: traceAudit(updated) },
   });
+  const { markHandoffExecuted } = await import('@/server/execution/execution-handoff.service');
+  await markHandoffExecuted(args.companyId, draft.id);
   return updated;
 }
 

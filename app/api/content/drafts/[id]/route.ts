@@ -9,6 +9,7 @@ import {
 } from '@/server/content/content.service';
 import { SOCIAL_PLATFORMS } from '@/lib/platforms';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
+import { can } from '@/lib/rbac';
 
 /** GET — a single draft (scoped to the active company). */
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
@@ -42,7 +43,11 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { company, user } = await requireActiveCompany();
+    const { company, user, membership } = await requireActiveCompany();
+    // Editing a post, or where it is aimed, is creating content: VIEWERs cannot.
+    if (!can(membership.role, 'content:create')) {
+      return jsonError('Your role is read-only and cannot edit posts.', 403);
+    }
     const payload = await req.json();
 
     const retarget = retargetSchema.safeParse(payload);
@@ -63,6 +68,7 @@ export async function PATCH(
       draftId: params.id,
       title: input.title,
       body: input.body,
+      baseUpdatedAt: input.baseUpdatedAt ?? null,
     });
     return jsonOk({ id: draft.id, status: draft.status });
   } catch (error) {

@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { recordAudit } from '@/server/services/audit.service';
 import { generateCampaignPlan } from '@/server/campaigns/planner';
 import type { CreateCampaignInput } from '@/lib/validations/campaign';
+import type { CreationContext } from '@/lib/creation-handoff';
+import { executionGate } from '@/lib/execution-gate';
 
 /** Campaign Orchestrator service (Sprint 6, Module 1). */
 export class CampaignNotFoundError extends Error {
@@ -31,18 +33,30 @@ function addDays(d: Date, n: number): Date {
  * Create a campaign: generate the AI plan, persist it, and materialize the
  * CampaignTask schedule. Tasks are PENDING — the daily executor triggers the
  * existing pipelines later; nothing is generated or sent here.
+ *
+ * Planned from a recommendation (`creation`): the creation context is stored
+ * on the campaign and given to the planner, and — until execution arrives
+ * (lib/execution-gate.ts) — the campaign is saved as a plan (DRAFT), which the
+ * executor never runs.
  */
 export async function createCampaign(args: {
   companyId: string;
   userId: string;
   input: CreateCampaignInput;
   requestMeta?: Meta;
+  creation?: { recommendationId: string; context: CreationContext } | null;
 }) {
-  const { companyId, userId, input, requestMeta } = args;
+  const { companyId, userId, input, requestMeta, creation } = args;
   const company = await db.company.findUnique({ where: { id: companyId } });
   if (!company) throw new Error('Company not found.');
 
-  const { plan, model } = await generateCampaignPlan({ company, userId, input });
+  const { plan, model } = await generateCampaignPlan({
+    company,
+    userId,
+    input,
+    context: creation?.context ?? null,
+  });
+  const gate = executionGate('campaign', Boolean(creation));
 
   const start = startOfDayUTC(new Date());
   const end = addDays(start, input.durationDays);
@@ -53,7 +67,8 @@ export async function createCampaign(args: {
         companyId,
         name: input.name,
         goal: input.goal,
-        status: 'ACTIVE',
+        // Held as a plan while execution is gated; otherwise it runs as before.
+        status: gate.blocked ? 'DRAFT' : 'ACTIVE',
         startDate: start,
         endDate: end,
         durationDays: input.durationDays,
@@ -61,6 +76,12 @@ export async function createCampaign(args: {
         targetAudience: input.targetAudience || null,
         themes: input.themes,
         plan: plan as unknown as object,
+        ...(creation
+          ? {
+              recommendationId: creation.recommendationId,
+              creationContext: creation.context as unknown as Prisma.InputJsonObject,
+            }
+          : {}),
       },
     });
 
@@ -110,7 +131,17 @@ export async function createCampaign(args: {
     if (tasks.length) await tx.campaignTask.createMany({ data: tasks });
 
     await recordAudit(
-      { action: 'CAMPAIGN_CREATED', userId, companyId, metadata: { campaignId: created.id, name: created.name }, ...requestMeta },
+      {
+        action: 'CAMPAIGN_CREATED',
+        userId,
+        companyId,
+        metadata: {
+          campaignId: created.id,
+          name: created.name,
+          ...(creation ? { recommendationId: creation.recommendationId, executionHeld: gate.blocked } : {}),
+        },
+        ...requestMeta,
+      },
       tx,
     );
     await recordAudit(
@@ -164,6 +195,12 @@ export async function setCampaignStatus(args: {
   const { companyId, userId, campaignId, action, requestMeta } = args;
   const existing = await db.campaign.findFirst({ where: { id: campaignId, companyId } });
   if (!existing) throw new CampaignNotFoundError();
+  // Planned from a recommendation: it cannot be started or resumed until
+  // execution arrives (lib/execution-gate.ts) — pausing a plan means nothing.
+  const gate = executionGate('campaign', existing.creationContext != null);
+  if (gate.blocked) {
+    throw Object.assign(new Error(gate.message!), { status: 409, code: 'execution_not_available' });
+  }
 
   const status = action === 'pause' ? 'PAUSED' : 'ACTIVE';
   const campaign = await db.campaign.update({ where: { id: campaignId }, data: { status } });

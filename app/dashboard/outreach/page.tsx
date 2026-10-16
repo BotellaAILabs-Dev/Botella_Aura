@@ -10,6 +10,7 @@ import { listLeads, listLeadCategories } from '@/server/outreach/lead.service';
 import { listOutreachHistory } from '@/server/outreach/outreach.service';
 import { db } from '@/lib/db';
 import { OutreachQueueBar } from '@/components/dashboard/outreach/outreach-queue-bar';
+import { executionGate, hasCreationContext } from '@/lib/execution-gate';
 import {
   BULK_APPROVE_THRESHOLD,
   isBulkApprovable,
@@ -62,7 +63,7 @@ export default async function OutreachPage({
       db.outreachMessage.findMany({
         where: { companyId: active.id, status: 'APPROVED' },
         orderBy: { updatedAt: 'asc' },
-        select: { updatedAt: true },
+        select: { updatedAt: true, aiMetadata: true },
       }),
     ]);
 
@@ -90,12 +91,20 @@ export default async function OutreachPage({
   }).length;
 
   const STALE_AFTER_DAYS = 3;
-  const oldestApproved = approvedWaiting[0]?.updatedAt ?? null;
+  // Drafted from Aura's suggestions: approved, but held until execution
+  // arrives (lib/execution-gate.ts) — not a backlog anyone can clear yet.
+  const heldForExecution = approvedWaiting.filter((m) =>
+    executionGate('outreach', hasCreationContext(m.aiMetadata)).blocked,
+  ).length;
+  const sendable = approvedWaiting.filter(
+    (m) => !executionGate('outreach', hasCreationContext(m.aiMetadata)).blocked,
+  );
+  const oldestApproved = sendable[0]?.updatedAt ?? null;
   const oldestDays = oldestApproved
     ? Math.floor((Date.now() - oldestApproved.getTime()) / 86_400_000)
     : 0;
   const staleApproved = {
-    count: oldestDays >= STALE_AFTER_DAYS ? approvedWaiting.length : 0,
+    count: oldestDays >= STALE_AFTER_DAYS ? sendable.length : 0,
     oldestDays,
   };
   const canManage = membership ? can(membership.role, 'content:approve') : false;
@@ -166,6 +175,7 @@ export default async function OutreachPage({
         confidentCount={confidentCount}
         threshold={BULK_APPROVE_THRESHOLD}
         staleApproved={staleApproved}
+        heldForExecution={heldForExecution}
         canApprove={canManage}
       />
 

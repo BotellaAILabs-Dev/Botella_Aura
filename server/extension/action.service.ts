@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { executionGate, hasCreationContext } from '@/lib/execution-gate';
 import { can } from '@/lib/rbac';
 import {
   assertContentIntact,
@@ -131,6 +132,9 @@ async function completeOutreachMessage(
     where: { id: messageId, companyId: ctx.companyId },
   });
   if (!message) throw new ActionItemError('Outreach message not found.', 404);
+  if (!can(ctx.membership.role, 'content:approve')) {
+    throw new ActionItemError('Only owners and admins can mark outreach as sent.', 403);
+  }
   if (message.status === 'SENT') return; // idempotent
   if (message.status !== 'APPROVED') {
     throw new ActionItemError('Only approved messages can be marked sent.', 409);
@@ -138,6 +142,8 @@ async function completeOutreachMessage(
   if (!outreachIntact(message)) {
     throw new ActionItemError('This message changed after it was approved — approve it again first.', 409);
   }
+  const gate = executionGate('outreach', hasCreationContext(message.aiMetadata));
+  if (gate.blocked) throw new ActionItemError(gate.message!, 409);
 
   await db.$transaction(async (tx) => {
     await tx.outreachMessage.update({
@@ -175,6 +181,9 @@ async function completeEngagementComment(
     where: { id: commentId, companyId: ctx.companyId },
   });
   if (!comment) throw new ActionItemError('Comment not found.', 404);
+  if (!can(ctx.membership.role, 'content:approve')) {
+    throw new ActionItemError('Only owners and admins can mark comments as posted.', 403);
+  }
   if (comment.status === 'POSTED') return; // idempotent
 
   await db.$transaction(async (tx) => {

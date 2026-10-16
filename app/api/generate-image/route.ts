@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
-import { requireUser } from '@/lib/auth-helpers';
+import { requireActiveCompany } from '@/lib/auth-helpers';
+import { can } from '@/lib/rbac';
+import { requireEntitlement } from '@/server/billing/entitlements';
 import { rateLimit } from '@/lib/rate-limit';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 import { logger } from '@/lib/logger';
@@ -79,7 +81,13 @@ interface ImageRequest {
 
 export async function POST(req: Request) {
   try {
-    const user = await requireUser();
+    // A member of the active workspace who may create content, on a plan
+    // that includes image generation — the same gate as the graphics routes.
+    const { user, membership, company } = await requireActiveCompany();
+    if (!can(membership.role, 'content:create')) {
+      return jsonError('Your role is read-only and cannot generate images.', 403);
+    }
+    await requireEntitlement(company.id, 'imageGeneration');
 
     // Generating an image costs money, so it is throttled per user like the
     // other paid paths in this app.

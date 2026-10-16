@@ -18,6 +18,7 @@ import {
 import { getLeadOrThrow } from '@/server/outreach/lead.service';
 import { outreachMetaAfter } from '@/server/approval/approval.service';
 import { firstVersion, withMessageVersion } from '@/server/versions/version.service';
+import { creationContextPrompt, readCreationContext, type CreationContext } from '@/lib/creation-handoff';
 
 /**
  * AI outreach drafting (Sprint 4, Module 3). For a lead + its most recent
@@ -44,8 +45,14 @@ export async function draftForLead(args: {
   userId: string;
   leadId: string;
   requestMeta?: Meta;
+  /**
+   * Drafted from an Aura recommendation (lib/creation-handoff.ts): the
+   * drafter follows its context, and each message keeps it — which also
+   * holds its sending until execution arrives (lib/execution-gate.ts).
+   */
+  creation?: { context: CreationContext } | null;
 }): Promise<{ connectionNoteId: string; followupId: string; model: string }> {
-  const { companyId, userId, leadId, requestMeta } = args;
+  const { companyId, userId, leadId, requestMeta, creation } = args;
   const lead = await getLeadOrThrow(companyId, leadId);
   const signal = await db.leadSignal.findFirst({
     where: { leadId },
@@ -62,9 +69,14 @@ export async function draftForLead(args: {
     leadName: lead.name,
     leadCompany: lead.companyName,
     signalText,
+    contextPrompt: creation ? creationContextPrompt(creation.context) : null,
   });
 
   const model = drafts.model;
+  // Kept on each message, like a draft's aiMetadata.recommendation.
+  const fromSuggestion = creation
+    ? { recommendation: creation.context.recommendation, creationContext: creation.context }
+    : {};
   const created = await db.$transaction(async (tx) => {
     const note = await tx.outreachMessage.create({
       data: {
@@ -78,6 +90,7 @@ export async function draftForLead(args: {
           signalId: signal?.id ?? null,
           brandVoiceApplied: model !== 'none',
           versions: firstVersion(drafts.connectionNote.slice(0, CONNECTION_NOTE_LIMIT)),
+          ...fromSuggestion,
         } as unknown as Prisma.InputJsonObject,
       },
     });
@@ -93,6 +106,7 @@ export async function draftForLead(args: {
           signalId: signal?.id ?? null,
           brandVoiceApplied: model !== 'none',
           versions: firstVersion(drafts.followup),
+          ...fromSuggestion,
         } as unknown as Prisma.InputJsonObject,
       },
     });
@@ -102,7 +116,11 @@ export async function draftForLead(args: {
         action: 'OUTREACH_DRAFTED',
         userId,
         companyId,
-        metadata: { leadId, model },
+        metadata: {
+          leadId,
+          model,
+          ...(creation ? { recommendationId: creation.context.recommendation.recommendationId } : {}),
+        },
         ...requestMeta,
       },
       tx,
@@ -124,6 +142,8 @@ async function buildDrafts(args: {
   leadName: string | null;
   leadCompany: string;
   signalText: string;
+  /** Drafted from a recommendation: its context (creationContextPrompt). */
+  contextPrompt?: string | null;
 }): Promise<{ connectionNote: string; followup: string; model: string }> {
   const { companyId, userId, companyName, leadName, leadCompany, signalText } = args;
 
@@ -162,7 +182,12 @@ async function buildDrafts(args: {
       `Lead: ${leadName ? `${leadName} at ` : ''}${leadCompany}`,
       `Detected signal: ${signalText}`,
       `Your company context:\n${chunksToContext(chunks)}`,
-    ].join('\n\n');
+      // Drafted for Aura's suggestion: the angle, goal, CTA and rules it carries.
+      // The lead's own signal still opens the message.
+      args.contextPrompt ? `This outreach carries out Aura's suggestion:\n${args.contextPrompt}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
 
     const result = await completeStructured({
       schema: draftSchema,
@@ -232,6 +257,7 @@ export async function regenerateMessage(args: {
   const company = await db.company.findUnique({ where: { id: companyId } });
   if (!company) throw new Error('Company not found.');
 
+  const stored = readCreationContext(meta.creationContext);
   const drafts = await buildDrafts({
     companyId,
     userId,
@@ -239,6 +265,7 @@ export async function regenerateMessage(args: {
     leadName: msg.lead.name,
     leadCompany: msg.lead.companyName,
     signalText: signal?.description ?? `recent activity at ${msg.lead.companyName}`,
+    contextPrompt: stored ? creationContextPrompt(stored) : null,
   });
   const draftText =
     msg.type === 'CONNECTION_NOTE'

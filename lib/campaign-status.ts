@@ -148,6 +148,8 @@ function plural(n: number, one: string, many = `${one}s`): string {
 export function deriveCampaignState(
   status: CampaignStatus | string,
   counts: CampaignTaskCounts,
+  /** Planned from a recommendation, held until execution arrives (lib/execution-gate.ts). */
+  options: { executionHeld?: boolean } = {},
 ): CampaignState {
   if (status === 'ARCHIVED') {
     return {
@@ -196,6 +198,17 @@ export function deriveCampaignState(
         counts.failed > 0
           ? `Every task has run. ${plural(counts.failed, 'task')} failed along the way.`
           : 'Every task in this campaign has run.',
+      action: null,
+      needsAttention: false,
+    };
+  }
+
+  if (status === 'DRAFT' && options.executionHeld) {
+    return {
+      key: 'NOT_STARTED',
+      label: 'Planned',
+      tone: 'muted',
+      summary: 'Saved as a plan from Aura’s suggestion. It runs once execution arrives — nothing is generated or sent until then.',
       action: null,
       needsAttention: false,
     };

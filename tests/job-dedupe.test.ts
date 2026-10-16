@@ -84,6 +84,25 @@ describe('enqueueJob reuse', () => {
     expect(state.calls).toEqual(['lock', 'find']);
   });
 
+  it('an image run silent past its 3-minute fuse is replaced — not reattached for ten minutes', async () => {
+    const old = new Date(Date.now() - 4 * 60 * 1000);
+    state.active = { ...activeJobWith({ ...INPUTS }), createdAt: old, startedAt: old, updatedAt: old };
+    const { job, reused } = await enqueueJob({ companyId: 'c1', kind: 'IMAGE_GENERATION', inputs: INPUTS, dedupeOn: { draftId: 'draft_1' } });
+    expect(reused).toBe(false);
+    expect(job.id).toBe('job_new');
+  });
+
+  it('a long image run that is still progressing is reused, however old it is', async () => {
+    state.active = {
+      ...activeJobWith({ ...INPUTS }),
+      createdAt: new Date(Date.now() - 20 * 60 * 1000),
+      updatedAt: new Date(Date.now() - 20 * 1000), // progress written 20 s ago
+    };
+    const { job, reused } = await enqueueJob({ companyId: 'c1', kind: 'IMAGE_GENERATION', inputs: INPUTS, dedupeOn: { draftId: 'draft_1' } });
+    expect(reused).toBe(true);
+    expect(job.id).toBe('job_running');
+  });
+
   it('replaces a run past its fuse instead of reattaching to it', async () => {
     state.active = {
       ...activeJobWith({}),

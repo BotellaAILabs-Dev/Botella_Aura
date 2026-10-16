@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { executionGate, hasCreationContext } from '@/lib/execution-gate';
 import { approvalIntact, contentFingerprint } from '@/lib/approval';
 import { contentRecord, outreachIntact } from '@/server/approval/approval.service';
 import { renderForManual } from '@/server/content/render';
@@ -129,6 +130,8 @@ export async function getQueue(companyId: string): Promise<QueueItem[]> {
   });
   for (const m of messages) {
     if (!outreachIntact(m)) continue;
+    // Drafted from a recommendation: sending waits for execution (lib/execution-gate.ts).
+    if (executionGate('outreach', hasCreationContext(m.aiMetadata)).blocked) continue;
     const who = m.lead.name
       ? `${m.lead.name} (${m.lead.companyName})`
       : m.lead.companyName;

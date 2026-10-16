@@ -9,6 +9,7 @@ import {
 import { extensionMetricsSchema } from '@/lib/validations/memory';
 import { recordContentMetrics } from '@/server/memory/performance.service';
 import { getRequestMeta } from '@/lib/api';
+import { can } from '@/lib/rbac';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +26,10 @@ export async function OPTIONS(req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireExtensionAuth(req);
+    // Metrics rewrite a published post's record: not for read-only roles.
+    if (!can(ctx.membership.role, 'content:create')) {
+      return extError(req, 'Your role is read-only and cannot record metrics.', 403);
+    }
     const { postUrl, ...metrics } = extensionMetricsSchema.parse(await req.json());
     const result = await recordContentMetrics({
       companyId: ctx.companyId,

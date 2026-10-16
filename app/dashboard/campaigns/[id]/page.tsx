@@ -18,6 +18,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { db } from '@/lib/db';
 import { APPROVAL_STATE_LABEL, approvalOf, campaignTaskState, contentState } from '@/lib/approval';
 import { PauseButton } from '@/components/dashboard/campaigns/pause-button';
+import { CreationContextPanel } from '@/components/dashboard/recommendations/creation-context-panel';
+import { readCreationContext } from '@/lib/creation-handoff';
+import { executionGate } from '@/lib/execution-gate';
 import {
   CampaignTimeline,
   type TaskRow,
@@ -49,12 +52,18 @@ export default async function CampaignDetailPage({
    * the same enum.
    */
   const counts = countTasks(campaign.tasks);
-  const state = deriveCampaignState(campaign.status, counts);
+  const state = deriveCampaignState(campaign.status, counts, {
+    executionHeld: executionGate('campaign', campaign.creationContext != null).blocked,
+  });
   const total = counts.total;
   const done = counts.done;
   const pendingReview = counts.awaitingReview;
   const pct = total ? Math.round((done / total) * 100) : 0;
   const plan = (campaign.plan ?? {}) as { overview?: string };
+  // Planned from Aura's suggestion (lib/creation-handoff.ts): what it carries,
+  // and whether it may run yet (lib/execution-gate.ts).
+  const fromSuggestion = readCreationContext(campaign.creationContext);
+  const gate = executionGate('campaign', campaign.creationContext != null);
 
   const now = Date.now();
   const pendingTasks = campaign.tasks.filter((t) => t.status === 'PENDING');
@@ -113,7 +122,11 @@ export default async function CampaignDetailPage({
                 <ArrowLeft className="h-4 w-4" /> Campaigns
               </Link>
             </Button>
-            <PauseButton campaignId={campaign.id} status={campaign.status} />
+            {gate.blocked ? (
+              <Badge variant="warning">Waiting for execution</Badge>
+            ) : (
+              <PauseButton campaignId={campaign.id} status={campaign.status} />
+            )}
           </div>
         }
       />
@@ -125,6 +138,12 @@ export default async function CampaignDetailPage({
         reading a status enum, three counters and a 30-row timeline and
         working it out.
       */}
+      {fromSuggestion && (
+        <div className="mb-6">
+          <CreationContextPanel context={fromSuggestion} gate={gate.message} title="Planned from Aura’s suggestion" />
+        </div>
+      )}
+
       {state.action && (
         <div
           className={`mb-6 rounded-lg border p-4 ${

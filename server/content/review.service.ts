@@ -340,7 +340,9 @@ export async function ensureReview(
   // Current means: this body, under the compliance rules in force now.
   const { hash } = await getPolicyContext(draft.companyId);
   const current = currentReview(draft, hash);
-  if (current) return { draft, review: current };
+  // At approval, a review the AI could not run (outage, quota) is tried again:
+  // the human acknowledgement it asks for is the fallback, not the first choice.
+  if (current && !(trigger === 'approval' && !current.reviewer.ran)) return { draft, review: current };
   return reviewDraft(draft, { trigger });
 }
 

@@ -9,6 +9,8 @@ import {
   recordCreation,
   startCreation,
 } from '@/server/recommendations/creation.service';
+import { campaignCreationHandoff } from '@/lib/creation-handoff';
+import { executionGate } from '@/lib/execution-gate';
 
 export const maxDuration = 60;
 
@@ -42,6 +44,7 @@ export async function POST(req: Request) {
         409,
       );
     }
+    let ready = creation;
     if (creation?.plan.acceptsOnCreate) {
       if (!can(membership.role, 'company:update')) {
         return jsonError(
@@ -49,21 +52,27 @@ export async function POST(req: Request) {
           403,
         );
       }
-      await startCreation({
+      ready = await startCreation({
         companyId: company.id,
         recommendationId: creation.plan.recommendationId,
         actorId: user.id,
         module: 'campaigns',
       });
     }
-    const recommendation = creation
-      ? { id: creation.plan.recommendationId }
+    const recommendation = ready
+      ? { id: ready.plan.recommendationId }
+      : null;
+    // The Campaign creation handoff: the recommendation's context, kept on the
+    // campaign and given to the planner (lib/creation-handoff.ts).
+    const context = ready
+      ? campaignCreationHandoff(ready.handoff, { related: ready.related }).context
       : null;
     const campaign = await createCampaign({
       companyId: company.id,
       userId: user.id,
       input,
       requestMeta: getRequestMeta(req),
+      creation: recommendation && context ? { recommendationId: recommendation.id, context } : null,
     });
     // Planned for an Aura recommendation: its history leads to the campaign.
     if (recommendation) {
@@ -75,7 +84,16 @@ export async function POST(req: Request) {
         actorId: user.id,
       });
     }
-    return jsonOk({ id: campaign.id, name: campaign.name }, 201);
+    const gate = executionGate('campaign', Boolean(context));
+    return jsonOk(
+      {
+        id: campaign.id,
+        name: campaign.name,
+        status: campaign.status,
+        execution: gate.blocked ? { blocked: true, message: gate.message } : { blocked: false },
+      },
+      201,
+    );
   } catch (error) {
     return handleRouteError(error);
   }

@@ -262,6 +262,12 @@ export const generateContentSchema = z.object({
    * recorded in the recommendation's history.
    */
   recommendationId: z.string().min(1).max(64).optional(),
+  /**
+   * One per open form: a retry of the same request (after a timeout, a lost
+   * response, a second click) returns the draft already written instead of
+   * writing — and paying for — a second one.
+   */
+  idempotencyKey: z.string().min(8).max(64).optional(),
 });
 
 /** The one-click editing actions on a draft. */
@@ -300,6 +306,8 @@ export const refineContentSchema = z
 export const updateDraftSchema = z.object({
   title: z.string().trim().max(200).optional(),
   body: z.unknown(), // validated against bodySchemaFor(type) in the service
+  /** The version the edit was made on — a changed draft is a 409, not overwritten. */
+  baseUpdatedAt: z.string().datetime().optional(),
 });
 
 export const rejectDraftSchema = z.object({

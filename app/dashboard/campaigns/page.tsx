@@ -12,6 +12,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { countTasks, deriveCampaignState } from '@/lib/campaign-status';
+import { executionGate } from '@/lib/execution-gate';
 import { Card, CardContent } from '@/components/ui/card';
 
 export const metadata: Metadata = { title: 'Campaigns' };
@@ -53,7 +54,9 @@ export default async function CampaignsPage() {
         <div className="grid gap-3">
           {campaigns.map((c) => {
             const counts = countTasks(c.tasks);
-            const state = deriveCampaignState(c.status, counts);
+            const state = deriveCampaignState(c.status, counts, {
+              executionHeld: executionGate('campaign', c.creationContext != null).blocked,
+            });
             const pct = counts.total
               ? Math.round((counts.done / counts.total) * 100)
               : 0;

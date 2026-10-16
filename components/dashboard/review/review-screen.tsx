@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { showFailure } from '@/lib/client-failure';
 import { toast } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import type { ApprovalInfo } from '@/lib/review-item';
@@ -37,6 +38,8 @@ import type { ContentTrace } from '@/lib/trace';
 import {
   changedEdits,
   editsStorageKey,
+  parseStoredEdits,
+  type StoredEdits,
   type ReviewFlag,
   type ReviewItem,
 } from '@/lib/review-item';
@@ -67,18 +70,17 @@ const FLAG = {
 
 type Panel = 'regenerate' | 'reject' | 'schedule' | null;
 
-function readStored(key: string): Record<string, string> | null {
+function readStored(key: string): StoredEdits | null {
   try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as Record<string, string>) : null;
+    return parseStoredEdits(window.localStorage.getItem(key));
   } catch {
     return null;
   }
 }
-function writeStored(key: string, edits: Record<string, string> | null) {
+function writeStored(key: string, edits: Record<string, string> | null, base: string) {
   try {
     if (edits && Object.keys(edits).length)
-      window.localStorage.setItem(key, JSON.stringify(edits));
+      window.localStorage.setItem(key, JSON.stringify({ base, edits } satisfies StoredEdits));
     else window.localStorage.removeItem(key);
   } catch {
     /* storage unavailable: edits live in memory only */
@@ -226,7 +228,7 @@ export function ReviewScreen({
   const storageKey = editsStorageKey(item);
   const [editing, setEditing] = useState(false);
   const [edits, setEdits] = useState<Record<string, string>>({});
-  const [restored, setRestored] = useState(false);
+  const [restored, setRestored] = useState<false | 'same' | 'earlier'>(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -248,16 +250,18 @@ export function ReviewScreen({
   // back (kept per item and per version), and leaving warns first.
   useEffect(() => {
     const stored = readStored(storageKey);
-    if (stored && Object.keys(changedEdits(item.fields, stored)).length) {
-      setEdits(stored);
+    if (stored && Object.keys(changedEdits(item.fields, stored.edits)).length) {
+      setEdits(stored.edits);
       setEditing(true);
-      setRestored(true);
+      // Made on an earlier version (someone else saved, or a reload after a
+      // conflict): restored, and said so — the person decides what to keep.
+      setRestored(stored.base && stored.base !== item.updatedAt ? 'earlier' : 'same');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storageKey]);
+  }, [storageKey, item.updatedAt]);
   useEffect(() => {
-    writeStored(storageKey, isDirty ? dirty : null);
-  }, [storageKey, dirty, isDirty]);
+    writeStored(storageKey, isDirty ? dirty : null, item.updatedAt);
+  }, [storageKey, dirty, isDirty, item.updatedAt]);
   useEffect(() => {
     if (!isDirty) return;
     const warn = (e: BeforeUnloadEvent) => {
@@ -310,7 +314,11 @@ export function ReviewScreen({
         message?: string;
       };
       if (!res.ok) {
-        toast.error(data.error ?? 'Something went wrong.');
+        // Signed out: edits are kept in this browser; a button signs back in.
+        showFailure(res.status, data, 'Something went wrong — nothing was lost. Try again.');
+        // A refused step may still have moved the piece (submitted, then the
+        // approval refused): show where it really is now.
+        if (res.status === 409) router.refresh();
         return false;
       }
       toast.success(data.message ?? 'Done.');
@@ -333,7 +341,7 @@ export function ReviewScreen({
       'save',
     );
     if (ok) {
-      writeStored(storageKey, null);
+      writeStored(storageKey, null, item.updatedAt);
       setEdits({});
       setEditing(false);
       setRestored(false);
@@ -342,7 +350,7 @@ export function ReviewScreen({
     }
   }
   function discard() {
-    writeStored(storageKey, null);
+    writeStored(storageKey, null, item.updatedAt);
     setEdits({});
     setEditing(false);
     setRestored(false);
@@ -474,8 +482,9 @@ export function ReviewScreen({
               </div>
               {restored && (
                 <p className="rounded-md bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
-                  Your unsaved edits were restored. Save them, or discard to go
-                  back to the stored version.
+                  {restored === 'earlier'
+                    ? 'Your unsaved edits were restored. They were made on an earlier version that has since changed — check them against the current text, then save, or discard them.'
+                    : 'Your unsaved edits were restored. Save them, or discard to go back to the stored version.'}
                 </p>
               )}
               <dl className="space-y-3" aria-label="Generated content">

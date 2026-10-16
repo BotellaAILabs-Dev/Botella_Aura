@@ -37,11 +37,8 @@ export async function POST(req: Request) {
     const { user, company, membership } = await requireActiveCompany();
     const { messageIds, action, reason } = bodySchema.parse(await req.json());
 
-    if (
-      (action === 'approve' || action === 'reject') &&
-      !can(membership.role, 'content:approve')
-    ) {
-      return jsonError('Only owners/admins can approve or reject outreach.', 403);
+    if (!can(membership.role, 'content:approve')) {
+      return jsonError('Only owners/admins can change outreach status.', 403);
     }
 
     const requestMeta = getRequestMeta(req);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Sparkles } from 'lucide-react';
@@ -15,6 +15,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  keepWork,
+  keptWork,
+  newIdempotencyKey,
+  showFailure,
+  showNetworkFailure,
+  type FailureBody,
+} from '@/lib/client-failure';
 import { toast } from '@/components/ui/toaster';
 import type { ContentTypeKey } from '@/lib/validations/content';
 import {
@@ -109,6 +117,20 @@ export function NewContentForm({
         : null,
   });
   const [loading, setLoading] = useState(false);
+  // Failure & recovery (lib/client-failure.ts): one key per open form so a
+  // retry returns the draft already written; the brief survives a lost
+  // session or a reload.
+  const idempotency = useRef(newIdempotencyKey());
+  const workKey = `aura-new-content:${recommendationId ?? trendId ?? campaignId ?? 'brief'}`;
+  useEffect(() => {
+    const kept = keptWork<{ brief: string; type: ContentTypeKey }>(workKey);
+    if (kept?.brief) setBrief(kept.brief);
+    if (kept?.type && types.includes(kept.type)) setType(kept.type);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workKey]);
+  useEffect(() => {
+    keepWork(workKey, brief.trim() && brief !== initialBrief ? { brief, type } : null);
+  }, [workKey, brief, type, initialBrief]);
 
   // The brief for exactly what is about to be made, and the same check the
   // server runs before generating from it.
@@ -140,8 +162,8 @@ export function NewContentForm({
           body: JSON.stringify({ module: 'content-studio' }),
         });
         if (!yes.ok) {
-          const b = (await yes.json().catch(() => ({}))) as { error?: string };
-          toast.error(b.error ?? 'Could not say yes to this suggestion.');
+          const b = (await yes.json().catch(() => ({}))) as FailureBody;
+          showFailure(yes.status, b, 'Could not say yes to this suggestion.');
           return;
         }
       }
@@ -159,14 +181,19 @@ export function NewContentForm({
           ...(campaignId ? { campaignId } : {}),
           ...(recommendationId ? { recommendationId } : {}),
           ...choicesPayload(choices),
+          idempotencyKey: idempotency.current,
         }),
       });
       if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        toast.error(b.error ?? 'Generation failed.');
+        // The brief stays in the form (and in session storage); the fix, if
+        // the server named one, is a button.
+        const b = (await res.json().catch(() => ({}))) as FailureBody;
+        showFailure(res.status, b, 'Generation failed — your brief is kept. Try again.');
         return;
       }
       const data = (await res.json()) as { id: string };
+      keepWork(workKey, null);
+      idempotency.current = newIdempotencyKey();
       toast.success(
         choices.variations > 1
           ? `${choices.variations} versions written — pick your favourite on the draft.`
@@ -176,6 +203,8 @@ export function NewContentForm({
       router.push(
         `/dashboard/content/${data.id}${recommendationId ? `?rec=${recommendationId}` : ''}`,
       );
+    } catch {
+      showNetworkFailure();
     } finally {
       setLoading(false);
     }

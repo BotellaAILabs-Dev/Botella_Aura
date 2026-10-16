@@ -20,6 +20,7 @@ import {
   type CreateCampaignInput,
 } from '@/lib/validations/campaign';
 import { CONTENT_TYPES } from '@/lib/validations/content';
+import { creationContextPrompt, type CreationContext } from '@/lib/creation-handoff';
 
 /**
  * Campaign planning engine (Sprint 6, Module 1). ONE substantial Claude call
@@ -33,6 +34,8 @@ export async function generateCampaignPlan(args: {
   company: Company;
   userId: string;
   input: CreateCampaignInput;
+  /** Planned from a recommendation (lib/creation-handoff.ts). */
+  context?: CreationContext | null;
 }): Promise<{ plan: CampaignPlan; model: string }> {
   const { company, userId, input } = args;
 
@@ -95,6 +98,10 @@ export async function generateCampaignPlan(args: {
           ? `AUDIENCE: ${brand.audience.stated}`
           : '',
       input.themes.length ? `THEMES TO EMPHASIZE: ${input.themes.join(', ')}` : '',
+      // Planned from Aura's suggestion: its reason, evidence, CTA, channel and
+      // requirements. The form above (goal, audience, themes) is what the
+      // person confirmed and wins where they differ.
+      args.context ? `\nTHIS CAMPAIGN CARRIES OUT AURA'S SUGGESTION:\n${creationContextPrompt(args.context)}` : '',
       `Produce a day-by-day plan for days 1..${input.durationDays}.`,
     ]
       .filter(Boolean)

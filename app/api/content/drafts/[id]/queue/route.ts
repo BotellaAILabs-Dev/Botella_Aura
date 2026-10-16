@@ -30,6 +30,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const existing = await getDraft(company.id, params.id);
     if (!existing) return jsonError('Draft not found', 404);
+    // An APPROVED post keeps its approval here, so giving it a time IS
+    // scheduling its publication — the same permission as /schedule.
+    if (existing.status === 'APPROVED' && input.scheduledFor && !can(membership.role, 'content:publish')) {
+      return jsonError('Only people who can publish can schedule an approved post.', 403);
+    }
     if (isCopyOnlyType(existing.type as ContentTypeKey)) {
       return jsonError(
         'Email and ad copy are sent from your email tool or ad manager, not queued for publishing — copy it out instead.',

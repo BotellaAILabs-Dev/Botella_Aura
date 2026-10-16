@@ -420,6 +420,13 @@ export function GraphicStudio({
 
       const res = await fetch(`/api/jobs/${jobId}`);
       if (!alive.current) return;
+      // Signed out mid-run: say so and stop polling — the run continues on the
+      // server and is still there after signing in again.
+      if (res.status === 401) {
+        setError({ message: 'Your session ended while the graphic was generating. It keeps running — sign in again and reopen this post to see it.' });
+        setPhase('idle');
+        return;
+      }
       if (!res.ok) continue; // a blip mid-run is not a failed generation
 
       const job = (await res.json()) as {

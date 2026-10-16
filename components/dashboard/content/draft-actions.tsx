@@ -32,6 +32,8 @@ import { TONE_LABEL } from '@/components/dashboard/content/generation-options';
 type Status = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'PUBLISHED';
 
 interface Props {
+  /** The draft's updatedAt (ISO) — sent with an edit so a changed draft is not overwritten. */
+  updatedAt?: string;
   draftId: string;
   type: ContentTypeKey;
   status: Status;
@@ -68,6 +70,7 @@ export function DraftActions({
   copyOnly = false,
   factCheck = null,
   review = null,
+  updatedAt,
 }: Props) {
   const [factsReviewed, setFactsReviewed] = useState(false);
   const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
@@ -140,7 +143,7 @@ export function DraftActions({
       const res = await fetch(`/api/content/drafts/${draftId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: parsed }),
+        body: JSON.stringify({ body: parsed, ...(updatedAt ? { baseUpdatedAt: updatedAt } : {}) }),
       });
       if (!res.ok) {
         const b = (await res.json().catch(() => ({}))) as { error?: string };

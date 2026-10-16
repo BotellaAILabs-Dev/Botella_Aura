@@ -17,12 +17,10 @@ export async function POST(
     const { user, company, membership } = await requireActiveCompany();
     const { action, reason } = outreachStatusActionSchema.parse(await req.json());
 
-    // Approving/rejecting is the human gate — restrict to approvers.
-    if (
-      (action === 'approve' || action === 'reject') &&
-      !can(membership.role, 'content:approve')
-    ) {
-      return jsonError('Only owners/admins can approve or reject outreach.', 403);
+    // Outreach status changes are owners'/admins' (approving is the human gate;
+    // submitting or sending back would let others un-approve).
+    if (!can(membership.role, 'content:approve')) {
+      return jsonError('Only owners/admins can change outreach status.', 403);
     }
 
     const msg = await transitionMessage({

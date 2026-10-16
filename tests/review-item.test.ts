@@ -5,6 +5,7 @@ import {
   bodyToFields,
   changedEdits,
   editsStorageKey,
+  parseStoredEdits,
   REVIEW_ACTIONS,
   reviewHref,
 } from '@/lib/review-item';
@@ -151,26 +152,17 @@ describe('the shared actions and addresses', () => {
     ]);
   });
 
-  it('unsaved edits are kept per item and per version', () => {
-    const a = editsStorageKey({
-      kind: 'content',
-      id: 'd1',
-      updatedAt: '2026-10-13T10:00:00.000Z',
+  it('unsaved edits are kept per item — surviving a new version — with the version they were made on', () => {
+    const a = editsStorageKey({ kind: 'content', id: 'd1' });
+    expect(a).toBe(editsStorageKey({ kind: 'content', id: 'd1' }));
+    expect(a).not.toBe(editsStorageKey({ kind: 'outreach', id: 'd1' }));
+    expect(parseStoredEdits(JSON.stringify({ base: '2026-10-13T10:00:00.000Z', edits: { hook: 'x' } }))).toEqual({
+      base: '2026-10-13T10:00:00.000Z',
+      edits: { hook: 'x' },
     });
-    expect(a).not.toBe(
-      editsStorageKey({
-        kind: 'content',
-        id: 'd1',
-        updatedAt: '2026-10-13T11:00:00.000Z',
-      }),
-    );
-    expect(a).not.toBe(
-      editsStorageKey({
-        kind: 'outreach',
-        id: 'd1',
-        updatedAt: '2026-10-13T10:00:00.000Z',
-      }),
-    );
+    // The older format (a bare record) still restores.
+    expect(parseStoredEdits(JSON.stringify({ hook: 'y' }))).toEqual({ base: null, edits: { hook: 'y' } });
+    expect(parseStoredEdits('not json')).toBeNull();
     expect(reviewHref('outreach', 'm1')).toBe('/dashboard/review/outreach/m1');
   });
 });

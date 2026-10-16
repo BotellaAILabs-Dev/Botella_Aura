@@ -78,15 +78,27 @@ export function QueueBoard({ drafts }: { drafts: DraftCard[] }) {
       });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: string[];
-        failed?: unknown[];
+        failed?: { id: string; error: string }[];
+        notProcessed?: string[];
+        error?: string;
       };
+      if (!res.ok) {
+        // Nothing was done (signed out, no permission, server error): say so.
+        toast.error(data.error ?? 'Could not do that — nothing was changed. Try again.');
+        return;
+      }
       const okCount = data.ok?.length ?? 0;
-      const failCount = data.failed?.length ?? 0;
-      toast.success(
-        `${action === 'approve' ? 'Approved' : 'Rejected'} ${okCount}` +
-          (failCount ? ` · ${failCount} skipped (invalid state)` : ''),
-      );
-      setSelected(new Set());
+      const failed = data.failed ?? [];
+      const left = data.notProcessed ?? [];
+      if (okCount) toast.success(`${action === 'approve' ? 'Approved' : 'Rejected'} ${okCount}.`);
+      if (failed.length) {
+        // The real reasons — a failed review, claims to check — not "invalid state".
+        const reasons = [...new Set(failed.map((f) => f.error))].slice(0, 2).join(' · ');
+        toast.error(`${failed.length} not ${action === 'approve' ? 'approved' : 'rejected'}: ${reasons}`, { duration: 10000 });
+      }
+      if (left.length) toast(`${left.length} not reached in time — still selected; run it again for those.`);
+      // Keep the ones still to do selected, so a retry is one click.
+      setSelected(new Set([...failed.map((f) => f.id), ...left]));
       router.refresh();
     } finally {
       setBusy(false);

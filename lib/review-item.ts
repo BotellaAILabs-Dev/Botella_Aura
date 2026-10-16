@@ -359,11 +359,36 @@ export function changedEdits(
   return out;
 }
 
-/** Key for keeping unsaved edits in the browser, tied to the version they were made on. */
-export function editsStorageKey(
-  item: Pick<ReviewItem, 'kind' | 'id' | 'updatedAt'>,
-): string {
-  return `aura-review-edits:${item.kind}:${item.id}:${item.updatedAt}`;
+/**
+ * Key for keeping unsaved edits in the browser — per ITEM, not per version,
+ * so edits survive the reload a save conflict asks for. The version they
+ * were made on is stored WITH them (StoredEdits.base): edits made on an
+ * earlier version are restored with that said, never silently.
+ */
+export function editsStorageKey(item: Pick<ReviewItem, 'kind' | 'id'>): string {
+  return `aura-review-edits:${item.kind}:${item.id}`;
+}
+
+export interface StoredEdits {
+  /** The item's updatedAt when the edits were made. */
+  base: string | null;
+  edits: Record<string, string>;
+}
+
+/** Read what was stored (also the older bare-record format). */
+export function parseStoredEdits(raw: string | null): StoredEdits | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as unknown;
+    if (!v || typeof v !== 'object') return null;
+    const o = v as Record<string, unknown>;
+    if (o.edits && typeof o.edits === 'object') {
+      return { base: typeof o.base === 'string' ? o.base : null, edits: o.edits as Record<string, string> };
+    }
+    return { base: null, edits: o as Record<string, string> };
+  } catch {
+    return null;
+  }
 }
 
 export function reviewHref(kind: ReviewKind, id: string): string {

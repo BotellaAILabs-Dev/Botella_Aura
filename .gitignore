@@ -53,3 +53,6 @@ next-env.d.ts
 # Local .env backups — never commit (they contain live secrets)
 .env.bak*
 .env.*.bak
+
+# verify:responsive screenshots
+.responsive-shots/

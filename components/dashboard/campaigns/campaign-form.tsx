@@ -27,31 +27,38 @@ const MODULES = [
 export function CampaignForm({
   initial,
   recommendationId,
+  executionHeld = false,
 }: {
-  /** Filled in from an Aura recommendation (lib/aura-modules.ts), editable. */
+  /** Filled in from an Aura recommendation (lib/creation-handoff.ts), editable. */
   initial?: {
     name: string;
     goal: string;
     targetAudience: string | null;
     themes: string[];
+    durationDays?: number;
+    modules?: { content: boolean; outreach: boolean; discovery: boolean; engagement: boolean };
   };
   recommendationId?: string;
+  /** Saved as a plan: running it waits for execution (lib/execution-gate.ts). */
+  executionHeld?: boolean;
 } = {}) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     name: initial?.name ?? '',
     goal: initial?.goal ?? '',
-    durationDays: 30,
+    durationDays: initial?.durationDays ?? 30,
     targetAudience: initial?.targetAudience ?? '',
     themes: initial?.themes.join(', ') ?? '',
   });
-  const [modules, setModules] = useState({
-    content: true,
-    outreach: false,
-    discovery: false,
-    engagement: false,
-  });
+  const [modules, setModules] = useState(
+    initial?.modules ?? {
+      content: true,
+      outreach: false,
+      discovery: false,
+      engagement: false,
+    },
+  );
 
   async function create() {
     if (form.name.trim().length < 2 || form.goal.trim().length < 4) {
@@ -78,7 +85,11 @@ export function CampaignForm({
         toast.error(data.error ?? 'Could not create the campaign.');
         return;
       }
-      toast.success('Campaign planned! Review the schedule.');
+      toast.success(
+        executionHeld
+          ? 'Campaign planned and saved. Review the schedule — it runs once execution arrives.'
+          : 'Campaign planned! Review the schedule.',
+      );
       router.push(`/dashboard/campaigns/${data.id}`);
     } finally {
       setSaving(false);
@@ -169,7 +180,7 @@ export function CampaignForm({
       <CardFooter className="justify-end">
         <Button onClick={create} loading={saving}>
           <Sparkles className="h-4 w-4" />
-          {saving ? 'Planning…' : 'Plan campaign'}
+          {saving ? 'Planning…' : executionHeld ? 'Plan and save campaign' : 'Plan campaign'}
         </Button>
       </CardFooter>
     </Card>

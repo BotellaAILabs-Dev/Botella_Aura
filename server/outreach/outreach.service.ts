@@ -110,9 +110,18 @@ export async function transitionMessage(args: {
   role?: CompanyRole;
 }) {
   const { companyId, userId, messageId, action, reason, requestMeta, role } = args;
-  // Approving and rejecting are the human gate: owners and admins only.
-  if (role && (action === 'approve' || action === 'reject') && !can(role, 'content:approve')) {
-    throw Object.assign(new Error('Only owners and admins can approve or reject outreach.'), { status: 403 });
+  // Outreach is worked on by owners and admins (every outreach write needs
+  // content:approve) — submitting or sending back included, so nobody else
+  // can un-approve approved outreach.
+  if (role && !can(role, 'content:approve')) {
+    throw Object.assign(
+      new Error(
+        action === 'approve' || action === 'reject'
+          ? 'Only owners and admins can approve or reject outreach.'
+          : 'Only owners and admins can change outreach.',
+      ),
+      { status: 403 },
+    );
   }
   const current = await getMessageOrThrow(companyId, messageId);
   const status = ACTION_TO_STATUS[action];

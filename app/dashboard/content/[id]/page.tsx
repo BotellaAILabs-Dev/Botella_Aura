@@ -53,6 +53,8 @@ import { GraphicStudio } from '@/components/dashboard/content/graphic-studio';
 import { CreativeStudio } from '@/components/dashboard/content/creative-studio';
 import { AgnesImageGenerator } from '@/components/dashboard/content/agnes-image-generator';
 import { MultiPublish } from '@/components/dashboard/content/multi-publish';
+import { ExecutionReadiness } from '@/components/dashboard/content/execution-readiness';
+import { getExecutionHandoff } from '@/server/execution/execution-handoff.service';
 import { googleImageProvider } from '@/server/media/providers/gemini';
 import { agnesImageProvider } from '@/server/media/providers/agnes';
 import { PostComposer } from '@/components/dashboard/content/post-composer';
@@ -91,6 +93,11 @@ export default async function DraftDetailPage({
   if (!draft) notFound();
 
   const membership = await getMembership(user.id, active.id);
+  // Approved work: its Approval → Execution handoff, re-validated now.
+  const executionHandoff =
+    draft.status === 'APPROVED' || draft.status === 'PUBLISHED'
+      ? await getExecutionHandoff(active.id, draft.id).catch(() => null)
+      : null;
   const canPublish = membership ? can(membership.role, 'content:publish') : false;
   // Editing covers the graphic studio and the composer: a MEMBER who can draft
   // content can also make its graphic and queue it for review.
@@ -283,6 +290,8 @@ export default async function DraftDetailPage({
 
           {/* One action, several networks: Facebook, Instagram, LinkedIn —
               also after publishing, for the history and to retry a failure. */}
+          {executionHandoff && !copyOnly && <ExecutionReadiness handoff={executionHandoff} />}
+
           {!copyOnly && <MultiPublish draftId={draft.id} />}
 
           {/* Email and ad copy are copied out, never queued or posted. */}
@@ -305,6 +314,7 @@ export default async function DraftDetailPage({
                 draftId={draft.id}
                 type={type}
                 status={draft.status}
+                updatedAt={draft.updatedAt.toISOString()}
                 bodyJson={JSON.stringify(draft.body, null, 2)}
                 manualText={renderForManual(draft)}
                 publishedUrl={draft.publishedUrl}

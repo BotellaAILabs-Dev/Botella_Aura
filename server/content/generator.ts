@@ -165,6 +165,8 @@ interface GenerateArgs {
   /** 1–3 creative variations; the first becomes the draft. */
   variations?: number;
   tone?: ContentTone;
+  /** Kept on the draft so a retried request finds it (generate route). */
+  idempotencyKey?: string;
   /** The Aura recommendation it was written for (already checked as this workspace's). */
   recommendation?: {
     id: string;
@@ -194,6 +196,7 @@ export async function generateDraft({
   variations = 1,
   tone,
   recommendation,
+  idempotencyKey,
 }: GenerateArgs): Promise<ContentDraft> {
   const company = await db.company.findUnique({ where: { id: companyId } });
   if (!company) throw new Error('Company not found');
@@ -411,6 +414,7 @@ export async function generateDraft({
       platform: type === 'EMAIL' ? null : platform,
       aiMetadata: {
         ...(aiMetadata as object),
+        ...(idempotencyKey ? { idempotencyKey } : {}),
         // The approval record starts here (lib/approval.ts).
         approval: generatedRecord(first.body, type === 'EMAIL' ? null : platform, userId),
         // Version 1: the original AI version, always recoverable (lib/versions.ts).
@@ -582,8 +586,10 @@ export async function refineDraft({
     ...((Array.isArray(meta.history) ? meta.history : []) as unknown[]),
   ].slice(0, HISTORY_LIMIT);
 
+  // Only onto the version this rewrite started from: a second rewrite (or an
+  // edit) that landed meanwhile is refused, not silently dropped from history.
   const updated = await db.contentDraft.update({
-    where: { id: draft.id },
+    where: { id: draft.id, updatedAt: draft.updatedAt },
     // Regenerating returns a draft to DRAFT status (must be re-approved).
     data: {
       body: result.body as object,
@@ -603,6 +609,14 @@ export async function refineDraft({
         withContentVersion(draft, m, { body: result.body, source: 'regenerated', by: userId, note: action }),
       ),
     },
+  }).catch((err: unknown) => {
+    if ((err as { code?: string })?.code === 'P2025') {
+      throw Object.assign(
+        new Error('This draft changed while Aura was rewriting it, so the rewrite was not applied. Reload to see the latest version, then try again.'),
+        { status: 409, code: 'concurrent_change' },
+      );
+    }
+    throw err;
   });
 
   if (draft.status === 'APPROVED') await syncCampaignTask(draft.id, 'DRAFT');

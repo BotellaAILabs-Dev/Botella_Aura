@@ -5,6 +5,8 @@ import { bulkTransition } from '@/server/content/content.service';
 import { handleRouteError, jsonOk } from '@/lib/api';
 
 /** POST /api/content/drafts/bulk — approve/reject multiple drafts at once. */
+export const maxDuration = 60;
+
 const bodySchema = z.object({
   ids: z.array(z.string()).min(1).max(100),
   action: z.enum(['approve', 'reject']),
@@ -28,6 +30,8 @@ export async function POST(req: Request) {
       reason,
       // Owners and admins only — checked per draft in the service.
       role: membership.role,
+      // Each approval reviews and fact-checks: stop in time to answer.
+      deadline: Date.now() + 45_000,
     });
     return jsonOk(result);
   } catch (error) {

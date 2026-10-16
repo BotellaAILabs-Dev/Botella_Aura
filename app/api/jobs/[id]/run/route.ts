@@ -2,6 +2,7 @@ import { requireActiveCompany } from '@/lib/auth-helpers';
 import { claimJob, completeJob, failJob, getJob } from '@/server/jobs/job.service';
 import { runJob } from '@/server/jobs/runners';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
+import { can } from '@/lib/rbac';
 
 /**
  * POST /api/jobs/:id/run — execute a queued job.
@@ -22,7 +23,10 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { company } = await requireActiveCompany();
+    const { company, membership } = await requireActiveCompany();
+    if (!can(membership.role, 'content:create')) {
+      return jsonError('Your role is read-only and cannot run generation.', 403);
+    }
     const existing = await getJob(company.id, params.id);
     if (!existing) return jsonError('Job not found.', 404);
 

@@ -1,7 +1,8 @@
 import { requireActiveCompany } from '@/lib/auth-helpers';
 import { outreachOutcomeSchema } from '@/lib/validations/memory';
 import { setOutreachOutcome } from '@/server/memory/performance.service';
-import { getRequestMeta, handleRouteError, jsonOk } from '@/lib/api';
+import { getRequestMeta, handleRouteError, jsonError, jsonOk } from '@/lib/api';
+import { can } from '@/lib/rbac';
 
 /**
  * POST /api/outreach/messages/:id/outcome — the user manually confirms whether
@@ -13,7 +14,10 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { user, company } = await requireActiveCompany();
+    const { user, company, membership } = await requireActiveCompany();
+    if (!can(membership.role, 'content:approve')) {
+      return jsonError('Only owners and admins can record outreach outcomes.', 403);
+    }
     const input = outreachOutcomeSchema.parse(await req.json());
     const message = await setOutreachOutcome({
       companyId: company.id,

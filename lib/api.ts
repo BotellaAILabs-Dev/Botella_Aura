@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
 import { ForbiddenError } from '@/lib/rbac';
 import { captureException } from '@/lib/monitoring';
+import { logger } from '@/lib/logger';
+import { aiFailureMessage } from '@/server/ai/claude';
 
 /**
  * Consistent JSON responses for API route handlers. Centralizes the error
@@ -54,7 +56,14 @@ export function handleRouteError(error: unknown) {
   // exact about: the job indicator polls continuously, so a lapsed session
   // would otherwise fill the logs with phantom 500s.
   if (isNextRedirect(error)) {
-    return jsonError('Not signed in.', 401);
+    return jsonError('Not signed in. Sign in again — your work on this page is kept.', 401);
+  }
+  // The AI provider failed (quota, outage): never its raw text — one plain
+  // message, and logged so it is not invisible to us.
+  const ai = aiFailureMessage(error);
+  if (ai) {
+    captureException(error, { scope: 'route', kind: 'ai_provider' });
+    return jsonError(ai, 503);
   }
   // Errors we explicitly annotate with a numeric `status` are safe to surface.
   if (
@@ -73,6 +82,13 @@ export function handleRouteError(error: unknown) {
     // `details` shape a ZodError produces, so forms need only one reader.
     const details =
       e.details && typeof e.details === 'object' ? e.details : undefined;
+    // A server-side failure that carried its own status is still a failure:
+    // logged, like the unknown ones below.
+    if (e.status >= 500) captureException(error, { scope: 'route', status: e.status });
+    // A refusal with a reason code (a failed review, claims to check, a
+    // concurrent change, a duplicate approval) is logged, so refusals are visible.
+    const code = (error as { code?: unknown }).code;
+    if (e.status === 409 && typeof code === 'string') logger.info('route: refused', { code, message: e.message.slice(0, 200) });
     return jsonError(e.message, e.status, details);
   }
 

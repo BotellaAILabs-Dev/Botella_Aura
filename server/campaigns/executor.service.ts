@@ -6,6 +6,7 @@ import { runDiscovery } from '@/server/leads/discovery/discovery.service';
 import { draftForLead } from '@/server/outreach/drafting.service';
 import { generateCheckpointSummary } from '@/server/campaigns/checkpoint.service';
 import type { ContentTypeKey } from '@/lib/validations/content';
+import { executionGate } from '@/lib/execution-gate';
 
 /**
  * Campaign task executor (Sprint 6, Module 1) — the daily conductor. It finds
@@ -43,6 +44,9 @@ export async function executeDueCampaignTasks(
   let failed = 0;
 
   for (const task of tasks) {
+    // Planned from a recommendation: held until execution arrives
+    // (lib/execution-gate.ts) — even if something set it ACTIVE.
+    if (executionGate('campaign', task.campaign.creationContext != null).blocked) continue;
     try {
       const outcome = await runTask(task);
       if (outcome === 'skipped') skipped++;

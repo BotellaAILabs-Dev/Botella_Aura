@@ -10,6 +10,7 @@ import { draftComment } from '@/server/engagement/comment.service';
 import { actionsToday } from '@/server/extension/action.service';
 import { getRequestMeta } from '@/lib/api';
 import { z } from 'zod';
+import { can } from '@/lib/rbac';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +26,10 @@ export async function OPTIONS(req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireExtensionAuth(req);
+    // Drafting a comment is creating content: not for read-only roles.
+    if (!can(ctx.membership.role, 'content:create')) {
+      return extError(req, 'Your role is read-only and cannot draft comments.', 403);
+    }
     const body = draftCommentSchema.parse(await req.json());
 
     const result = await draftComment({

@@ -19,6 +19,7 @@ the recommendation's type.
 | **content**  | post, article, response-post, comparison-article, targeted-post, recovery-post (CONTENT, COMPETITIVE_RESPONSE, AUDIENCE) | Content Studio                  | a content draft             |
 | **workflow** | series (CAMPAIGN)                                                                                                        | Campaigns                       | a campaign plan             |
 | **workflow** | apply-pattern, plan-it (OPTIMIZATION, OTHER)                                                                             | Content plan                    | a month's content plan      |
+| **workflow** | targeted-post, AUDIENCE — outreach as a related module                                                                   | Outreach                        | outreach drafts for chosen leads (see CAMPAIGN-OUTREACH-CREATION.md) |
 | **action**   | connect-channel (CHANNEL), update-audience                                                                               | Connections / About my business | nothing — no content needed |
 
 A workflow that creates can also be used from a related link (writing one piece
@@ -52,7 +53,8 @@ Opening a workflow from a recommendation carries `?rec=<id>`:
   with a panel showing what was passed to the writer and what was not.
 - **Content plan** — goal, objective, topic, audience and channel prefilled
   (`planBriefFrom`).
-- **Campaigns** — goal, audience and themes prefilled (existing).
+- **Campaigns** — name, goal, audience, themes, duration and modules prefilled; the campaign keeps the full creation context and is held as a plan until execution (CAMPAIGN-OUTREACH-CREATION.md).
+- **Outreach** — drafts for chosen leads from the suggestion's context; sending waits for execution.
 
 Whatever is created keeps the recommendation's **provenance**
 (`creationProvenance`), taken from the server's record rather than the editable
