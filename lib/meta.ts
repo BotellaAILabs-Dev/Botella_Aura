@@ -90,6 +90,15 @@ export function pageLabel(page: MetaPage): string {
   return page.ig?.username ? `@${page.ig.username} (${page.name})` : page.name;
 }
 
+/** Meta's /me/permissions answer → the permissions currently granted. */
+export function grantedFrom(data: unknown): string[] {
+  const rows = (data as { data?: unknown[] } | null)?.data ?? [];
+  return rows
+    .map((r) => r as { permission?: unknown; status?: unknown })
+    .filter((r) => typeof r.permission === 'string' && r.status === 'granted')
+    .map((r) => r.permission as string);
+}
+
 /** Long-lived user tokens last about 60 days; warn this far ahead. */
 export const RECONNECT_WARNING_MS = 10 * 24 * 60 * 60_000;
 

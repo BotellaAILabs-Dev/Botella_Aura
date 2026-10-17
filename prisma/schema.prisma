@@ -244,6 +244,11 @@ enum AuditAction {
   WHATSAPP_ADMIN_MESSAGE_SENT
   EXECUTION_HANDOFF_READY
   EXECUTION_HANDOFF_BLOCKED
+  CONNECTION_CONFIRMED
+  CONNECTION_HEALTH_CHANGED
+  CONNECTION_TOKEN_REFRESHED
+  CONNECTION_REAUTH_REQUIRED
+  CONNECTION_REVOKED
 }
 
 /// Which social network a post is aimed at.
@@ -1419,6 +1424,27 @@ enum ConnectionStatus {
   ERROR
   EXPIRED
   DISCONNECTED
+  /// Access was withdrawn at the provider (e.g. the app removed in Facebook).
+  REVOKED
+}
+
+/// Connection health (lib/connection-health.ts): whether the integration is
+/// actually usable right now. CONNECTED = set up, not yet checked.
+enum ConnectionHealth {
+  CONNECTED
+  HEALTHY
+  WARNING
+  EXPIRED
+  DISCONNECTED
+  ACTION_REQUIRED
+}
+
+/// The standard connection flow (Connect → Authenticate → Authorize →
+/// Select account/page → Confirm). Only CONFIRMED connections execute.
+enum ConnectionSetupStage {
+  AUTHORIZED
+  ACCOUNT_SELECTED
+  CONFIRMED
 }
 
 /// A live connection between a company and an external tool. One row per
@@ -1447,12 +1473,79 @@ model Connection {
   /// EMAIL_CODE only — the address a one-time code was sent to.
   verifiedEmail   String?
   verifiedAt      DateTime?
+
+  // ---- Connection Manager (lib/connection-manager.ts) -------------------
+  /// Provider family (meta, google, linkedin, hubspot…) — several connectors
+  /// can share one (GA4 and Search Console are both Google).
+  provider             String?
+  /// Channels this connection serves (FACEBOOK, INSTAGRAM, LINKEDIN, WEB…).
+  channels             String[]             @default([])
+  /// The provider's id for the account that authorised (FB user, LinkedIn member…).
+  providerAccountId    String?
+  /// Granted permissions/scopes, normalised (the raw string stays in `scope`).
+  scopes               String[]             @default([])
+  /// Where the secret lives: "self" (this row, encrypted) or another store
+  /// ("linkedin_connection"). Never the secret itself.
+  credentialRef        String               @default("self")
+  setupStage           ConnectionSetupStage @default(CONFIRMED)
+  health               ConnectionHealth     @default(CONNECTED)
+  /// Why it is not healthy, in words a person can act on.
+  healthReason         String?              @db.Text
+  /// Last health check (any outcome) and last one that found it healthy.
+  healthCheckedAt      DateTime?
+  lastHealthyAt        DateTime?
+  /// Last successful execution through this connection, and recent failures.
+  lastExecutionAt      DateTime?
+  lastExecutionError   String?              @db.Text
+  lastExecutionFailedAt DateTime?
+  consecutiveFailures  Int                  @default(0)
+  /// Effective capabilities at the last check (lib/capabilities.ts).
+  capabilities         Json                 @default("{}")
+  confirmedAt          DateTime?
+  revokedAt            DateTime?
+
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company  Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  accounts ConnectedAccount[]
 
   @@unique([companyId, connectorId])
+  @@index([companyId])
+  @@index([health])
+}
+
+/// The accounts, pages and profiles a connection can reach — the
+/// provider → account → page relationships (a Facebook user → the Pages they
+/// manage → the Instagram account linked to each; a Google login → its GA4
+/// properties). Ids and names only; no secrets. `selected` marks the one(s)
+/// Aura uses.
+model ConnectedAccount {
+  id           String   @id @default(cuid())
+  connectionId String
+  companyId    String
+  /// USER, PAGE, INSTAGRAM_ACCOUNT, LINKEDIN_MEMBER, LINKEDIN_ORGANIZATION,
+  /// PROPERTY, SITE, PORTAL, WORKSPACE, ACCOUNT.
+  kind         String
+  externalId   String
+  name         String
+  /// The account this one belongs to (an Instagram account → its Page).
+  parentId     String?
+  channel      String?
+  /// Can be chosen in the "Select account/page" step.
+  selectable   Boolean  @default(false)
+  selected     Boolean  @default(false)
+  /// Last time the provider confirmed it is still reachable.
+  lastSeenAt   DateTime @default(now())
+  metadata     Json     @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  connection Connection         @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  parent     ConnectedAccount?  @relation("AccountParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children   ConnectedAccount[] @relation("AccountParent")
+
+  @@unique([connectionId, kind, externalId])
   @@index([companyId])
 }
 

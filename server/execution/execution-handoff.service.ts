@@ -1,6 +1,7 @@
 import type { ContentDraft, Prisma } from '@prisma/client';
 
 import { db } from '@/lib/db';
+import { connectionGate } from '@/server/connections/health.service';
 import { logger } from '@/lib/logger';
 import { approvalOf } from '@/lib/approval';
 import { versionLogOf } from '@/lib/versions';
@@ -46,7 +47,7 @@ function textFor(draft: ContentDraft, platform: ExecutionPlatform): string {
 
 async function gatherFacts(companyId: string, draft: ContentDraft, platform: ExecutionPlatform): Promise<HandoffFacts> {
   const meta = (draft.aiMetadata ?? {}) as Record<string, unknown>;
-  const [media, company, linkedin, metaConn, currentHash] = await Promise.all([
+  const [media, company, linkedin, metaConn, currentHash, gate] = await Promise.all([
     db.contentMedia.findMany({
       where: { companyId, contentDraftId: draft.id },
       orderBy: { position: 'asc' },
@@ -56,6 +57,7 @@ async function gatherFacts(companyId: string, draft: ContentDraft, platform: Exe
     db.linkedInConnection.findUnique({ where: { companyId } }),
     db.connection.findUnique({ where: { companyId_connectorId: { companyId, connectorId: 'meta' } } }),
     contentHash(draft),
+    connectionGate(companyId, platform, draft.scheduledFor ? 'scheduling' : 'organic_publishing'),
   ]);
   const type = draft.type as ContentTypeKey;
   const mediaProblems =
@@ -122,6 +124,7 @@ async function gatherFacts(companyId: string, draft: ContentDraft, platform: Exe
           }
         : null,
     },
+    connectionGate: gate.noRecord ? null : { allowed: gate.allowed, reason: gate.reason, fix: gate.fix },
   };
 }
 

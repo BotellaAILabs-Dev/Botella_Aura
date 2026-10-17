@@ -5,6 +5,9 @@ import { db } from '@/lib/db';
 import { graphUrl, pageLabel, pageMetadata, pagesFrom, tokenHealth, type MetaPage } from '@/lib/meta';
 import { resolveCredential } from '@/server/connectors/connection.service';
 import { recordAudit } from '@/server/services/audit.service';
+import { discoverAccounts } from '@/lib/connection-manager';
+import { recordDiscoveredAccounts } from '@/server/connections/accounts';
+import { markRevoked } from '@/server/connections/health.service';
 
 /**
  * The Meta connection beyond connect/disconnect (server/connectors/
@@ -85,6 +88,17 @@ export async function selectMetaPage(args: {
       lastSyncedAt: new Date(),
     },
   });
+  // Keep the Connection Manager's account tree in step with the choice.
+  await recordDiscoveredAccounts({
+    connectionId: row.id,
+    companyId: args.companyId,
+    accounts: discoverAccounts({
+      connectorId: 'meta',
+      accountLabel,
+      providerAccountId: previous.fbUserId ?? null,
+      metadata: pageMetadata(page, pages, previous.fbUserId ?? null) as unknown as Record<string, unknown>,
+    }),
+  });
   await recordAudit({
     action: 'CONNECTOR_SYNCED',
     userId: args.userId,
@@ -109,16 +123,14 @@ function byFacebookUser(fbUserId: string) {
  */
 export async function deauthorize(fbUserId: string): Promise<number> {
   const rows = await byFacebookUser(fbUserId);
+  // Marked REVOKED (tokens cleared), not deleted: the workspace sees that
+  // access was withdrawn and is asked to reconnect.
+  await markRevoked(
+    rows.map((r) => r.id),
+    'Access was removed in Facebook settings — reconnect to publish again.',
+    'deauthorized_on_facebook',
+  );
   for (const r of rows) {
-    await db.connection.update({
-      where: { id: r.id },
-      data: {
-        status: 'DISCONNECTED',
-        accessTokenEnc: null,
-        refreshTokenEnc: null,
-        errorMessage: 'Access was removed in Facebook settings — reconnect to publish again.',
-      },
-    });
     await recordAudit({
       action: 'CONNECTOR_DISCONNECTED',
       companyId: r.companyId,

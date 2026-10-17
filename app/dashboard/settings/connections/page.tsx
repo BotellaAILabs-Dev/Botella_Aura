@@ -9,18 +9,10 @@ import { can } from '@/lib/rbac';
 import { getLinkedInStatus } from '@/server/services/linkedin.service';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { LinkedInConnectionCard } from '@/components/dashboard/linkedin-connection-card';
+import { describeAuthFailure } from '@/lib/connection-errors';
 
 export const metadata: Metadata = { title: 'Connections' };
 
-const ERROR_MESSAGES: Record<string, string> = {
-  forbidden: 'You are not permitted to manage this connection.',
-  not_configured: 'LinkedIn is not configured on this server yet.',
-  state_mismatch: 'Security check failed. Please try connecting again.',
-  bad_state: 'Something went wrong starting the connection. Please retry.',
-  missing_code: 'LinkedIn did not return an authorization code.',
-  exchange_failed: 'Could not complete the LinkedIn connection. Please retry.',
-  access_denied: 'You declined the LinkedIn permission request.',
-};
 
 export default async function ConnectionsPage({
   searchParams,
@@ -40,9 +32,10 @@ export default async function ConnectionsPage({
     : searchParams.error
       ? {
           type: 'error' as const,
-          message:
-            ERROR_MESSAGES[searchParams.error] ??
-            'Could not connect LinkedIn. Please try again.',
+          message: (() => {
+            const f = describeAuthFailure(searchParams.error, 'LinkedIn');
+            return `${f.title}. ${f.message}`;
+          })(),
         }
       : null;
 

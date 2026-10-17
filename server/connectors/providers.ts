@@ -20,6 +20,7 @@ import {
   pageLabel,
   pageMetadata,
   pagesFrom,
+  grantedFrom,
 } from '@/lib/meta';
 
 export type ProviderAuth = 'oauth' | 'api_key';
@@ -98,6 +99,31 @@ export interface ConnectorProvider {
     accountLabel: string;
     metadata?: Record<string, unknown>;
   }>;
+  /**
+   * The permissions this token was actually granted, asked of the provider.
+   * Only for providers whose token response does not say (Meta). Others use
+   * the `scope` the token exchange returned.
+   */
+  grantedScopes?: (accessToken: string) => Promise<string[]>;
+  /**
+   * Withdraw Aura's access at the provider, so a disconnect removes it there
+   * too (not only Aura's copy). Best-effort: callers never let it block.
+   */
+  revoke?: (creds: { accessToken?: string; refreshToken?: string }) => Promise<void>;
+}
+
+/** Google: revoking either token withdraws the whole grant. */
+async function revokeGoogle({ accessToken, refreshToken }: { accessToken?: string; refreshToken?: string }) {
+  const token = refreshToken ?? accessToken;
+  if (!token) return;
+  const res = await fetch('https://oauth2.googleapis.com/revoke', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ token }).toString(),
+    cache: 'no-store',
+  });
+  // 400 = already invalid, which is the outcome we want.
+  if (!res.ok && res.status !== 400) throw new Error(`Google revoke failed (HTTP ${res.status}).`);
 }
 
 export interface ProviderCredentials {
@@ -156,6 +182,7 @@ export const PROVIDERS: Record<string, ConnectorProvider> = {
       ...GOOGLE_OAUTH,
       scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
     },
+    revoke: revokeGoogle,
     async verify({ accessToken }) {
       const data = await getJsonOrThrow(
         'https://analyticsadmin.googleapis.com/v1beta/accountSummaries',
@@ -184,6 +211,7 @@ export const PROVIDERS: Record<string, ConnectorProvider> = {
       ...GOOGLE_OAUTH,
       scopes: ['https://www.googleapis.com/auth/webmasters.readonly'],
     },
+    revoke: revokeGoogle,
     async verify({ accessToken }) {
       const data = await getJsonOrThrow(
         'https://searchconsole.googleapis.com/webmasters/v3/sites',
@@ -325,6 +353,18 @@ export const PROVIDERS: Record<string, ConnectorProvider> = {
       }
       const fbUserId = typeof me.id === 'string' ? me.id : null;
       return { accountLabel: pageLabel(page), metadata: pageMetadata(page, pages, fbUserId) };
+    },
+    /** Meta's token response has no scope; /me/permissions says what was granted. */
+    async grantedScopes(accessToken) {
+      const data = await getJsonOrThrow(graphUrl(`me/permissions?access_token=${encodeURIComponent(accessToken)}`), {}, 'Meta');
+      return grantedFrom(data);
+    },
+    /** Removes the app from the person's Facebook settings (all permissions). */
+    async revoke({ accessToken }) {
+      if (!accessToken) return;
+      const res = await fetch(graphUrl(`me/permissions?access_token=${encodeURIComponent(accessToken)}`), { method: 'DELETE', cache: 'no-store' });
+      // 400/401: the token is already invalid — nothing left to revoke.
+      if (!res.ok && res.status !== 400 && res.status !== 401) throw new Error(`Meta revoke failed (HTTP ${res.status}).`);
     },
   },
 

@@ -10,6 +10,8 @@ import { bindingCookieName, decodeState, verifyBinding } from '@/server/connecto
 import { completeOAuth } from '@/server/connectors/connection.service';
 import { getRequestMeta } from '@/lib/api';
 import { notifyUser } from '@/server/whatsapp/notify';
+import { describeAuthFailure } from '@/lib/connection-errors';
+import { CONNECTORS } from '@/lib/connectors';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -35,6 +37,13 @@ function back(status: string, extra?: Record<string, string>) {
   return NextResponse.redirect(url);
 }
 
+/** A failed connection, explained (lib/connection-errors.ts) with a stable code. */
+function failed(status: 'denied' | 'error', connector: string, code: string, description?: string | null) {
+  const name = CONNECTORS.find((c) => c.id === connector)?.name ?? connector;
+  const f = describeAuthFailure(code, name, description);
+  return back(status, { connector, code: f.code, reason: f.message });
+}
+
 export async function GET(
   req: Request,
   { params }: { params: { id: string } },
@@ -46,20 +55,11 @@ export async function GET(
 
   if (providerError) {
     // The user pressed "Cancel", or the provider refused the request.
-    const description =
-      url.searchParams.get('error_description') ?? providerError;
-    return back('denied', {
-      connector: params.id,
-      reason: /redirect_uri/i.test(description)
-        ? `${description} — the redirect URI registered with the provider does not match this deployment. Copy the exact URI shown on the Connectors page into the provider's console.`
-        : description,
-    });
+    const description = url.searchParams.get('error_description');
+    return failed(providerError === 'access_denied' ? 'denied' : 'error', params.id, providerError, description);
   }
   if (!code || !stateRaw) {
-    return back('error', {
-      connector: params.id,
-      reason: 'The provider did not return an authorization code.',
-    });
+    return failed('error', params.id, 'missing_code');
   }
 
   let connectorId = params.id;
@@ -76,17 +76,11 @@ export async function GET(
     // proves who is completing it, and membership proves they may.
     const user = await requireUser();
     if (user.id !== state.userId) {
-      return back('error', {
-        connector: params.id,
-        reason: 'Finish the connection in the same account that started it.',
-      });
+      return failed('error', connectorId, 'wrong_user');
     }
     const membership = await getMembership(user.id, state.companyId);
     if (!membership || !can(membership.role, 'company:update')) {
-      return back('error', {
-        connector: connectorId,
-        reason: 'You do not have permission to manage connectors for that workspace.',
-      });
+      return failed('error', connectorId, 'forbidden');
     }
 
     const connection = await completeOAuth({
@@ -101,9 +95,17 @@ export async function GET(
     await notifyUser({
       userId: user.id,
       companyId: state.companyId,
-      text: `✅ ${connectorId === 'meta' ? 'Facebook & Instagram' : connectorId} connected${connection.accountLabel ? ` (${connection.accountLabel})` : ''}.`,
+      text: `✅ ${connectorId === 'meta' ? 'Facebook & Instagram' : connectorId} connected${connection.accountLabel ? ` (${connection.accountLabel})` : ''}.${
+        connection.setupStage === 'CONFIRMED' ? '' : ' Open Aura to choose and confirm the account it should use.'
+      }`,
     });
 
+    // Steps 4–5 (select account/page, confirm) when there is something to confirm.
+    if (connection.setupStage !== 'CONFIRMED') {
+      const setup = new URL(absoluteUrl(`/dashboard/connections/${connectorId}/setup`));
+      setup.searchParams.set('status', 'authorized');
+      return NextResponse.redirect(setup);
+    }
     return back('connected', {
       connector: connectorId,
       account: connection.accountLabel ?? connectorId,
@@ -114,6 +116,7 @@ export async function GET(
       connectorId,
       error: reason,
     });
-    return back('error', { connector: connectorId, reason });
+    const code = /state|binding|expired/i.test(reason) ? 'bad_state' : /manages no Pages/i.test(reason) ? 'no_accounts' : 'exchange_failed';
+    return failed('error', connectorId, code, code === 'exchange_failed' ? reason : null);
   }
 }

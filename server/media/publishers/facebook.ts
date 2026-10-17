@@ -1,5 +1,6 @@
 import { httpRequest } from '@/lib/http';
 import { logger } from '@/lib/logger';
+import { isCredentialRejection } from '@/lib/connection-errors';
 import { resolveCredential } from '@/server/connectors/connection.service';
 import { META_GRAPH_VERSION } from '@/lib/meta';
 
@@ -36,7 +37,11 @@ const GRAPH_VERSION = META_GRAPH_VERSION;
 
 export class FacebookPublishError extends Error {
   readonly status = 502;
-  constructor(message: string) {
+  /** The provider refused the stored credential (Meta 190 / HTTP 401): reconnect. */
+  constructor(
+    message: string,
+    readonly credentialRejected = false,
+  ) {
     super(message);
     this.name = 'FacebookPublishError';
   }
@@ -161,9 +166,7 @@ export async function publishFacebookPost(args: {
       status: res.status,
       code: body.error?.code,
     });
-    throw new FacebookPublishError(
-      describeMetaError(res.status, body.error?.code),
-    );
+    throw new FacebookPublishError(describeMetaError(res.status, body.error?.code), isCredentialRejection(res.status, body.error?.code));
   }
 
   // A photo post returns both the photo id and the story's post_id; the story

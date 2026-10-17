@@ -4,6 +4,7 @@
   "regions": ["sin1"],
   "crons": [
     { "path": "/api/cron/publish", "schedule": "0 9 * * *" },
-    { "path": "/api/cron/briefing", "schedule": "0 5 * * 1" }
+    { "path": "/api/cron/briefing", "schedule": "0 5 * * 1" },
+    { "path": "/api/cron/connections", "schedule": "0 6 * * *" }
   ]
 }

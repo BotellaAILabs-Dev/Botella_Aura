@@ -57,6 +57,11 @@ vi.mock('@/lib/db', () => ({
     auditLog: { create: async ({ data }: any) => s.audits.push(data) },
   },
 }));
+// Connection Manager gate (server/connections/health.service.ts) is tested on its own.
+vi.mock('@/server/connections/health.service', () => ({
+  connectionGate: async () => ({ allowed: true, noRecord: true, connectorId: null, health: null, reason: null, fix: null }),
+  recordExecutionResult: async () => undefined,
+}));
 vi.mock('@/server/content/content.service', () => ({
   getDraft: async (companyId: string, id: string) => (s.draft && s.draft.id === id && s.draft.companyId === companyId ? { ...s.draft } : null),
   markPublished: m.markPublished,

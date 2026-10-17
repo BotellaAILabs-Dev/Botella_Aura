@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { Metadata } from 'next';
 import { CheckCircle2, TriangleAlert, XCircle } from 'lucide-react';
 
@@ -158,6 +159,9 @@ export default async function ConnectorsPage({
             accountLabel: connection.accountLabel,
             errorMessage: connection.errorMessage,
             lastSyncedAt: connection.lastSyncedAt,
+            setupStage: connection.setupStage,
+            health: connection.health,
+            healthReason: connection.healthReason,
           }
         : null,
       usingEnvFallback: envBacked.has(c.id),
@@ -174,6 +178,11 @@ export default async function ConnectorsPage({
       <PageHeader
         title="Connectors"
         description="Securely connect your marketing tools and data sources. Aura only ever uses official APIs — never scraping — and never acts without your approval."
+        actions={
+          <Link href="/dashboard/connections" className="text-sm font-medium text-primary underline-offset-2 hover:underline">
+            Connection health &amp; permissions
+          </Link>
+        }
       />
 
       <CallbackNotice

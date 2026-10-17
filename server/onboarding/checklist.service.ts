@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { NOT_MIRRORED } from '@/lib/connection-manager';
 import {
   ONBOARDING_STEPS,
   type OnboardingStepDef,
@@ -64,7 +65,7 @@ export async function getOnboardingState(companyId: string): Promise<OnboardingS
     // Any working connector counts as a channel. ERROR/EXPIRED rows do not:
     // a connection that stopped working is exactly when the user needs to be
     // told to reconnect, not congratulated.
-    db.connection.count({ where: { companyId, status: 'CONNECTED' } }),
+    db.connection.count({ where: { companyId, status: 'CONNECTED', ...NOT_MIRRORED } }),
     db.linkedInConnection.count({ where: { companyId } }),
     db.marketingPlan.count({ where: { companyId } }),
     db.workspaceBriefing.count({ where: { companyId } }),

@@ -1,5 +1,7 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+
+import { db } from '@/lib/db';
 import { requireUser } from '@/lib/auth-helpers';
 import { getMembership } from '@/server/services/company.service';
 import { can } from '@/lib/rbac';
@@ -69,6 +71,15 @@ export async function GET(req: Request) {
     });
     // Started from WhatsApp? Confirm there (best effort, never fails this).
     await notifyUser({ userId: user.id, companyId, text: '✅ LinkedIn is now connected to this workspace.' });
+    // Step 5: confirm the connection when it is new (a reconnect of the same
+    // member keeps its confirmation).
+    const mirror = await db.connection.findUnique({
+      where: { companyId_connectorId: { companyId, connectorId: 'linkedin' } },
+      select: { setupStage: true },
+    });
+    if (mirror && mirror.setupStage !== 'CONFIRMED') {
+      return NextResponse.redirect(new URL('/dashboard/connections/linkedin/setup?status=authorized', req.url));
+    }
     return redirectTo(req, 'connected=1');
   } catch (err) {
     logger.error('LinkedIn callback failed', {

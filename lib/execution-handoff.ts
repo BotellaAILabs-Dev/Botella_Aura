@@ -38,6 +38,8 @@ export const ISSUE_CODES = [
   'missing_connection',
   'connection_expired',
   'missing_permission',
+  /** Connection Manager: unhealthy, not set up, or not capable (lib/capabilities.ts). */
+  'connection_unhealthy',
   'missing_account',
   'missing_media',
   'invalid_media',
@@ -173,6 +175,11 @@ export interface HandoffFacts {
     linkedin: { connected: boolean; expired: boolean; scopes: string[]; memberName: string | null; memberId: string | null; orgUrn: string | null } | null;
     meta: { connected: boolean; expired: boolean; pageId: string | null; pageName: string | null; igUserId: string | null; igUsername: string | null } | null;
   };
+  /**
+   * The Connection Manager's verdict for this network (capability + health,
+   * server/connections/health.service.ts connectionGate). Absent = no record.
+   */
+  connectionGate?: { allowed: boolean; reason: string | null; fix: { label: string; href: string } | null } | null;
 }
 
 const LABEL: Record<ExecutionPlatform, string> = {
@@ -182,7 +189,7 @@ const LABEL: Record<ExecutionPlatform, string> = {
   X: 'X',
 };
 
-const CONNECTORS_FIX = { label: 'Open Connections', href: '/dashboard/connectors' };
+const CONNECTORS_FIX = { label: 'Open Connections', href: '/dashboard/connections' };
 const LINKEDIN_FIX = { label: 'Connect LinkedIn', href: '/dashboard/settings/connections' };
 
 /** What each network requires of a post (from its publisher). */
@@ -211,6 +218,17 @@ function issue(code: IssueCode, message: string, fix: ExecutionIssue['fix'] = nu
 
 /** The provider connection and account for a network, and what is wrong with it. */
 function accountFor(f: HandoffFacts): { account: ExecutionHandoff['account']; issues: ExecutionIssue[] } {
+  const found = accountChecks(f);
+  const gate = f.connectionGate;
+  // The specific problems (not connected, expired) explain best; otherwise
+  // the Connection Manager's verdict blocks an unhealthy or incapable one.
+  if (gate && !gate.allowed && !found.issues.some((i) => i.code === 'missing_connection' || i.code === 'connection_expired')) {
+    found.issues.push(issue('connection_unhealthy', gate.reason ?? 'This connection can’t be used right now.', gate.fix ?? { label: 'Open Connections', href: '/dashboard/connections' }));
+  }
+  return found;
+}
+
+function accountChecks(f: HandoffFacts): { account: ExecutionHandoff['account']; issues: ExecutionIssue[] } {
   const issues: ExecutionIssue[] = [];
   if (f.platform === 'LINKEDIN') {
     const li = f.connections.linkedin;

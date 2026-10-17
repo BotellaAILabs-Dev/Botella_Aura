@@ -49,6 +49,12 @@ vi.mock('@/lib/db', () => {
           return { count: before - st.connections.length };
         },
       },
+      connectedAccount: {
+        findMany: async () => [],
+        upsert: async () => ({ id: `acc_${++st.seq}` }),
+        updateMany: async () => ({ count: 0 }),
+        deleteMany: async () => ({ count: 0 }),
+      },
       auditLog: {
         create: async ({ data }: any) => {
           st.audits.push(data);
@@ -272,7 +278,10 @@ describe('Meta callbacks', () => {
     expect(st.connections[0].status).toBe('CONNECTED');
     const res = await deauthorizeRoute(form(signRequest({ user_id: 'FB_USER_1', algorithm: 'HMAC-SHA256' }, 'meta-app-secret')));
     expect(res.status).toBe(200);
-    expect(st.connections[0]).toMatchObject({ status: 'DISCONNECTED', accessTokenEnc: null });
+    // Marked REVOKED (Token & Credential Lifecycle): kept visible, tokens forgotten, health DISCONNECTED.
+    expect(st.connections[0]).toMatchObject({ status: 'REVOKED', accessTokenEnc: null, refreshTokenEnc: null, health: 'DISCONNECTED' });
+    expect(st.connections[0].revokedAt).toBeInstanceOf(Date);
+    expect(st.audits.map((a: any) => a.action)).toContain('CONNECTION_REVOKED');
     expect(st.connections[0].errorMessage).toMatch(/removed in Facebook settings/);
   });
 

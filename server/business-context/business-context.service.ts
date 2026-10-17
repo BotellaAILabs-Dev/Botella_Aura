@@ -1,6 +1,7 @@
 import type { InsightType } from '@prisma/client';
 
 import { db } from '@/lib/db';
+import { NOT_MIRRORED } from '@/lib/connection-manager';
 import {
   contextField,
   CONTEXT_SECTIONS,
@@ -237,7 +238,7 @@ async function loadMarket(companyId: string) {
 async function loadConnections(companyId: string) {
   const [connections, linkedIn] = await Promise.all([
     db.connection.findMany({
-      where: { companyId, status: 'CONNECTED' },
+      where: { companyId, status: 'CONNECTED', ...NOT_MIRRORED },
       select: { connectorId: true, lastSyncedAt: true, updatedAt: true },
     }),
     db.linkedInConnection.findFirst({

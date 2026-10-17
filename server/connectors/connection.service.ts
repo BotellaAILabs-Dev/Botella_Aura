@@ -10,6 +10,18 @@ import {
   type ProviderReadiness,
 } from '@/server/connectors/providers';
 import { exchangeCode, refreshAccessToken } from '@/server/connectors/oauth';
+import {
+  connectorChannels,
+  discoverAccounts,
+  hasAccountChoice,
+  LINKEDIN_CONNECTOR_ID,
+  NOT_MIRRORED,
+  parseScopes,
+  providerFamily,
+  type SetupStage,
+} from '@/lib/connection-manager';
+import { capabilitySnapshot, missingRequiredScopes, providerCapabilities } from '@/lib/capabilities';
+import { recordDiscoveredAccounts } from '@/server/connections/accounts';
 
 /**
  * Company-scoped connector connections.
@@ -36,6 +48,12 @@ export class ConnectorError extends Error {
 export interface ConnectionView {
   connectorId: string;
   status: Connection['status'];
+  /** Connection Manager setup stage; only CONFIRMED connections execute. */
+  setupStage: SetupStage;
+  health: Connection['health'];
+  healthReason: string | null;
+  /** Core permissions the provider did not grant. */
+  missingScopes: string[];
   kind: Connection['kind'];
   accountLabel: string | null;
   metadata: Record<string, unknown>;
@@ -49,6 +67,10 @@ function toView(c: Connection): ConnectionView {
   return {
     connectorId: c.connectorId,
     status: c.status,
+    setupStage: c.setupStage,
+    health: c.health,
+    healthReason: c.healthReason,
+    missingScopes: missingRequiredScopes(c.connectorId, c.scopes.length ? c.scopes : null, c.channels),
     kind: c.kind,
     accountLabel: c.accountLabel,
     metadata: (c.metadata ?? {}) as Record<string, unknown>,
@@ -62,7 +84,8 @@ function toView(c: Connection): ConnectionView {
 export async function listConnections(
   companyId: string,
 ): Promise<ConnectionView[]> {
-  const rows = await db.connection.findMany({ where: { companyId } });
+  // LinkedIn's mirror row is reported by the LinkedIn service, not here.
+  const rows = await db.connection.findMany({ where: { companyId, ...NOT_MIRRORED } });
   return rows.map(toView);
 }
 
@@ -120,6 +143,7 @@ export async function saveApiKey(args: {
       metadata: (metadata ?? {}) as object,
       connectedById: userId,
       lastSyncedAt: new Date(),
+      ...apiKeyManagerFields(connectorId),
     },
     update: {
       kind: 'API_KEY',
@@ -130,7 +154,13 @@ export async function saveApiKey(args: {
       errorMessage: null,
       connectedById: userId,
       lastSyncedAt: new Date(),
+      ...apiKeyManagerFields(connectorId),
     },
+  });
+  await recordDiscoveredAccounts({
+    connectionId: row.id,
+    companyId,
+    accounts: discoverAccounts({ connectorId, accountLabel, metadata: metadata ?? {} }),
   });
 
   await recordAudit({
@@ -141,6 +171,75 @@ export async function saveApiKey(args: {
     ...requestMeta,
   });
   return toView(row);
+}
+
+/**
+ * An API key is entered, checked and confirmed in one step: there is no
+ * account to choose, so it is CONFIRMED (and verified, so healthy) at once.
+ */
+function apiKeyManagerFields(connectorId: string) {
+  const now = new Date();
+  return {
+    provider: providerFamily(connectorId),
+    channels: connectorChannels(connectorId),
+    credentialRef: 'self',
+    setupStage: 'CONFIRMED' as const,
+    confirmedAt: now,
+    revokedAt: null,
+    health: 'HEALTHY' as const,
+    healthReason: null,
+    healthCheckedAt: now,
+    lastHealthyAt: now,
+    consecutiveFailures: 0,
+    capabilities: capabilitySnapshot(connectorId, null) as object,
+  };
+}
+
+/**
+ * Where a newly authorised connection starts in the setup flow
+ * (Connect -> Authenticate -> Authorize -> Select account/page -> Confirm).
+ *
+ *   - Reconnecting a confirmed connection whose chosen account is still
+ *     there stays CONFIRMED: re-authorising is not re-choosing.
+ *   - A connector that acts on an account (publishes) needs the person to
+ *     confirm it: AUTHORIZED when there is a choice to make, else
+ *     ACCOUNT_SELECTED (the only account is pre-selected).
+ *   - A connector that only reads data into Aura has nothing to act on and
+ *     no choice: CONFIRMED.
+ */
+export function initialSetupStage(args: {
+  connectorId: string;
+  previous: { setupStage: SetupStage; selectedStillAvailable: boolean } | null;
+  accounts: { selectable?: boolean }[];
+}): SetupStage {
+  if (args.previous?.setupStage === 'CONFIRMED' && args.previous.selectedStillAvailable) return 'CONFIRMED';
+  const caps = providerCapabilities(args.connectorId);
+  const executes = Boolean(caps && !caps.core.includes('data_read'));
+  if (!executes && !hasAccountChoice(args.accounts)) return 'CONFIRMED';
+  return hasAccountChoice(args.accounts) ? 'AUTHORIZED' : 'ACCOUNT_SELECTED';
+}
+
+/** Granted scopes: asked of the provider when it can say, else the token's scope. */
+async function grantedScopesFor(
+  connectorId: string,
+  accessToken: string,
+  tokenScope: string | undefined,
+): Promise<{ scopes: string[]; known: boolean }> {
+  const provider = getProvider(connectorId);
+  if (provider?.grantedScopes) {
+    try {
+      return { scopes: await provider.grantedScopes(accessToken), known: true };
+    } catch (err) {
+      logger.warn('connectors: could not read granted permissions', {
+        connectorId,
+        error: err instanceof Error ? err.message.slice(0, 200) : String(err),
+      });
+      return { scopes: [], known: false };
+    }
+  }
+  // A token response with a scope says what was granted; without one, the
+  // provider granted what was asked (OAuth 2.0 section 5.1).
+  return { scopes: parseScopes(tokenScope ?? provider?.oauth?.scopes.join(' ')), known: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -182,7 +281,7 @@ export async function completeOAuth(args: {
   // What the last connection chose (e.g. which Facebook Page), so reconnecting keeps it.
   const previous = await db.connection.findUnique({
     where: { companyId_connectorId: { companyId, connectorId } },
-    select: { metadata: true },
+    select: { metadata: true, setupStage: true, status: true },
   });
 
   let accountLabel = connectorId;
@@ -190,6 +289,7 @@ export async function completeOAuth(args: {
   // Instagram account this token may publish to). Stored so downstream features
   // read one connection row instead of re-deriving it per call.
   let verifiedMetadata: Record<string, unknown> = {};
+  let verifyError: string | null = null;
   try {
     const verified = await provider.verify({
       accessToken: tokens.accessToken,
@@ -200,15 +300,61 @@ export async function completeOAuth(args: {
   } catch (err) {
     // The token is valid enough to store; surface the verification problem
     // rather than pretending the connection is healthy.
+    verifyError = err instanceof Error ? err.message : String(err);
     logger.warn('connectors: verification after OAuth failed', {
       connectorId,
       error: err instanceof Error ? err.message : String(err),
     });
   }
 
+  // --- Connection Manager: who authorised, what was granted, what it reaches.
+  const granted = await grantedScopesFor(connectorId, tokens.accessToken, tokens.scope);
+  const metadataNow = Object.keys(verifiedMetadata).length > 0 ? verifiedMetadata : ((previous?.metadata ?? {}) as Record<string, unknown>);
+  const providerAccountId = typeof metadataNow.fbUserId === 'string' ? metadataNow.fbUserId : null;
+  const accounts = discoverAccounts({ connectorId, accountLabel, providerAccountId, metadata: metadataNow });
+  const previousPageId = (previous?.metadata as { pageId?: unknown } | null)?.pageId;
+  const setupStage = initialSetupStage({
+    connectorId,
+    previous:
+      previous && previous.status !== 'REVOKED' && previous.status !== 'DISCONNECTED'
+        ? {
+            setupStage: previous.setupStage,
+            selectedStillAvailable: typeof previousPageId !== 'string' || metadataNow.pageId === previousPageId,
+          }
+        : null,
+    accounts,
+  });
+  const channels = connectorChannels(connectorId);
+  const missing = granted.known ? missingRequiredScopes(connectorId, granted.scopes, channels) : [];
+  const now = new Date();
+  const managerFields = {
+    provider: providerFamily(connectorId),
+    channels,
+    providerAccountId,
+    scopes: granted.scopes,
+    credentialRef: 'self',
+    setupStage,
+    confirmedAt: setupStage === 'CONFIRMED' ? now : null,
+    revokedAt: null,
+    // Not usable until the person grants what is missing / finishes setup.
+    health: (missing.length || setupStage !== 'CONFIRMED' || verifyError ? 'ACTION_REQUIRED' : 'HEALTHY') as Connection['health'],
+    healthReason: missing.length
+      ? `Permissions not granted: ${missing.join(', ')}. Reconnect and allow them.`
+      : verifyError
+        ? verifyError.slice(0, 300)
+        : setupStage !== 'CONFIRMED'
+          ? 'Choose and confirm the account Aura should use.'
+          : null,
+    healthCheckedAt: now,
+    ...(missing.length || verifyError ? {} : { lastHealthyAt: now }),
+    consecutiveFailures: 0,
+    capabilities: capabilitySnapshot(connectorId, granted.known ? granted.scopes : null, channels) as object,
+  };
+
   const row = await db.connection.upsert({
     where: { companyId_connectorId: { companyId, connectorId } },
     create: {
+      ...managerFields,
       companyId,
       connectorId,
       kind: 'OAUTH',
@@ -224,6 +370,7 @@ export async function completeOAuth(args: {
       lastSyncedAt: new Date(),
     },
     update: {
+      ...managerFields,
       kind: 'OAUTH',
       status: 'CONNECTED',
       accessTokenEnc: encrypt(tokens.accessToken),
@@ -244,13 +391,18 @@ export async function completeOAuth(args: {
     },
   });
 
+  await recordDiscoveredAccounts({ connectionId: row.id, companyId, accounts, keepSelection: true });
+
   await recordAudit({
     action: 'CONNECTOR_CONNECTED',
     userId,
     companyId,
-    metadata: { connectorId, accountLabel },
+    metadata: { connectorId, accountLabel, setupStage, missingScopes: missing },
     ...requestMeta,
   });
+  if (setupStage === 'CONFIRMED') {
+    await recordAudit({ action: 'CONNECTION_CONFIRMED', userId, companyId, metadata: { connectorId, automatic: true } });
+  }
   return toView(row);
 }
 
@@ -261,19 +413,43 @@ export async function disconnect(args: {
   requestMeta?: Meta;
 }): Promise<void> {
   const { companyId, userId, connectorId, requestMeta } = args;
-  const deleted = await db.connection.deleteMany({
-    where: { companyId, connectorId },
-  });
-  if (deleted.count === 0) {
-    throw new ConnectorError('That connector is not connected.', 404);
+  if (connectorId === LINKEDIN_CONNECTOR_ID) {
+    throw new ConnectorError('Disconnect LinkedIn from Settings -> Connections.', 400);
   }
+  const row = await db.connection.findUnique({ where: { companyId_connectorId: { companyId, connectorId } } });
+  if (!row) throw new ConnectorError('That connector is not connected.', 404);
+
+  // Withdraw access at the provider too (best-effort), so disconnecting
+  // removes Aura there, not just Aura's copy of the token.
+  const revokedAtProvider = await revokeAtProvider(row);
+
+  await db.connection.deleteMany({ where: { companyId, connectorId } });
   await recordAudit({
     action: 'CONNECTOR_DISCONNECTED',
     userId,
     companyId,
-    metadata: { connectorId },
+    metadata: { connectorId, revokedAtProvider },
     ...requestMeta,
   });
+}
+
+/** Ask the provider to withdraw this token. Never throws. */
+export async function revokeAtProvider(row: Connection): Promise<boolean> {
+  const provider = getProvider(row.connectorId);
+  if (!provider?.revoke || (!row.accessTokenEnc && !row.refreshTokenEnc)) return false;
+  try {
+    await provider.revoke({
+      accessToken: row.accessTokenEnc ? decrypt(row.accessTokenEnc) : undefined,
+      refreshToken: row.refreshTokenEnc ? decrypt(row.refreshTokenEnc) : undefined,
+    });
+    return true;
+  } catch (err) {
+    logger.warn('connectors: revoke at provider failed (continuing)', {
+      connectorId: row.connectorId,
+      error: err instanceof Error ? err.message.slice(0, 200) : String(err),
+    });
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -358,17 +534,38 @@ async function freshAccessToken(row: Connection): Promise<string | null> {
   const stillValid =
     !row.expiresAt || row.expiresAt.getTime() - Date.now() > 60_000;
   if (stillValid) return decrypt(row.accessTokenEnc);
+  return (await refreshStoredToken(row)).accessToken;
+}
 
+export type RefreshOutcome =
+  | { outcome: 'refreshed'; accessToken: string; expiresAt: Date | null }
+  | { outcome: 'not_refreshable' | 'revoked' | 'failed'; accessToken: null; message: string };
+
+/**
+ * Get a new access token with the stored refresh token, and record the
+ * result on the connection:
+ *   refreshed        new token stored (status CONNECTED)
+ *   not_refreshable  no refresh token (Meta, LinkedIn self-serve): EXPIRED,
+ *                    the person has to reconnect
+ *   revoked          the provider says the grant is gone (invalid_grant):
+ *                    REVOKED, tokens cleared
+ *   failed           anything else (provider down...): ERROR, retried later
+ */
+export async function refreshStoredToken(row: Connection): Promise<RefreshOutcome> {
   if (!row.refreshTokenEnc) {
+    const message =
+      'The access token expired and the provider did not issue a refresh token. Reconnect this integration.';
     await db.connection.update({
       where: { id: row.id },
       data: {
         status: 'EXPIRED',
-        errorMessage:
-          'The access token expired and the provider did not issue a refresh token. Reconnect this integration.',
+        errorMessage: message,
+        health: 'EXPIRED',
+        healthReason: message,
+        healthCheckedAt: new Date(),
       },
     });
-    return null;
+    return { outcome: 'not_refreshable', accessToken: null, message };
   }
 
   try {
@@ -386,11 +583,41 @@ async function freshAccessToken(row: Connection): Promise<string | null> {
         expiresAt: tokens.expiresAt ?? null,
         status: 'CONNECTED',
         errorMessage: null,
+        ...(tokens.scope ? { scope: tokens.scope, scopes: parseScopes(tokens.scope) } : {}),
       },
     });
-    return tokens.accessToken;
+    await recordAudit({
+      action: 'CONNECTION_TOKEN_REFRESHED',
+      companyId: row.companyId,
+      metadata: { connectorId: row.connectorId, expiresAt: tokens.expiresAt?.toISOString() ?? null },
+    });
+    return { outcome: 'refreshed', accessToken: tokens.accessToken, expiresAt: tokens.expiresAt ?? null };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // invalid_grant: the refresh token was revoked or expired. The grant is
+    // gone at the provider, so the tokens are useless and are cleared.
+    if (/invalid_grant/i.test(message)) {
+      const reason = 'Access was withdrawn at the provider. Reconnect this integration.';
+      await db.connection.update({
+        where: { id: row.id },
+        data: {
+          status: 'REVOKED',
+          accessTokenEnc: null,
+          refreshTokenEnc: null,
+          revokedAt: new Date(),
+          errorMessage: reason,
+          health: 'DISCONNECTED',
+          healthReason: reason,
+          healthCheckedAt: new Date(),
+        },
+      });
+      await recordAudit({
+        action: 'CONNECTION_REVOKED',
+        companyId: row.companyId,
+        metadata: { connectorId: row.connectorId, reason: 'invalid_grant' },
+      });
+      return { outcome: 'revoked', accessToken: null, message: reason };
+    }
     await db.connection.update({
       where: { id: row.id },
       data: { status: 'ERROR', errorMessage: message },
@@ -399,7 +626,7 @@ async function freshAccessToken(row: Connection): Promise<string | null> {
       connectorId: row.connectorId,
       error: message,
     });
-    return null;
+    return { outcome: 'failed', accessToken: null, message };
   }
 }
 

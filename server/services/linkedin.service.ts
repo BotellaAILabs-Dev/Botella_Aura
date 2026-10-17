@@ -1,6 +1,7 @@
 import type { LinkedInConnection } from '@prisma/client';
 import { pkceEnabled } from '@/lib/pkce';
 import { db } from '@/lib/db';
+import { syncLinkedInMirror } from '@/server/connections/manager.service';
 import { decrypt, encrypt } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
 import { httpRequest } from '@/lib/http';
@@ -155,6 +156,7 @@ export async function connectCompany({
     create: { companyId, ...data },
     update: data,
   });
+  await syncLinkedInMirror(companyId, { userId });
 
   await recordAudit({
     action: 'LINKEDIN_CONNECTED',
@@ -211,6 +213,7 @@ export async function disconnectCompany({
   }
 
   await db.linkedInConnection.delete({ where: { companyId } });
+  await syncLinkedInMirror(companyId);
 
   await recordAudit({
     action: 'LINKEDIN_DISCONNECTED',
@@ -290,4 +293,41 @@ export async function getLinkedInStatus(
       connection.status === 'EXPIRED' ||
       connection.status === 'ERROR',
   };
+}
+
+/**
+ * Live token check for the Connection Manager's health check: does LinkedIn
+ * still accept the stored token? Never throws.
+ */
+export async function checkLinkedInToken(companyId: string): Promise<'ok' | 'rejected' | 'unreachable' | 'none'> {
+  const conn = await db.linkedInConnection.findUnique({ where: { companyId } });
+  if (!conn?.accessTokenEnc) return 'none';
+  let token: string;
+  try {
+    token = decrypt(conn.accessTokenEnc);
+  } catch {
+    return 'rejected';
+  }
+  try {
+    const res = await fetch(USERINFO_URL, { headers: { authorization: `Bearer ${token}` }, cache: 'no-store' });
+    if (res.ok) return 'ok';
+    return res.status === 401 || res.status === 403 ? 'rejected' : 'unreachable';
+  } catch {
+    return 'unreachable';
+  }
+}
+
+/**
+ * LinkedIn refused the stored token (a 401 while publishing or checking):
+ * mark it so Aura asks for a reconnect instead of failing again.
+ */
+export async function markLinkedInCredentialInvalid(companyId: string, reason: string): Promise<void> {
+  const conn = await db.linkedInConnection.findUnique({ where: { companyId }, select: { expiresAt: true } });
+  if (!conn) return;
+  const expired = Boolean(conn.expiresAt && conn.expiresAt < new Date());
+  await db.linkedInConnection.update({
+    where: { companyId },
+    data: { status: expired ? 'EXPIRED' : 'ERROR', errorMessage: reason.slice(0, 300) },
+  });
+  await syncLinkedInMirror(companyId);
 }

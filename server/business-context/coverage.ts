@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { NOT_MIRRORED } from '@/lib/connection-manager';
 import {
   CHANNEL_CONNECTORS,
   type BusinessContext,
@@ -598,7 +599,7 @@ export async function auditContextCoverage(
       select: { name: true },
     }),
     db.connection.findMany({
-      where: { companyId, status: 'CONNECTED' },
+      where: { companyId, status: 'CONNECTED', ...NOT_MIRRORED },
       select: { connectorId: true },
     }),
     db.linkedInConnection.count({ where: { companyId, status: 'ACTIVE' } }),

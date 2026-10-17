@@ -55,10 +55,14 @@ export interface ConnectorCardData {
   secondaryMetadataKey?: string;
   /** Live connection state, if connected. */
   connection: {
-    status: 'CONNECTED' | 'ERROR' | 'EXPIRED' | 'DISCONNECTED';
+    status: 'CONNECTED' | 'ERROR' | 'EXPIRED' | 'DISCONNECTED' | 'REVOKED';
     accountLabel: string | null;
     errorMessage: string | null;
     lastSyncedAt: string | null;
+    /** Connection Manager state (lib/connection-health.ts). */
+    setupStage?: 'AUTHORIZED' | 'ACCOUNT_SELECTED' | 'CONFIRMED';
+    health?: string;
+    healthReason?: string | null;
   } | null;
   /** True when a deployment-wide key is doing the work instead of a connection. */
   usingEnvFallback?: boolean;
@@ -68,6 +72,11 @@ function statusBadge(c: ConnectorCardData): {
   label: string;
   variant: BadgeProps['variant'];
 } {
+  if (c.connection?.status === 'REVOKED') return { label: 'Access removed', variant: 'destructive' };
+  if (c.connection && c.connection.setupStage && c.connection.setupStage !== 'CONFIRMED') return { label: 'Finish setup', variant: 'warning' };
+  if (c.connection?.health === 'ACTION_REQUIRED') return { label: 'Action required', variant: 'destructive' };
+  if (c.connection?.health === 'EXPIRED') return { label: 'Reconnect', variant: 'warning' };
+  if (c.connection?.health === 'WARNING') return { label: 'Warning', variant: 'warning' };
   if (c.connection?.status === 'CONNECTED') return { label: 'Connected', variant: 'success' };
   if (c.connection?.status === 'ERROR') return { label: 'Needs attention', variant: 'destructive' };
   if (c.connection?.status === 'EXPIRED') return { label: 'Reconnect', variant: 'warning' };

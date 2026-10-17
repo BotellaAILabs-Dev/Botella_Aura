@@ -1,5 +1,6 @@
 import { httpRequest } from '@/lib/http';
 import { logger } from '@/lib/logger';
+import { isCredentialRejection } from '@/lib/connection-errors';
 import { resolveCredential } from '@/server/connectors/connection.service';
 import { META_GRAPH_VERSION } from '@/lib/meta';
 
@@ -44,7 +45,11 @@ const CONTAINER_POLL_MS = 2000;
 
 export class InstagramPublishError extends Error {
   readonly status = 502;
-  constructor(message: string) {
+  /** The provider refused the stored credential (Meta 190 / HTTP 401): reconnect. */
+  constructor(
+    message: string,
+    readonly credentialRejected = false,
+  ) {
     super(message);
     this.name = 'InstagramPublishError';
   }
@@ -142,7 +147,7 @@ async function createMediaContainer(
       status: res.status,
       code: body.error?.code,
     });
-    throw new InstagramPublishError(describeMetaError(res.status, body.error?.code));
+    throw new InstagramPublishError(describeMetaError(res.status, body.error?.code), isCredentialRejection(res.status, body.error?.code));
   }
   return body.id;
 }
@@ -218,7 +223,7 @@ async function publishContainer(
       status: res.status,
       code: body.error?.code,
     });
-    throw new InstagramPublishError(describeMetaError(res.status, body.error?.code));
+    throw new InstagramPublishError(describeMetaError(res.status, body.error?.code), isCredentialRejection(res.status, body.error?.code));
   }
   return body.id;
 }
@@ -275,7 +280,7 @@ async function containerStatus(
     status?: string;
     error?: { code?: number };
   };
-  if (!res.ok) throw new InstagramPublishError(describeMetaError(res.status, body.error?.code));
+  if (!res.ok) throw new InstagramPublishError(describeMetaError(res.status, body.error?.code), isCredentialRejection(res.status, body.error?.code));
   return { code: (body.status_code ?? 'IN_PROGRESS') as ContainerStatus, detail: body.status ?? null };
 }
 

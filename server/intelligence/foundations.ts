@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { NOT_MIRRORED } from '@/lib/connection-manager';
 
 import type { ScoreBlock } from '@/server/intelligence/types';
 
@@ -55,7 +56,7 @@ export async function analyseFoundations(
       db.competitorProfile.count({ where: { companyId } }),
       db.discoveryProfile.count({ where: { companyId } }),
       db.contentDraft.count({ where: { companyId } }),
-      db.connection.count({ where: { companyId, status: 'CONNECTED' } }),
+      db.connection.count({ where: { companyId, status: 'CONNECTED', ...NOT_MIRRORED } }),
     ]);
 
   const steps: FoundationStep[] = [

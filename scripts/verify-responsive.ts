@@ -117,6 +117,8 @@ async function main() {
     { name: 'campaign-new-from-suggestion', path: `/dashboard/campaigns/new?rec=${rec.id}` },
     { name: 'outreach-new-from-suggestion', path: `/dashboard/outreach/new?rec=${rec.id}` },
     { name: 'whatsapp-assistant', path: '/dashboard/whatsapp-assistant' },
+    { name: 'connection-manager', path: '/dashboard/connections' },
+    { name: 'connection-setup', path: '/dashboard/connections/meta/setup' },
   ];
 
   fs.mkdirSync(SHOTS, { recursive: true });

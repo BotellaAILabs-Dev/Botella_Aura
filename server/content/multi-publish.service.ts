@@ -1,6 +1,7 @@
 import type { CompanyRole, ContentDraft, ContentPublication } from '@prisma/client';
 
 import { db } from '@/lib/db';
+import { connectionGate, type GateResult } from '@/server/connections/health.service';
 import { can } from '@/lib/rbac';
 import { tokenHealth } from '@/lib/meta';
 import { platformSpec, resolvePlatform, type SocialPlatformKey } from '@/lib/platforms';
@@ -59,10 +60,14 @@ export function platformText(draft: ContentDraft, platform: MultiPlatform): stri
 }
 
 async function connectionBlockers(companyId: string): Promise<Record<MultiPlatform, string | null>> {
-  const [linkedin, meta] = await Promise.all([
+  const [linkedin, meta, gLinkedIn, gFacebook, gInstagram] = await Promise.all([
     getPublishContext(companyId),
     db.connection.findUnique({ where: { companyId_connectorId: { companyId, connectorId: 'meta' } } }),
+    connectionGate(companyId, 'LINKEDIN'),
+    connectionGate(companyId, 'FACEBOOK'),
+    connectionGate(companyId, 'INSTAGRAM'),
   ]);
+  const unhealthy = (g: GateResult) => (g.allowed ? null : g.reason);
   const scopes = (linkedin?.scope ?? '').split(/[\s,]+/);
   const metaOk = meta?.status === 'CONNECTED' && tokenHealth(meta.expiresAt) !== 'expired';
   const igLinked = Boolean((meta?.metadata as { igUserId?: string } | null)?.igUserId);
@@ -71,13 +76,13 @@ async function connectionBlockers(companyId: string): Promise<Record<MultiPlatfo
       ? 'LinkedIn isn’t connected (or the connection expired).'
       : !scopes.includes('w_member_social') && !scopes.includes('w_organization_social')
         ? 'LinkedIn is connected without posting permission — reconnect and allow “Share on LinkedIn”.'
-        : null,
-    FACEBOOK: metaOk ? null : 'Facebook isn’t connected (or the connection expired).',
+        : unhealthy(gLinkedIn),
+    FACEBOOK: metaOk ? unhealthy(gFacebook) : 'Facebook isn’t connected (or the connection expired).',
     INSTAGRAM: !metaOk
       ? 'Instagram isn’t connected (or the connection expired).'
       : !igLinked
         ? 'No Instagram Business or Creator account is linked to the chosen Facebook Page.'
-        : null,
+        : unhealthy(gInstagram),
   };
 }
 

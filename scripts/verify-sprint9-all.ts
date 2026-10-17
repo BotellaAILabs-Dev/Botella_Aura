@@ -16,6 +16,7 @@
  *   Failure / retry                 verify:failure-recovery
  *   Content Studio regression       verify:content-studio, verify:publishing, verify:multi-publish
  *   Campaign / Outreach / Execution verify:instagram-api (+ unit tests)
+ *   Connection Manager              verify:connections
  *   Responsive UI                   verify:responsive
  *
  * Suites that need the live model or an image provider say what they could
@@ -40,6 +41,7 @@ const PLAN: { area: string; suites: string[] }[] = [
   { area: 'Failure / retry', suites: ['failure-recovery'] },
   { area: 'Content Studio regression', suites: ['content-studio', 'publishing', 'multi-publish'] },
   { area: 'Campaign / Outreach / Execution', suites: ['instagram-api'] },
+  { area: 'Connection Manager (Sprint 10 connections)', suites: ['connections'] },
   { area: 'Responsive UI', suites: ['responsive'] },
 ];
 

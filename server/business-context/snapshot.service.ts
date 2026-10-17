@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 
 import { db } from '@/lib/db';
+import { NOT_MIRRORED } from '@/lib/connection-manager';
 import { logger } from '@/lib/logger';
 import {
   SNAPSHOT_TTL_MS,
@@ -111,7 +112,7 @@ export async function computeSourceStamp(
       _count: { _all: true },
     }),
     db.connection.aggregate({
-      where: { companyId, status: 'CONNECTED' },
+      where: { companyId, status: 'CONNECTED', ...NOT_MIRRORED },
       _max: { updatedAt: true },
       _count: { _all: true },
     }),

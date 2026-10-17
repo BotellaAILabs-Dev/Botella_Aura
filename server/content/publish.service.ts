@@ -6,6 +6,7 @@ import { claimPublication, finishPublication, type Outcome } from '@/server/cont
 import { httpRequest } from '@/lib/http';
 import { logger } from '@/lib/logger';
 import { getPublishContext } from '@/server/services/linkedin.service';
+import { connectionGate, recordExecutionResult } from '@/server/connections/health.service';
 import {
   assertPublishable,
   DraftNotFoundError,
@@ -209,14 +210,43 @@ export async function publishTo(args: {
     return { mode: 'manual', text: renderForManual(draft), reason: setProblems.join(' ') };
   }
 
-  if (platform === 'INSTAGRAM') {
-    return publishToInstagram({ companyId, userId, draftId, draft, media });
-  }
-  if (platform === 'FACEBOOK') {
-    return publishToFacebook({ companyId, userId, draftId, draft, media });
-  }
-  if (platform === 'LINKEDIN') {
-    return publishToLinkedIn({ companyId, userId, draftId, draft, type, media });
+  if (platform === 'INSTAGRAM' || platform === 'FACEBOOK' || platform === 'LINKEDIN') {
+    // Connection Manager: the provider must support publishing on this
+    // channel, have been granted it, and be healthy (lib/capabilities.ts,
+    // lib/connection-health.ts). An unusable connection is never called.
+    const gate = await connectionGate(companyId, platform, draft.scheduledFor ? 'scheduling' : 'organic_publishing');
+    if (!gate.allowed) {
+      return { mode: 'reconnect', message: `${gate.reason ?? 'This connection can’t publish right now.'} Fix it in Connections.` };
+    }
+    let result: PublishResult;
+    try {
+      result =
+        platform === 'INSTAGRAM'
+          ? await publishToInstagram({ companyId, userId, draftId, draft, media })
+          : platform === 'FACEBOOK'
+            ? await publishToFacebook({ companyId, userId, draftId, draft, media })
+            : await publishToLinkedIn({ companyId, userId, draftId, draft, type, media });
+    } catch (err) {
+      const status = (err as { providerStatus?: number }).providerStatus;
+      await recordExecutionResult({
+        companyId,
+        platform,
+        ok: false,
+        error: err instanceof Error ? err.message : 'The network could not be reached.',
+        credentialRejected: status === 401,
+      });
+      throw err;
+    }
+    // Only a real attempt counts; a post refused before calling the network
+    // (no media, not connected) says nothing about the connection.
+    if (result.mode === 'published' || result.mode === 'processing') {
+      await recordExecutionResult({ companyId, platform, ok: true });
+    } else if (lastAttempt.get(draftId)) {
+      const attempt = lastAttempt.get(draftId)!;
+      lastAttempt.delete(draftId);
+      await recordExecutionResult({ companyId, platform, ok: false, error: attempt.message, credentialRejected: attempt.credentialRejected });
+    }
+    return result;
   }
 
   // X has no publishing integration in this codebase. Saying so is the honest
@@ -229,6 +259,12 @@ export async function publishTo(args: {
     }.`,
   };
 }
+
+/**
+ * A network attempt that failed and was turned into a manual fallback, kept
+ * for the execution record (keyed by draft, read once).
+ */
+const lastAttempt = new Map<string, { message: string; credentialRejected: boolean }>();
 
 /** A publish result as a publication record's outcome. */
 export function outcomeOf(result: PublishResult): Outcome {
@@ -466,8 +502,12 @@ async function postToLinkedIn(
     const detail = await res.text().catch(() => '');
     logger.error('LinkedIn publish failed', { status: res.status, detail: detail.slice(0, 300) });
     throw Object.assign(
-      new Error(`LinkedIn publish failed (${res.status}).`),
-      { status: 502 },
+      new Error(
+        res.status === 401
+          ? 'LinkedIn refused the stored credentials. Reconnect LinkedIn in Connections.'
+          : `LinkedIn publish failed (${res.status}).`,
+      ),
+      { status: 502, providerStatus: res.status },
     );
   }
   const urn = res.headers.get('x-restli-id') || res.headers.get('x-linkedin-id');
@@ -523,6 +563,7 @@ async function publishToFacebook(args: {
     return { mode: 'published', url: permalink };
   } catch (err) {
     if (err instanceof FacebookPublishError) {
+      lastAttempt.set(draftId, { message: err.message, credentialRejected: err.credentialRejected });
       logger.error('Facebook publish failed', { draftId, error: err.message });
       return { mode: 'manual', text: message, reason: err.message };
     }
@@ -597,6 +638,7 @@ async function publishToInstagram(args: {
     return { mode: 'published', url: outcome.url };
   } catch (err) {
     if (err instanceof InstagramPublishError) {
+      lastAttempt.set(draftId, { message: err.message, credentialRejected: err.credentialRejected });
       logger.error('Instagram publish failed', { draftId, error: err.message });
       return { mode: 'manual', text: caption, reason: err.message };
     }
