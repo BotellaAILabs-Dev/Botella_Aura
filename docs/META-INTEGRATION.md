@@ -41,8 +41,19 @@ Consequences, stated to users in the product:
 | `instagram_content_publish` | Publish the approved post — an image, a carousel (2–10 images/videos) or a Reel — to that Instagram account | Instagram publishing |
 | `business_management` | Pages owned through a Business Portfolio are only listed with it | Connect |
 
-Not requested: `read_insights`, `pages_manage_metadata`, `ads_*`,
-`instagram_manage_comments`, `pages_messaging` — Aura does not use them.
+**Optional, for detailed analytics** (requested only when
+`META_REQUEST_INSIGHTS=true`, after App Review):
+
+| Permission | Why | Used by |
+| --- | --- | --- |
+| `read_insights` | Impressions, unique impressions and clicks of the posts Aura published to the Page | Organic analytics |
+| `instagram_manage_insights` | Reach, views, shares and saves of the posts Aura published to Instagram | Organic analytics |
+
+Without them Aura still reads reactions, comments and shares (Facebook) and
+likes and comments (Instagram) with the permissions above.
+
+Never requested (out of V1 scope): `pages_manage_metadata`, `ads_*`,
+`instagram_manage_comments`, `instagram_manage_messages`, `pages_messaging`.
 
 **Human approval is built in.** Nothing is published without an owner or
 admin approving it in Aura first (docs/APPROVAL-MODEL.md); the approval
@@ -159,10 +170,36 @@ Instagram account — use test accounts.
 - [ ] **Advanced Access** requested for each permission (Standard Access is
       only for people with an app role).
 
-## 7. Status
+## 7. V1 scope
 
-| | |
+| In scope (V1) | Out of scope — blocked by the capability framework (`lib/capabilities.ts`) |
 | --- | --- |
-| Implemented and covered by automated tests (Graph API mocked) | token exchange, Page discovery and choice, no fallback to another Page, expiry warning, deauthorize, data deletion, Instagram carousels and Reels (including processing and finishing later), browser binding and PKCE parameters |
-| Tested against the real Graph API | **Not yet** — needs a Meta app, a test Page and a linked Instagram professional account (and file storage for Reels). PKCE with Meta and LinkedIn has not been tried against the real providers either. |
-| Meta approval | **Not granted** — App Review not yet submitted |
+| Facebook organic publishing (text, photo) | Ads |
+| Instagram organic publishing (image, carousel, Reel) | DMs / inbox |
+| Basic publishing status (the execution record: scheduled, publishing, published, failed, action required) | Social listening |
+| Organic analytics where supported (§2) | Influencer and competitor monitoring |
+| | Autonomous posting (every post is approved by a person) |
+
+## 8. Readiness — Code Complete → Integration Tested → Meta Review/Verification → Production Ready
+
+Production use depends on Meta: **until App Review and Business
+Verification are granted, the integration works only for people with a
+role on the Meta app** (development mode). This is a Meta dependency, not
+an engineering one.
+
+| Capability | Code complete | Integration tested | Meta review / verification | Production ready |
+| --- | --- | --- | --- | --- |
+| Connect (login, long-lived token, Page + Instagram discovery, permissions read from `/me/permissions`) | Yes | Automated (Graph mocked); a real Graph call with a refused token is exercised by `verify:connections`. A real successful login: **not yet** (needs `META_CLIENT_ID/SECRET` and a test Page) | Not submitted | No — needs review |
+| Correct Page / Instagram account identified (provider routing) | Yes | Automated, against the real database (`verify:execution`) | n/a | With the above |
+| Permissions validated (missing ones block publishing, named) | Yes | Automated (`verify:connections`, `verify:execution`) | n/a | With the above |
+| Facebook publishing | Yes | Automated (Graph mocked); a real call with a refused token handled (`verify:execution`). A real post: **not yet** | `pages_manage_posts` — not submitted | No |
+| Instagram publishing (image, carousel, Reel) | Yes | Automated (Graph mocked). A real post: **not yet** | `instagram_content_publish` — not submitted | No |
+| Basic publishing status | Yes | Automated (`verify:execution`) | n/a | Yes, once publishing is |
+| Organic analytics (engagement) | Yes | Automated (Graph mocked) | Uses the publishing permissions | With publishing |
+| Organic analytics (impressions, reach) | Yes, behind `META_REQUEST_INSIGHTS` | Automated (Graph mocked) | `read_insights`, `instagram_manage_insights` — not submitted | No |
+| Unsupported capabilities blocked | Yes | Automated | n/a | Yes |
+| Deauthorize / data deletion callbacks | Yes | Automated (signed requests) | Required for review | With review |
+
+To move a row to "Integration tested": set `META_CLIENT_ID`,
+`META_CLIENT_SECRET` (and `APP_URL` public), follow §5 with a test Page and
+a linked Instagram professional account, then run `pnpm verify:meta`.

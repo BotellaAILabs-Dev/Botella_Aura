@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { toLocalInput } from '@/lib/timezone';
 import { CalendarClock, ListPlus, AlertTriangle, ImageOff, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -50,6 +51,8 @@ interface Props {
   platformOptions: SocialPlatformKey[];
   media: ComposerMedia[];
   scheduledFor: string | null;
+  /** The workspace timezone the schedule is picked and shown in. */
+  timeZone?: string;
   canEdit: boolean;
 }
 
@@ -62,10 +65,11 @@ export function PostComposer({
   media,
   scheduledFor,
   canEdit,
+  timeZone = 'UTC',
 }: Props) {
   const router = useRouter();
   const [platform, setPlatform] = useState<SocialPlatformKey>(initialPlatform);
-  const [when, setWhen] = useState(toLocalInput(scheduledFor));
+  const [when, setWhen] = useState(toLocalInput(scheduledFor, timeZone));
   const [busy, setBusy] = useState(false);
 
   const spec = platformSpec(platform);
@@ -116,7 +120,8 @@ export function PostComposer({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           platform,
-          scheduledFor: when ? new Date(when).toISOString() : undefined,
+          // A wall time in the workspace's timezone (converted on the server).
+          ...(when ? { localTime: when, timeZone } : {}),
         }),
       });
       if (!res.ok) {
@@ -260,7 +265,9 @@ export function PostComposer({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="composer-when">Schedule (optional)</Label>
+            <Label htmlFor="composer-when">
+              Schedule (optional) <span className="font-normal text-muted-foreground">— {timeZone} time</span>
+            </Label>
             <input
               id="composer-when"
               type="datetime-local"
@@ -357,12 +364,4 @@ function localProblems(
   return problems;
 }
 
-/** ISO string → the value a datetime-local input expects (local time). */
-function toLocalInput(iso: string | null): string {
-  if (!iso) return '';
-  const date = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-    date.getDate(),
-  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
+

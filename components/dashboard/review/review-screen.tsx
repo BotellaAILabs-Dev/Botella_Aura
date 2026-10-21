@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { formatInZone } from '@/lib/timezone';
 import {
   ArrowLeft,
   CalendarClock,
@@ -391,7 +392,7 @@ export function ReviewScreen({
     if (!when) return;
     if (
       await act(
-        { action: 'schedule', scheduledFor: new Date(when).toISOString() },
+        { action: 'schedule', localTime: when, ...(item.timeZone ? { timeZone: item.timeZone } : {}) },
         'schedule',
       )
     ) {
@@ -738,7 +739,7 @@ export function ReviewScreen({
                 {item.scheduledFor && (
                   <Row label="Scheduled">
                     <time dateTime={item.scheduledFor} suppressHydrationWarning>
-                      {new Date(item.scheduledFor).toLocaleString()}
+                      {item.timeZone ? formatInZone(item.scheduledFor, item.timeZone) : new Date(item.scheduledFor).toLocaleString()}
                     </time>
                   </Row>
                 )}

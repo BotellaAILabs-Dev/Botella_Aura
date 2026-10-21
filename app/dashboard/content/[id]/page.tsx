@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
+import { formatInZone } from '@/lib/timezone';
+import { workspaceTimeZone } from '@/server/scheduling/schedule-input';
 import { ArrowLeft, Info } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
@@ -55,6 +57,8 @@ import { AgnesImageGenerator } from '@/components/dashboard/content/agnes-image-
 import { MultiPublish } from '@/components/dashboard/content/multi-publish';
 import { ExecutionReadiness } from '@/components/dashboard/content/execution-readiness';
 import { getExecutionHandoff } from '@/server/execution/execution-handoff.service';
+import { listExecutions } from '@/server/execution/execution-actions.service';
+import { ExecutionList } from '@/components/dashboard/execution/execution-list';
 import { googleImageProvider } from '@/server/media/providers/gemini';
 import { agnesImageProvider } from '@/server/media/providers/agnes';
 import { PostComposer } from '@/components/dashboard/content/post-composer';
@@ -93,11 +97,15 @@ export default async function DraftDetailPage({
   if (!draft) notFound();
 
   const membership = await getMembership(user.id, active.id);
+  // Scheduled times are picked and shown in the workspace's timezone.
+  const timeZone = await workspaceTimeZone(active.id);
   // Approved work: its Approval → Execution handoff, re-validated now.
   const executionHandoff =
     draft.status === 'APPROVED' || draft.status === 'PUBLISHED'
       ? await getExecutionHandoff(active.id, draft.id).catch(() => null)
       : null;
+  // Its executions (one per network), after the handoff has synced them.
+  const executions = await listExecutions({ companyId: active.id, draftId: draft.id });
   const canPublish = membership ? can(membership.role, 'content:publish') : false;
   // Editing covers the graphic studio and the composer: a MEMBER who can draft
   // content can also make its graphic and queue it for review.
@@ -291,6 +299,14 @@ export default async function DraftDetailPage({
           {/* One action, several networks: Facebook, Instagram, LinkedIn —
               also after publishing, for the history and to retry a failure. */}
           {executionHandoff && !copyOnly && <ExecutionReadiness handoff={executionHandoff} />}
+          {executions.length > 0 && !copyOnly && (
+            <Card>
+              <CardContent className="space-y-2 p-4">
+                <p className="text-sm font-medium text-foreground">Publishing status</p>
+                <ExecutionList executions={executions} timeZone={timeZone} canAct={canPublish} showContent={false} />
+              </CardContent>
+            </Card>
+          )}
 
           {!copyOnly && <MultiPublish draftId={draft.id} />}
 
@@ -305,6 +321,7 @@ export default async function DraftDetailPage({
               media={media}
               scheduledFor={draft.scheduledFor ? draft.scheduledFor.toISOString() : null}
               canEdit={canEdit}
+              timeZone={timeZone}
             />
           )}
 
@@ -327,6 +344,7 @@ export default async function DraftDetailPage({
                     ? { status: review.status, reasons: review.humanReviewReasons.length }
                     : null
                 }
+                timeZone={timeZone}
               />
             </CardContent>
           </Card>
@@ -401,10 +419,7 @@ export default async function DraftDetailPage({
                 </div>
               )}
               {draft.scheduledFor && (
-                <Row
-                  label="Scheduled"
-                  value={new Date(draft.scheduledFor).toLocaleString()}
-                />
+                <Row label="Scheduled" value={formatInZone(draft.scheduledFor, timeZone)} />
               )}
               {draft.rejectionReason && (
                 <Row label="Rejection reason" value={draft.rejectionReason} />

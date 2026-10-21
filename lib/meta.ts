@@ -39,6 +39,18 @@ export const META_SCOPES = [
   'business_management',
 ] as const;
 
+/**
+ * Organic analytics beyond likes/comments (impressions, reach). Needs Meta
+ * App Review, so requested only when META_REQUEST_INSIGHTS=true — before
+ * approval Meta grants them only to people with a role on the app.
+ */
+export const META_INSIGHTS_SCOPES = ['read_insights', 'instagram_manage_insights'] as const;
+
+/** What the Meta login asks for on this deployment. */
+export function metaRequestedScopes(env: Record<string, string | undefined> = process.env): string[] {
+  return [...META_SCOPES, ...(env.META_REQUEST_INSIGHTS === 'true' ? META_INSIGHTS_SCOPES : [])];
+}
+
 /** A Page the person administers, as stored on the connection (no tokens). */
 export interface MetaPage {
   id: string;

@@ -1,6 +1,8 @@
 import type { CompanyRole } from '@prisma/client';
 
 import { db } from '@/lib/db';
+import { resolveSchedule } from '@/server/scheduling/schedule-input';
+import { formatInZone } from '@/lib/timezone';
 import { can } from '@/lib/rbac';
 import { applyFields, bodyToFields, type ReviewKind } from '@/lib/review-item';
 import {
@@ -33,7 +35,7 @@ export type ReviewActionInput =
   | { action: 'submit' }
   | { action: 'approve'; confirmed?: boolean }
   | { action: 'reject'; reason?: string }
-  | { action: 'schedule'; scheduledFor: string };
+  | { action: 'schedule'; scheduledFor?: string; localTime?: string; timeZone?: string };
 
 const err = (message: string, status: number, code?: string) =>
   Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
@@ -165,19 +167,22 @@ export async function runReviewAction(args: {
       }
       case 'schedule': {
         need(role, 'content:publish', 'Only owners and admins can schedule.');
-        const when = new Date(input.scheduledFor);
-        if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) {
-          throw err('Pick a time in the future.', 422);
-        }
+        if (!input.localTime && !input.scheduledFor) throw err('Pick a time in the future.', 422);
+        const when = await resolveSchedule(
+          companyId,
+          input.localTime ? { localTime: input.localTime, ...(input.timeZone ? { timeZone: input.timeZone } : {}) } : { scheduledFor: input.scheduledFor },
+        );
         const t = await scheduleDraft({
           companyId,
           userId,
           draftId: id,
-          scheduledFor: when,
+          scheduledFor: when.at,
+          timeZone: when.timeZone,
+          local: when.local,
         });
         return {
           status: t.status,
-          message: `Scheduled for ${when.toISOString()}.`,
+          message: `Scheduled for ${formatInZone(when.at, when.timeZone)}.${when.note ? ` ${when.note}` : ''}`,
         };
       }
     }

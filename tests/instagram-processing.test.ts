@@ -41,6 +41,14 @@ vi.mock('@/lib/db', () => ({
     auditLog: { create: async ({ data }: any) => s.audits.push(data) },
   },
 }));
+// Execution routing and lifecycle (server/execution/*) are tested on their own.
+vi.mock('@/server/execution/routing.service', () => ({ routeExecution: async () => ({ ok: true }) }));
+vi.mock('@/server/execution/engine.service', () => ({
+  recordRoute: async () => undefined,
+  syncFromPublication: async () => null,
+  syncFromHandoff: async () => null,
+  noteSchedule: async () => undefined,
+}));
 // Connection Manager gate (server/connections/health.service.ts) is tested on its own.
 vi.mock('@/server/connections/health.service', () => ({
   connectionGate: async () => ({ allowed: true, noRecord: true, connectorId: null, health: null, reason: null, fix: null }),
@@ -127,7 +135,7 @@ describe('publishing to Instagram from Aura', () => {
     vi.stubGlobal('fetch', g.impl);
     s.media = [asset('VIDEO', 1)];
     const r = await publishTo({ companyId: 'co1', userId: 'u1', draft: s.draft, platform: 'INSTAGRAM' });
-    expect(r).toEqual({ mode: 'published', url: 'https://www.instagram.com/p/M1001/' });
+    expect(r).toEqual({ mode: 'published', url: 'https://www.instagram.com/p/M1001/', externalId: expect.any(String) });
     expect(g.calls[0]!.params).toMatchObject({ media_type: 'REELS', video_url: 'https://bucket.example/videos/co1/a1.mp4' });
 
     const g2 = fakeGraph(new Set());
@@ -215,7 +223,7 @@ describe('finishing what Instagram was processing', () => {
 
     g.status.set('1001', 'FINISHED');
     expect(await advanceProcessing()).toMatchObject({ published: 1 });
-    expect(s.pubs[0]).toMatchObject({ status: 'PUBLISHED', url: 'https://www.instagram.com/p/M1001/', externalId: null });
+    expect(s.pubs[0]).toMatchObject({ status: 'PUBLISHED', url: 'https://www.instagram.com/p/M1001/', externalId: expect.any(String) });
     expect(m.markPublished).toHaveBeenCalledWith(expect.objectContaining({ draftId: 'd1', publishedUrl: 'https://www.instagram.com/p/M1001/' }));
     expect(m.notifyUser).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u1', companyId: 'co1', text: expect.stringMatching(/live on Instagram/) }));
 

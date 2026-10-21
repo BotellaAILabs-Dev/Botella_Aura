@@ -112,8 +112,8 @@ const REGISTRY: Record<string, ProviderCapabilities> = {
         },
         organic_analytics: {
           level: 'supported',
-          scopes: [...PAGE_READ, 'read_insights'],
-          note: 'Page insights need the read_insights permission.',
+          scopes: [...PAGE_READ],
+          note: 'Reactions, comments and shares per post. Impressions and reach also need read_insights (App Review).',
         },
         ...META_NOT_IN_V1,
       },
@@ -130,8 +130,8 @@ const REGISTRY: Record<string, ProviderCapabilities> = {
         },
         organic_analytics: {
           level: 'supported',
-          scopes: ['instagram_basic', 'instagram_manage_insights'],
-          note: 'Instagram insights need the instagram_manage_insights permission.',
+          scopes: ['instagram_basic'],
+          note: 'Likes and comments per post. Reach, views and saves also need instagram_manage_insights (App Review).',
         },
         ...META_NOT_IN_V1,
       },

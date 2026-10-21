@@ -156,7 +156,7 @@ export async function connectCompany({
     create: { companyId, ...data },
     update: data,
   });
-  await syncLinkedInMirror(companyId, { userId });
+  await syncLinkedInMirror(companyId, { userId, fresh: true });
 
   await recordAudit({
     action: 'LINKEDIN_CONNECTED',

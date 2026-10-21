@@ -119,6 +119,8 @@ async function main() {
     { name: 'whatsapp-assistant', path: '/dashboard/whatsapp-assistant' },
     { name: 'connection-manager', path: '/dashboard/connections' },
     { name: 'connection-setup', path: '/dashboard/connections/meta/setup' },
+    { name: 'publishing', path: '/dashboard/executions' },
+    { name: 'settings', path: '/dashboard/settings' },
   ];
 
   fs.mkdirSync(SHOTS, { recursive: true });

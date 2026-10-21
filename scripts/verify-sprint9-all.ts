@@ -42,6 +42,7 @@ const PLAN: { area: string; suites: string[] }[] = [
   { area: 'Content Studio regression', suites: ['content-studio', 'publishing', 'multi-publish'] },
   { area: 'Campaign / Outreach / Execution', suites: ['instagram-api'] },
   { area: 'Connection Manager (Sprint 10 connections)', suites: ['connections'] },
+  { area: 'Execution engine (Sprint 10 execution)', suites: ['execution'] },
   { area: 'Responsive UI', suites: ['responsive'] },
 ];
 

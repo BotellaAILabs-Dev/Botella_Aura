@@ -2,6 +2,7 @@ import type { ContentDraft, Prisma } from '@prisma/client';
 
 import { db } from '@/lib/db';
 import { connectionGate } from '@/server/connections/health.service';
+import { syncFromHandoff } from '@/server/execution/engine.service';
 import { logger } from '@/lib/logger';
 import { approvalOf } from '@/lib/approval';
 import { versionLogOf } from '@/lib/versions';
@@ -142,7 +143,17 @@ export async function prepareExecutionHandoff(args: {
   now?: Date;
 }): Promise<ExecutionHandoff | null> {
   const draft = await db.contentDraft.findFirst({ where: { id: args.draftId, companyId: args.companyId } });
-  if (!draft || !approvalOf(draft.aiMetadata)?.approved) return null;
+  if (!draft) return null;
+  if (!approvalOf(draft.aiMetadata)?.approved || draft.status !== 'APPROVED' && draft.status !== 'PUBLISHED') {
+    // Not (or no longer) approved: executions waiting on it are cancelled.
+    try {
+      const waiting = await db.execution.findMany({ where: { contentDraftId: draft.id }, select: { platform: true } });
+      for (const w of waiting) await syncFromHandoff({ companyId: args.companyId, draftId: draft.id, platform: w.platform, userId: args.userId });
+    } catch (err) {
+      logger.warn('execution handoff: executions not updated', { draftId: draft.id, error: err instanceof Error ? err.message : String(err) });
+    }
+    return null;
+  }
   const platform = (args.platform ?? resolvePlatform(draft.type as ContentTypeKey, draft.platform)) as ExecutionPlatform;
   const facts = await gatherFacts(args.companyId, draft, platform);
   const handoff = buildExecutionHandoff(facts, args.now);
@@ -181,6 +192,8 @@ export async function prepareExecutionHandoff(args: {
     });
     if (status === 'READY') await executionService().accept(handoff);
   }
+  // The execution follows the handoff (lib/execution-state.ts).
+  await syncFromHandoff({ companyId: args.companyId, draftId: draft.id, platform, userId: args.userId });
   return handoff;
 }
 

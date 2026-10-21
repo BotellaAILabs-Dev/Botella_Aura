@@ -2,6 +2,7 @@ import { requireActiveCompany } from '@/lib/auth-helpers';
 import { can } from '@/lib/rbac';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 import { queueDraftSchema } from '@/lib/validations/media';
+import { resolveSchedule, scheduleInputSchema } from '@/server/scheduling/schedule-input';
 import { queueDraft, getDraft } from '@/server/content/content.service';
 import { getAttachedMedia } from '@/server/media/asset.service';
 import { resolvePlatform, platformSpec } from '@/lib/platforms';
@@ -26,15 +27,30 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return jsonError('Your role is read-only and cannot queue posts.', 403);
     }
 
-    const input = queueDraftSchema.parse(await req.json().catch(() => ({})));
+    const raw = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const input = queueDraftSchema.parse(raw);
+    const hasTime = typeof raw.localTime === 'string' || Boolean(input.scheduledFor);
 
     const existing = await getDraft(company.id, params.id);
     if (!existing) return jsonError('Draft not found', 404);
     // An APPROVED post keeps its approval here, so giving it a time IS
     // scheduling its publication — the same permission as /schedule.
-    if (existing.status === 'APPROVED' && input.scheduledFor && !can(membership.role, 'content:publish')) {
+    if (existing.status === 'APPROVED' && hasTime && !can(membership.role, 'content:publish')) {
       return jsonError('Only people who can publish can schedule an approved post.', 403);
     }
+    // A time given as a wall time in the workspace's zone (or an exact instant);
+    // validated after the permission check, so a refusal is about the role first.
+    const when =
+      hasTime
+        ? await resolveSchedule(
+            company.id,
+            scheduleInputSchema.parse(
+              typeof raw.localTime === 'string'
+                ? { localTime: raw.localTime, ...(typeof raw.timeZone === 'string' ? { timeZone: raw.timeZone } : {}) }
+                : { scheduledFor: input.scheduledFor },
+            ),
+          )
+        : null;
     if (isCopyOnlyType(existing.type as ContentTypeKey)) {
       return jsonError(
         'Email and ad copy are sent from your email tool or ad manager, not queued for publishing — copy it out instead.',
@@ -76,7 +92,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       userId: user.id,
       draftId: params.id,
       platform,
-      ...(input.scheduledFor ? { scheduledFor: new Date(input.scheduledFor) } : {}),
+      ...(when ? { scheduledFor: when.at, timeZone: when.timeZone, local: when.local } : {}),
     });
 
     return jsonOk({
@@ -84,6 +100,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       status: draft.status,
       platform: draft.platform,
       scheduledFor: draft.scheduledFor,
+      ...(when ? { timeZone: when.timeZone, local: when.local, note: when.note } : {}),
       mediaCount: media.length,
     });
   } catch (error) {

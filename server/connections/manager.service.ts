@@ -210,7 +210,11 @@ export async function confirmConnection(args: { companyId: string; userId: strin
  * after every LinkedIn connect, status change and disconnect. Never throws —
  * a mirror that lags is corrected by the next sync or health check.
  */
-export async function syncLinkedInMirror(companyId: string, opts: { userId?: string | null } = {}): Promise<void> {
+export async function syncLinkedInMirror(
+  companyId: string,
+  /** `fresh`: a new sign-in just happened (connectCompany) — a new member must confirm. */
+  opts: { userId?: string | null; fresh?: boolean } = {},
+): Promise<void> {
   try {
     const li = await db.linkedInConnection.findUnique({ where: { companyId } });
     if (!li) {
@@ -225,13 +229,17 @@ export async function syncLinkedInMirror(companyId: string, opts: { userId?: str
       li.status === 'ACTIVE' ? 'CONNECTED' : li.status === 'EXPIRED' ? 'EXPIRED' : li.status === 'ERROR' ? 'ERROR' : li.status === 'REVOKED' ? 'REVOKED' : 'DISCONNECTED';
     const scopes = parseScopes(li.scope);
     const channels = connectorChannels(LINKEDIN_CONNECTOR_ID);
-    // The same member reconnecting keeps their confirmation; anyone else confirms afresh.
+    // The same member reconnecting keeps their confirmation; anyone else
+    // confirms afresh. A connection made before the Connection Manager (no
+    // record, not a new sign-in) was already in use: it stays confirmed.
     const setupStage: SetupStage =
       li.status === 'PENDING'
         ? 'AUTHORIZED'
-        : existing?.setupStage === 'CONFIRMED' && existing.providerAccountId === li.linkedInUserId
+        : !existing && !opts.fresh
           ? 'CONFIRMED'
-          : 'ACCOUNT_SELECTED';
+          : existing?.setupStage === 'CONFIRMED' && existing.providerAccountId === li.linkedInUserId
+            ? 'CONFIRMED'
+            : 'ACCOUNT_SELECTED';
     const missing = missingRequiredScopes(LINKEDIN_CONNECTOR_ID, scopes, channels);
     const expired = status === 'EXPIRED' || Boolean(li.expiresAt && li.expiresAt < new Date());
     const health =

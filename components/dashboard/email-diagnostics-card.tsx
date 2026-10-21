@@ -122,7 +122,7 @@ export function EmailDiagnosticsCard() {
         {status.problems.length > 0 && (
           <ul className="ml-5 list-disc space-y-1 text-muted-foreground">
             {status.problems.map((p) => (
-              <li key={p}>{p}</li>
+              <li key={p} className="break-words [overflow-wrap:anywhere]">{p}</li>
             ))}
           </ul>
         )}

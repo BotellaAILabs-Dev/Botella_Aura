@@ -259,7 +259,8 @@ export interface InstagramItem {
 }
 
 export type InstagramOutcome =
-  | { state: 'published'; url: string | null }
+  /** `mediaId`: Instagram's id for the post (insights are read with it). */
+  | { state: 'published'; url: string | null; mediaId?: string | null }
   /** Accepted, still processing: "container:<id>" or "children:<id>,<id>". */
   | { state: 'processing'; externalId: string };
 
@@ -323,7 +324,7 @@ async function waitAll(
 
 async function publishFinished(context: InstagramContext, containerId: string): Promise<InstagramOutcome> {
   const mediaId = await publishContainer(context, containerId);
-  return { state: 'published', url: await fetchPermalink(context, mediaId) };
+  return { state: 'published', url: await fetchPermalink(context, mediaId), mediaId };
 }
 
 /** From finished children: the carousel container, then (if ready) publish. */

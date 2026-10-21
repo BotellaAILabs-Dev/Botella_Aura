@@ -31,6 +31,8 @@ import { getWorkspaceProfile } from '@/server/company/profile.service';
 import { TeamManager } from '@/components/dashboard/team-manager';
 import { EmailDiagnosticsCard } from '@/components/dashboard/email-diagnostics-card';
 import { Button } from '@/components/ui/button';
+import { TimezoneCard } from '@/components/dashboard/settings/timezone-card';
+import { safeTimeZone } from '@/lib/timezone';
 import {
   Card,
   CardContent,
@@ -71,6 +73,8 @@ export default async function SettingsPage() {
           </Button>
         }
       />
+
+      <TimezoneCard initial={safeTimeZone(company.timezone)} canEdit={canEdit} />
 
       {/* Business details live on About my business, the one place they are
           shown and edited — with where each came from and what is missing. */}

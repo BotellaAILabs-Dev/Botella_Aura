@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { formatInZone } from '@/lib/timezone';
 import {
   Send,
   Check,
@@ -56,6 +57,8 @@ interface Props {
    * confirm they looked.
    */
   review?: { status: 'pass' | 'review_required' | 'fail'; reasons: number } | null;
+  /** The workspace timezone: the time picked is in it, whoever is picking. */
+  timeZone?: string;
 }
 
 export function DraftActions({
@@ -71,6 +74,7 @@ export function DraftActions({
   factCheck = null,
   review = null,
   updatedAt,
+  timeZone = 'UTC',
 }: Props) {
   const [factsReviewed, setFactsReviewed] = useState(false);
   const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
@@ -225,13 +229,15 @@ export function DraftActions({
 
   async function schedule() {
     if (!scheduledFor) return;
-    const res = await call(
-      `/api/content/drafts/${draftId}/schedule`,
-      { scheduledFor: new Date(scheduledFor).toISOString() },
-      'schedule',
-    );
+    // A wall time in the workspace's timezone — converted on the server, so
+    // it means the same whichever timezone this browser is in.
+    const res = await call(`/api/content/drafts/${draftId}/schedule`, { localTime: scheduledFor, timeZone }, 'schedule');
     if (res) {
-      toast.success('Scheduled.');
+      const body = (await res.clone().json().catch(() => ({}))) as { scheduledFor?: string; note?: string | null };
+      toast.success(
+        `Scheduled for ${body.scheduledFor ? formatInZone(body.scheduledFor, timeZone) : scheduledFor}.${body.note ? ` ${body.note}` : ''}`,
+        { duration: 8000 },
+      );
       setScheduleOpen(false);
       router.refresh();
     }
@@ -393,7 +399,9 @@ export function DraftActions({
       {scheduleOpen && status === 'APPROVED' && (
         <div className="flex flex-wrap items-end gap-2 rounded-md border border-border p-3">
           <div className="space-y-1">
-            <Label htmlFor="sched">Publish at</Label>
+            <Label htmlFor="sched">
+              Publish at <span className="font-normal text-muted-foreground">({timeZone} time)</span>
+            </Label>
             <input
               id="sched"
               type="datetime-local"

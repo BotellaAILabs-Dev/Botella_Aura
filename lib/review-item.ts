@@ -92,6 +92,8 @@ export interface ReviewItem {
   statusLabel: string;
   rejectionReason: string | null;
   scheduledFor: string | null;
+  /** The workspace timezone scheduled times are picked and shown in. */
+  timeZone?: string | null;
   updatedAt: string;
   /** The generated content, field by field. */
   fields: ReviewField[];

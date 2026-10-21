@@ -151,6 +151,14 @@ export const NAV_ITEMS: NavItem[] = [
     description: 'Write posts in your voice, add a graphic, and queue them up.',
   },
   {
+    label: 'Publishing',
+    href: '/dashboard/executions',
+    section: 'create',
+    icon: Send,
+    ready: true,
+    description: 'Everything approved to publish: scheduled, publishing, published, and what needs you.',
+  },
+  {
     label: 'Campaigns',
     href: '/dashboard/campaigns',
     section: 'create',

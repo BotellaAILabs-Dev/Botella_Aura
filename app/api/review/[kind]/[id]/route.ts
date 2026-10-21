@@ -39,7 +39,10 @@ const actionSchema = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('schedule'),
-    scheduledFor: z.string().datetime(),
+    // An exact instant, or a wall time in the workspace's timezone.
+    scheduledFor: z.string().datetime({ offset: true }).optional(),
+    localTime: z.string().trim().max(32).optional(),
+    timeZone: z.string().trim().max(64).optional(),
   }),
 ]);
 

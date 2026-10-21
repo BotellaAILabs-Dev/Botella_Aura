@@ -135,6 +135,15 @@ export async function publishFacebookPost(args: {
   message: string;
   imageUrl?: string | null;
 }): Promise<string | null> {
+  return (await publishFacebookPostWithId(args)).url;
+}
+
+/** As publishFacebookPost, also returning Facebook's id for the post (for insights). */
+export async function publishFacebookPostWithId(args: {
+  context: FacebookContext;
+  message: string;
+  imageUrl?: string | null;
+}): Promise<{ url: string | null; postId: string | null }> {
   const { context, message, imageUrl } = args;
 
   // /photos both uploads and publishes; /feed is the text-only equivalent.
@@ -172,9 +181,9 @@ export async function publishFacebookPost(args: {
   // A photo post returns both the photo id and the story's post_id; the story
   // is the thing a human can open, so prefer it.
   const postId = body.post_id ?? body.id;
-  if (!postId) return null;
+  if (!postId) return { url: null, postId: null };
 
-  return fetchPermalink(context, postId);
+  return { url: await fetchPermalink(context, postId), postId };
 }
 
 async function fetchPermalink(

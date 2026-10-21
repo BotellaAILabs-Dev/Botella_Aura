@@ -492,6 +492,11 @@ export async function updateDraftBody(args: {
       throw err;
     });
   if (draft.status === 'APPROVED') await syncCampaignTask(draft.id, nextStatus);
+  // An approved post edited back to a draft: its execution is cancelled.
+  if (draft.status === 'APPROVED') {
+    const { refreshExecutionHandoff } = await import('@/server/execution/execution-handoff.service');
+    await refreshExecutionHandoff({ companyId: args.companyId, draftId: draft.id, userId: args.userId });
+  }
   await recordAudit({
     action: 'CONTENT_CHANGES_REQUESTED',
     userId: args.userId,
@@ -507,6 +512,9 @@ export async function scheduleDraft(args: {
   userId: string;
   draftId: string;
   scheduledFor: Date;
+  /** The zone and wall time the person picked (server/scheduling/schedule-input.ts). */
+  timeZone?: string;
+  local?: string | null;
 }): Promise<ContentDraft> {
   const draft = await loadOwned(args.companyId, args.draftId);
   if (isCopyOnlyType(draft.type as ContentTypeKey)) {
@@ -543,9 +551,18 @@ export async function scheduleDraft(args: {
     action: 'CONTENT_SCHEDULED',
     userId: args.userId,
     companyId: args.companyId,
-    metadata: { draftId: draft.id, scheduledFor: args.scheduledFor.toISOString() },
+    metadata: {
+      draftId: draft.id,
+      scheduledFor: args.scheduledFor.toISOString(),
+      ...(args.timeZone ? { timeZone: args.timeZone, local: args.local ?? null } : {}),
+    },
   });
-  // The execution handoff carries the scheduled time.
+  // The zone and wall time stay with the execution; then the execution handoff
+  // carries the scheduled time (and the execution becomes Scheduled).
+  if (args.timeZone) {
+    const { noteSchedule } = await import('@/server/execution/engine.service');
+    await noteSchedule({ companyId: args.companyId, draftId: draft.id, timeZone: args.timeZone, local: args.local ?? null });
+  }
   const { refreshExecutionHandoff } = await import('@/server/execution/execution-handoff.service');
   await refreshExecutionHandoff({ companyId: args.companyId, draftId: draft.id, userId: args.userId });
   return updated;
@@ -574,6 +591,8 @@ export async function queueDraft(args: {
   draftId: string;
   platform?: SocialPlatform;
   scheduledFor?: Date;
+  timeZone?: string;
+  local?: string | null;
 }): Promise<ContentDraft> {
   const draft = await loadOwned(args.companyId, args.draftId);
   if (draft.status === 'PUBLISHED') {
@@ -615,6 +634,16 @@ export async function queueDraft(args: {
     where: { id: draft.id },
     data,
   });
+
+  if (args.scheduledFor && args.timeZone) {
+    const { noteSchedule } = await import('@/server/execution/engine.service');
+    await noteSchedule({ companyId: args.companyId, draftId: draft.id, timeZone: args.timeZone, local: args.local ?? null });
+  }
+  // An approved post given a time: its execution becomes Scheduled.
+  if (updated.status === 'APPROVED' && args.scheduledFor) {
+    const { refreshExecutionHandoff } = await import('@/server/execution/execution-handoff.service');
+    await refreshExecutionHandoff({ companyId: args.companyId, draftId: draft.id, userId: args.userId });
+  }
 
   await recordAudit({
     action: 'CONTENT_QUEUED',

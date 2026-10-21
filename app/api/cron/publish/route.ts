@@ -1,5 +1,7 @@
 import { runScheduledPublishes } from '@/server/content/publish.service';
 import { advanceProcessing } from '@/server/content/processing.service';
+import { runExecutionSweep } from '@/server/execution/execution-actions.service';
+import { collectMetaInsights } from '@/server/connectors/meta-insights.service';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 
 /**
@@ -21,7 +23,11 @@ export async function POST(req: Request) {
     }
     const result = await runScheduledPublishes();
     const processing = await advanceProcessing();
-    return jsonOk({ ...result, processing });
+    // Rate-limited executions whose backoff is over (lib/execution-state.ts).
+    const retries = await runExecutionSweep();
+    // Organic analytics for recent Facebook/Instagram posts (where supported).
+    const insights = await collectMetaInsights().catch(() => null);
+    return jsonOk({ ...result, processing, retries, insights });
   } catch (error) {
     return handleRouteError(error);
   }

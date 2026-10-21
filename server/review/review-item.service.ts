@@ -5,6 +5,7 @@ import type {
 } from '@prisma/client';
 
 import { db } from '@/lib/db';
+import { workspaceTimeZone } from '@/server/scheduling/schedule-input';
 import { can } from '@/lib/rbac';
 import { CONTENT_TYPE_LABELS, CONTENT_STATUS_LABELS } from '@/lib/content-ui';
 import { visualFor, type ContentBrief } from '@/lib/content-brief';
@@ -641,9 +642,8 @@ export async function getReviewItem(
   id: string,
   role: CompanyRole,
 ): Promise<ReviewItem | null> {
-  return kind === 'content'
-    ? contentReviewItem(companyId, id, role)
-    : outreachReviewItem(companyId, id, role);
+  const item = kind === 'content' ? await contentReviewItem(companyId, id, role) : await outreachReviewItem(companyId, id, role);
+  return item ? { ...item, timeZone: await workspaceTimeZone(companyId) } : null;
 }
 
 // ---------------------------------------------------------------------------

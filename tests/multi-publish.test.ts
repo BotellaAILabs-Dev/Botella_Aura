@@ -57,6 +57,14 @@ vi.mock('@/lib/db', () => ({
     auditLog: { create: async ({ data }: any) => s.audits.push(data) },
   },
 }));
+// Execution routing and lifecycle (server/execution/*) are tested on their own.
+vi.mock('@/server/execution/routing.service', () => ({ routeExecution: async () => ({ ok: true }) }));
+vi.mock('@/server/execution/engine.service', () => ({
+  recordRoute: async () => undefined,
+  syncFromPublication: async () => null,
+  syncFromHandoff: async () => null,
+  noteSchedule: async () => undefined,
+}));
 // Connection Manager gate (server/connections/health.service.ts) is tested on its own.
 vi.mock('@/server/connections/health.service', () => ({
   connectionGate: async () => ({ allowed: true, noRecord: true, connectorId: null, health: null, reason: null, fix: null }),

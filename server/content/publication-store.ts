@@ -1,6 +1,8 @@
 import { Prisma, type ContentPublication, type SocialPlatform } from '@prisma/client';
 
 import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
+import { syncFromPublication } from '@/server/execution/engine.service';
 
 /**
  * Publication records (ContentPublication): one per (piece, network). The
@@ -38,8 +40,26 @@ export async function claimPublication(args: {
   userId: string | null;
   /** The scheduler: may start a first attempt, never retry one. */
   automatic?: boolean;
+  /**
+   * The scheduler retrying an attempt the provider refused with "slow down"
+   * (rate limit) — the only automatic retry: the provider answered, so the
+   * post certainly did not go out (server/execution/execution-actions.service.ts).
+   */
+  retry?: boolean;
   now?: Date;
 }): Promise<ClaimResult> {
+  const result = await claim(args);
+  // The execution lifecycle follows; bookkeeping never blocks the claim.
+  await followExecution(async () => {
+    if (result.claimed) await syncFromPublication(result.publication, { automatic: args.automatic, event: 'claimed' });
+    else if (result.reason === 'interrupted' || result.reason === 'already_published') {
+      await syncFromPublication(result.publication, { automatic: args.automatic, event: 'refused' });
+    }
+  });
+  return result;
+}
+
+async function claim(args: Parameters<typeof claimPublication>[0]): Promise<ClaimResult> {
   const now = args.now ?? new Date();
   const key = { contentDraftId_platform: { contentDraftId: args.draftId, platform: args.platform } };
   const attempt = { status: 'PUBLISHING' as const, startedAt: now, contentHash: args.contentHash, message: null, requestedById: args.userId };
@@ -73,8 +93,8 @@ export async function claimPublication(args: {
       if (interrupted.count === 1) return { claimed: false, reason: 'interrupted', publication: after };
       continue;
     }
-    // FAILED or MANUAL: only a person retries.
-    if (args.automatic) return { claimed: false, reason: 'needs_person', publication: existing };
+    // FAILED or MANUAL: only a person retries (or the scheduler's rate-limit retry).
+    if (args.automatic && !args.retry) return { claimed: false, reason: 'needs_person', publication: existing };
     const won = await db.contentPublication.updateMany({
       where: { id: existing.id, status: existing.status, updatedAt: existing.updatedAt },
       data: { ...attempt, attempts: existing.attempts + 1 },
@@ -86,23 +106,40 @@ export async function claimPublication(args: {
 }
 
 export type Outcome =
-  | { status: 'PUBLISHED'; url: string | null }
+  | { status: 'PUBLISHED'; url: string | null; externalId?: string | null }
   | { status: 'PROCESSING'; externalId: string; message: string }
   | { status: 'MANUAL'; message: string }
   | { status: 'FAILED'; message: string };
 
 /** Record what the network said. Only the attempt that holds the claim writes. */
 export async function finishPublication(id: string, outcome: Outcome, now: Date = new Date()): Promise<void> {
-  await db.contentPublication.updateMany({
+  const written = await db.contentPublication.updateMany({
     where: { id, status: 'PUBLISHING' },
     data:
       outcome.status === 'PUBLISHED'
-        ? { status: 'PUBLISHED', url: outcome.url, publishedAt: now, message: null, externalId: null }
+        ? // The network's id for the post (insights are read with it).
+          { status: 'PUBLISHED', url: outcome.url, publishedAt: now, message: null, externalId: outcome.externalId ?? null }
         : outcome.status === 'PROCESSING'
           ? // Released at once (startedAt null): the sweep may check it next.
             { status: 'PROCESSING', externalId: outcome.externalId, message: outcome.message.slice(0, 2000), startedAt: null }
           : { status: outcome.status, message: outcome.message.slice(0, 2000), externalId: null },
   });
+  if (written.count === 1) {
+    await followExecution(async () => {
+      const row = await db.contentPublication.findUnique({ where: { id } });
+      // FAILED comes from a thrown error (the outcome may be unknown); MANUAL from an answer.
+      if (row) await syncFromPublication(row, { thrown: outcome.status === 'FAILED', providerExternalId: outcome.status === 'PUBLISHED' ? (outcome.externalId ?? null) : null, event: 'finished' });
+    });
+  }
+}
+
+/** The execution record follows a publication; never at the publication's expense. */
+async function followExecution(fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    logger.warn('publication: execution record not updated', { error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 export function listPublications(companyId: string, draftId: string) {

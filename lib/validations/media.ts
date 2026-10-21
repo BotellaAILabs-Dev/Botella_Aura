@@ -140,13 +140,11 @@ export const detachGraphicSchema = z.object({
 /** Push a composed post (content + media + platform + time) into the queue. */
 export const queueDraftSchema = z.object({
   platform: z.enum(SOCIAL_PLATFORMS).optional(),
-  scheduledFor: z
-    .string()
-    .datetime()
-    .refine((value) => new Date(value).getTime() > Date.now(), {
-      message: 'Pick a time in the future',
-    })
-    .optional(),
+  /** An exact instant; validated (future, within a year) by server/scheduling/schedule-input.ts. */
+  scheduledFor: z.string().datetime({ offset: true }).optional(),
+  /** Or a wall time in the workspace's timezone. */
+  localTime: z.string().trim().max(32).optional(),
+  timeZone: z.string().trim().max(64).optional(),
 });
 
 export type GenerateImagePromptInput = z.infer<typeof generateImagePromptSchema>;

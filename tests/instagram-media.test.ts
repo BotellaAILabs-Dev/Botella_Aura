@@ -160,7 +160,7 @@ describe('Instagram carousels', () => {
     expect(creates[0]!.path).toBe(`/${context.igUserId}/media`);
     expect(g.publishes()).toHaveLength(1);
     expect(g.publishes()[0]!.params.creation_id).toBe('1004');
-    expect(r).toEqual({ state: 'published', url: 'https://www.instagram.com/p/M1004/' });
+    expect(r).toEqual({ state: 'published', url: 'https://www.instagram.com/p/M1004/', mediaId: expect.any(String) });
     // The caption goes on the carousel only, never on the items.
     expect(creates.slice(0, 3).some((c) => 'caption' in c.params)).toBe(false);
   });
@@ -198,7 +198,7 @@ describe('Instagram Reels', () => {
     expect(await continueInstagramPost({ context, externalId: 'container:1001', caption: 'x' })).toEqual({ state: 'processing', externalId: 'container:1001' });
     g.status.set('1001', 'FINISHED');
     const done = await continueInstagramPost({ context, externalId: 'container:1001', caption: 'x' });
-    expect(done).toEqual({ state: 'published', url: 'https://www.instagram.com/p/M1001/' });
+    expect(done).toEqual({ state: 'published', url: 'https://www.instagram.com/p/M1001/', mediaId: expect.any(String) });
     expect(g.publishes()).toHaveLength(1);
     // Already published by an attempt that could not record it: live, not re-posted.
     expect(await continueInstagramPost({ context, externalId: 'container:1001', caption: 'x' })).toEqual({ state: 'published', url: null });

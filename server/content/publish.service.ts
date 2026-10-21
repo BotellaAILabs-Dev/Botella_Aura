@@ -6,7 +6,10 @@ import { claimPublication, finishPublication, type Outcome } from '@/server/cont
 import { httpRequest } from '@/lib/http';
 import { logger } from '@/lib/logger';
 import { getPublishContext } from '@/server/services/linkedin.service';
-import { connectionGate, recordExecutionResult } from '@/server/connections/health.service';
+import { recordExecutionResult } from '@/server/connections/health.service';
+import { routeExecution } from '@/server/execution/routing.service';
+import { recordRoute } from '@/server/execution/engine.service';
+import { apiSupportsFormat } from '@/lib/execution-routing';
 import {
   assertPublishable,
   DraftNotFoundError,
@@ -26,7 +29,7 @@ import {
 } from '@/server/media/publishers/linkedin-image';
 import {
   getFacebookContext,
-  publishFacebookPost,
+  publishFacebookPostWithId,
   FacebookPublishError,
 } from '@/server/media/publishers/facebook';
 import {
@@ -76,7 +79,8 @@ const LINKEDIN_API_VERSION = process.env.LINKEDIN_API_VERSION || '202503';
 const INSTAGRAM_ASSET_URL_TTL_MS = 15 * 60 * 1000;
 
 export type PublishResult =
-  | { mode: 'published'; url: string | null }
+  /** `externalId`: the network's id for the post, when it gives one. */
+  | { mode: 'published'; url: string | null; externalId?: string | null }
   | { mode: 'manual'; text: string; reason: string }
   | { mode: 'reconnect'; message: string }
   /**
@@ -105,14 +109,11 @@ export function canAutoPublishTo(
   type: ContentTypeKey,
   platform: SocialPlatformKey,
 ): boolean {
-  if (isCopyOnlyType(type)) return false; // copied out, never posted
-  if (platform === 'INSTAGRAM') return true; // needs media; checked at publish
-  // A Page post is a message plus an optional photo, so anything that renders
-  // to text qualifies — including a carousel, which posts as its first image.
-  if (platform === 'FACEBOOK') return true;
-  if (platform === 'LINKEDIN')
-    return type === 'LINKEDIN_POST' || type === 'IMAGE_POST';
-  return false;
+  // One rule, shared with provider routing (lib/execution-routing.ts): copy-only
+  // types never post; Instagram needs media (checked at publish); a Facebook
+  // Page post is text plus an optional photo, so any format qualifies (a
+  // carousel posts as its first image); LinkedIn's API takes posts and images.
+  return apiSupportsFormat(type, platform);
 }
 
 interface PublishArgs {
@@ -211,12 +212,21 @@ export async function publishTo(args: {
   }
 
   if (platform === 'INSTAGRAM' || platform === 'FACEBOOK' || platform === 'LINKEDIN') {
-    // Connection Manager: the provider must support publishing on this
-    // channel, have been granted it, and be healthy (lib/capabilities.ts,
-    // lib/connection-health.ts). An unusable connection is never called.
-    const gate = await connectionGate(companyId, platform, draft.scheduledFor ? 'scheduling' : 'organic_publishing');
-    if (!gate.allowed) {
-      return { mode: 'reconnect', message: `${gate.reason ?? 'This connection can’t publish right now.'} Fix it in Connections.` };
+    // Provider routing (lib/execution-routing.ts): channel → provider →
+    // connection → permissions and health → the page/profile it posts as.
+    // Recorded on the execution; an unusable route never reaches the network.
+    const route = await routeExecution({
+      companyId,
+      platform,
+      contentType: type,
+      capability: draft.scheduledFor ? 'scheduling' : 'organic_publishing',
+      record: { draftId, userId },
+    });
+    await recordRoute({ companyId, draftId, platform, route, userId });
+    // "Not connected" and "this format can't go there" are explained by the
+    // publisher below, with the post copied for doing it by hand.
+    if (!route.ok && route.code !== 'not_connected' && route.code !== 'unsupported_content_type') {
+      return { mode: 'reconnect', message: `${route.message} Fix it in Connections.` };
     }
     let result: PublishResult;
     try {
@@ -268,7 +278,7 @@ const lastAttempt = new Map<string, { message: string; credentialRejected: boole
 
 /** A publish result as a publication record's outcome. */
 export function outcomeOf(result: PublishResult): Outcome {
-  if (result.mode === 'published') return { status: 'PUBLISHED', url: result.url };
+  if (result.mode === 'published') return { status: 'PUBLISHED', url: result.url, externalId: result.externalId ?? null };
   if (result.mode === 'processing') return { status: 'PROCESSING', externalId: result.externalId, message: result.message };
   if (result.mode === 'reconnect') return { status: 'MANUAL', message: result.message };
   return { status: 'MANUAL', message: result.reason };
@@ -286,13 +296,25 @@ export async function publishDraft({
   userId,
   draftId,
   automatic = false,
+  retry = false,
+  platform: only,
 }: PublishArgs & {
-  /** The scheduler: starts a first attempt, never retries a failed one. */
+  /** The scheduler: starts a first attempt, never retries a failed one… */
   automatic?: boolean;
+  /** …except a rate-limited one the execution engine scheduled a retry for. */
+  retry?: boolean;
+  /**
+   * Another network the piece was approved for (an execution retry). Default:
+   * the draft's own network. Once one network has it the piece is PUBLISHED,
+   * and the others may still go.
+   */
+  platform?: SocialPlatformKey;
 }): Promise<PublishResult> {
   const draft = await getDraft(companyId, draftId);
   if (!draft) throw new DraftNotFoundError();
-  assertPublishable(draft); // hard gate — must be APPROVED
+  const ownPlatform = resolvePlatform(draft.type as ContentTypeKey, draft.platform);
+  const secondNetwork = Boolean(only && only !== ownPlatform && draft.status === 'PUBLISHED');
+  if (!secondNetwork) assertPublishable(draft); // hard gate — must be APPROVED
   // …and exactly what was approved: text, network and images.
   await assertContentIntact(draft);
 
@@ -309,7 +331,7 @@ export async function publishDraft({
           : 'Ads are set up in the ad manager. The ad copy is copied — paste it there.',
     };
   }
-  const platform = resolvePlatform(type, draft.platform);
+  const platform = only ?? ownPlatform;
 
   // Claimed before the network is called: two clicks, two tabs, or a click
   // racing the scheduler can no longer post it twice.
@@ -320,6 +342,7 @@ export async function publishDraft({
     contentHash: await contentHash(draft),
     userId,
     automatic,
+    retry,
   });
   if (!claim.claimed) {
     if (claim.reason === 'already_published') return { mode: 'published', url: claim.publication.url };
@@ -337,7 +360,7 @@ export async function publishDraft({
     throw err;
   }
   await finishPublication(claim.publication.id, outcomeOf(result));
-  if (result.mode === 'published') {
+  if (result.mode === 'published' && draft.status === 'APPROVED') {
     await markPublished({ companyId, userId, draftId, publishedUrl: result.url });
   }
   return result;
@@ -553,14 +576,14 @@ async function publishToFacebook(args: {
     : null;
 
   try {
-    const permalink = await publishFacebookPost({
+    const posted = await publishFacebookPostWithId({
       context,
       // Facebook truncates far later than this, but the same cap keeps a post
       // identical across networks rather than subtly longer on one of them.
       message: message.slice(0, 2200),
       imageUrl,
     });
-    return { mode: 'published', url: permalink };
+    return { mode: 'published', url: posted.url, externalId: posted.postId };
   } catch (err) {
     if (err instanceof FacebookPublishError) {
       lastAttempt.set(draftId, { message: err.message, credentialRejected: err.credentialRejected });
@@ -635,7 +658,7 @@ async function publishToInstagram(args: {
     if (outcome.state === 'processing') {
       return { mode: 'processing', externalId: outcome.externalId, message: PROCESSING_MESSAGE };
     }
-    return { mode: 'published', url: outcome.url };
+    return { mode: 'published', url: outcome.url, externalId: outcome.mediaId ?? null };
   } catch (err) {
     if (err instanceof InstagramPublishError) {
       lastAttempt.set(draftId, { message: err.message, credentialRejected: err.credentialRejected });
@@ -667,13 +690,21 @@ export async function runScheduledPublishes(now: Date = new Date()): Promise<{
       scheduledFor: { lte: now },
       publishedAt: null,
     },
-    select: { id: true, companyId: true },
+    select: { id: true, companyId: true, type: true, platform: true },
     take: 200,
   });
+
+  // A person cancelled its execution: never published by the scheduler.
+  const { cancelledFor } = await import('@/server/execution/execution-actions.service');
+  const cancelled = await cancelledFor(due.map((d) => ({ id: d.id, platform: resolvePlatform(d.type as ContentTypeKey, d.platform) })));
 
   let published = 0;
   let skipped = 0;
   for (const d of due) {
+    if (cancelled.has(d.id)) {
+      skipped++;
+      continue;
+    }
     try {
       const result = await publishDraft({
         companyId: d.companyId,

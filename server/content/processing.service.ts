@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { syncFromPublication } from '@/server/execution/engine.service';
 import { logger } from '@/lib/logger';
 import { contentHash } from '@/server/approval/approval.service';
 import { getDraft, markPublished } from '@/server/content/content.service';
@@ -81,6 +82,7 @@ async function advanceOne(row: Row, now: Date): Promise<'published' | 'stillProc
       where: { id: row.id, status: 'PROCESSING' },
       data: { status: 'FAILED', message: message.slice(0, 2000), externalId: null, startedAt: null },
     });
+    await syncFromPublication({ ...row, status: 'FAILED', message }, { event: 'finished' });
     await recordAudit({
       action: 'CONTENT_PUBLISH_FAILED',
       userId: row.requestedById,
@@ -130,8 +132,12 @@ async function advanceOne(row: Row, now: Date): Promise<'published' | 'stillProc
 
   await db.contentPublication.updateMany({
     where: { id: row.id, status: 'PROCESSING' },
-    data: { status: 'PUBLISHED', url: outcome.url, publishedAt: now, message: null, externalId: null, startedAt: null },
+    data: { status: 'PUBLISHED', url: outcome.url, publishedAt: now, message: null, externalId: outcome.mediaId ?? null, startedAt: null },
   });
+  await syncFromPublication(
+    { ...row, status: 'PUBLISHED', url: outcome.url, publishedAt: now },
+    { providerExternalId: outcome.mediaId ?? null, event: 'finished' },
+  );
   if (draft.status === 'APPROVED') {
     try {
       await markPublished({ companyId, userId: row.requestedById, draftId, publishedUrl: outcome.url });

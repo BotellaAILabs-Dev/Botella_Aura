@@ -16,11 +16,11 @@ import {
   choosePage,
   graphUrl,
   META_GRAPH_VERSION,
-  META_SCOPES,
   pageLabel,
   pageMetadata,
   pagesFrom,
   grantedFrom,
+  metaRequestedScopes,
 } from '@/lib/meta';
 
 export type ProviderAuth = 'oauth' | 'api_key';
@@ -303,7 +303,8 @@ export const PROVIDERS: Record<string, ConnectorProvider> = {
     oauth: {
       authorizeUrl: `https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth`,
       tokenUrl: graphUrl('oauth/access_token'),
-      scopes: [...META_SCOPES],
+      // + the insights permissions when META_REQUEST_INSIGHTS=true (lib/meta.ts).
+      scopes: metaRequestedScopes(),
       clientIdEnv: 'META_CLIENT_ID',
       clientSecretEnv: 'META_CLIENT_SECRET',
       // Meta documents PKCE for its manual login flow (OIDC variant); turn on

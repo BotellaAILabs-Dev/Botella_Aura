@@ -128,12 +128,13 @@ describe('Provider Capability Framework — Meta V1', () => {
     expect(meta('FACEBOOK', 'autonomous_posting').reason).toMatch(/initial scope/);
   });
 
-  it('organic analytics is a Meta capability, available only once its permission is granted', () => {
+  it('organic analytics: per-post engagement with the current permissions; impressions/reach say they need insights', () => {
     const fb = meta('FACEBOOK', 'organic_analytics');
-    expect(fb.allowed).toBe(false);
-    expect(fb.missingScopes).toEqual(['read_insights']);
-    expect(fb.reason).toMatch(/read_insights/);
-    expect(checkCapability({ connectorId: 'meta', channel: 'FACEBOOK', capability: 'organic_analytics', grantedScopes: [...META_PUBLISH, 'read_insights'] }).allowed).toBe(true);
+    expect(fb).toMatchObject({ allowed: true, level: 'supported' });
+    expect(meta('INSTAGRAM', 'organic_analytics').allowed).toBe(true);
+    // Without the Page read permission, not even engagement can be read.
+    expect(checkCapability({ connectorId: 'meta', channel: 'FACEBOOK', capability: 'organic_analytics', grantedScopes: ['pages_manage_posts'] }).allowed).toBe(false);
+    expect(capabilityMatrix('meta', META_PUBLISH, ['FACEBOOK']).find((r) => r.capability === 'organic_analytics')?.note).toMatch(/read_insights/);
   });
 
   it('an unsupported action is blocked with an explanation, never silently', () => {
@@ -177,7 +178,8 @@ describe('Provider Capability Framework — Meta V1', () => {
     const rows = capabilityMatrix('meta', META_PUBLISH, ['INSTAGRAM']);
     expect(new Set(rows.map((r) => r.channel))).toEqual(new Set(['INSTAGRAM']));
     expect(rows.find((r) => r.capability === 'organic_publishing')).toMatchObject({ available: true });
-    expect(rows.find((r) => r.capability === 'organic_analytics')).toMatchObject({ available: false, missingScopes: ['instagram_manage_insights'] });
+    expect(rows.find((r) => r.capability === 'organic_analytics')).toMatchObject({ available: true });
+    expect(rows.find((r) => r.capability === 'organic_analytics')?.note).toMatch(/instagram_manage_insights/);
     expect(rows.find((r) => r.capability === 'paid_ads')).toMatchObject({ available: false, level: 'unsupported' });
   });
 

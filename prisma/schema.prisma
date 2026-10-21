@@ -249,6 +249,9 @@ enum AuditAction {
   CONNECTION_TOKEN_REFRESHED
   CONNECTION_REAUTH_REQUIRED
   CONNECTION_REVOKED
+  EXECUTION_STATE_CHANGED
+  EXECUTION_ROUTING_FAILED
+  WORKSPACE_TIMEZONE_CHANGED
 }
 
 /// Which social network a post is aimed at.
@@ -471,6 +474,8 @@ enum PerformanceSource {
   LINKEDIN_API
   EXTENSION_DOM
   MANUAL
+  /// Facebook Page / Instagram media metrics (server/connectors/meta-insights.service.ts).
+  META_API
 }
 
 // ---------------------------------------------------------------------------
@@ -575,6 +580,9 @@ model Company {
   industry          String?
   brandVoiceNotes   String?   @db.Text
   logoUrl           String?
+  /// IANA timezone the business works in (lib/timezone.ts). Scheduled times
+  /// are entered and shown in it; stored in UTC.
+  timezone          String    @default("UTC")
   preferences       Json      @default("{}")
   /// Sprint 3 — AI-generated, human-editable brand voice profile (see
   /// server/content/brand-voice.service.ts). Injected into every generation.
@@ -625,6 +633,7 @@ model Company {
   whatsAppMessages      WhatsAppMessage[]
   contentPublications   ContentPublication[]
   executionHandoffs ExecutionHandoff[]
+  executions        Execution[]
 
   @@index([slug])
 }
@@ -796,6 +805,7 @@ model ContentDraft {
   /// Where it has been (or is being) published — one row per network.
   publications         ContentPublication[]
   executionHandoffs ExecutionHandoff[]
+  executions           Execution[]
 
   @@index([companyId, status])
   @@index([companyId, scheduledFor])
@@ -2629,6 +2639,103 @@ enum ExecutionHandoffStatus {
   BLOCKED
   SUPERSEDED
   EXECUTED
+}
+
+/// Execution lifecycle (lib/execution-state.ts):
+///   APPROVED → READY_FOR_EXECUTION → SCHEDULED / QUEUED → EXECUTING → COMPLETED
+///   EXECUTING → FAILED → QUEUED (retry) / ACTION_REQUIRED;  SCHEDULED → CANCELLED
+enum ExecutionStatus {
+  APPROVED
+  READY_FOR_EXECUTION
+  SCHEDULED
+  QUEUED
+  EXECUTING
+  COMPLETED
+  FAILED
+  ACTION_REQUIRED
+  CANCELLED
+}
+
+/// One provider action for approved work: a post to one network. Traceable
+/// Business Context → Opportunity → Recommendation → Content → Approval →
+/// Execution (the ids below, plus the draft's trace). One per (post, network).
+model Execution {
+  id                 String          @id @default(cuid())
+  companyId          String
+  contentDraftId     String
+  /// Channel (social network).
+  platform           SocialPlatform
+  status             ExecutionStatus @default(APPROVED)
+  /// Provider and the connection it routes through (server/execution/routing.service.ts).
+  provider           String?
+  connectorId        String?
+  connectionId       String?
+  /// The connected account and the page/profile posted to (ids and names only).
+  connectedAccountId String?
+  targetKind         String?
+  targetExternalId   String?
+  targetName         String?
+  /// Traceability.
+  traceId            String?
+  businessContextRevision String?
+  opportunityId      String?
+  recommendationId   String?
+  approvalId         String?
+  approvedVersion    Int?
+  contentHash        String?
+  /// Images/videos attached when approved.
+  assetIds           String[]        @default([])
+  handoffId          String?
+  /// When it should run (UTC), and the wall time + zone a person chose.
+  scheduledFor       DateTime?
+  scheduledTimeZone  String?
+  scheduledLocal     String?
+  attemptCount       Int             @default(0)
+  maxAttempts        Int             @default(3)
+  /// An automatic retry (rate limits only) is due at this time.
+  nextAttemptAt      DateTime?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  /// What the provider said: post id, permalink, processing state (no secrets).
+  providerResponse   Json            @default("{}")
+  externalId         String?
+  url                String?
+  errorCode          String?
+  errorMessage       String?         @db.Text
+  lastErrorAt        DateTime?
+  createdById        String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  company      Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contentDraft ContentDraft     @relation(fields: [contentDraftId], references: [id], onDelete: Cascade)
+  events       ExecutionEvent[]
+
+  @@unique([contentDraftId, platform])
+  @@index([companyId, status])
+  @@index([status, scheduledFor])
+  @@index([status, nextAttemptAt])
+}
+
+/// Every state change of an execution, in order.
+model ExecutionEvent {
+  id          String          @id @default(cuid())
+  executionId String
+  companyId   String
+  from        ExecutionStatus?
+  to          ExecutionStatus
+  /// person | scheduler | system | provider
+  actor       String
+  actorUserId String?
+  reason      String?         @db.Text
+  detail      Json            @default("{}")
+  at          DateTime        @default(now())
+
+  execution Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId, at])
+  @@index([companyId, at])
 }
 
 model ExecutionHandoff {
