@@ -1,4 +1,4 @@
- # Botella Aura — AI Marketing Co-Pilot
+  # Botella Aura — AI Marketing Co-Pilot
 
 > **Sprint 1: Foundation.** Auth, company onboarding, a production-grade
 > dashboard shell, and a schema designed for the full 10-sprint roadmap.
