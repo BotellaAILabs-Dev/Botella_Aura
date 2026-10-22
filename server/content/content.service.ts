@@ -36,6 +36,8 @@ import {
 import type { VersionSource } from '@/lib/versions';
 import { traceAudit, withApprovalTrace } from '@/server/trace/trace.service';
 import { DIMENSION_INFO, type ContentReview } from '@/lib/content-review';
+import { detailsOf, normaliseDetails, withDetails } from '@/lib/post-details';
+import { getBusinessFacts } from '@/server/company/profile.service';
 
 /** Undo steps kept per draft (matches server/content/generator.ts). */
 const HISTORY_LIMIT = 5;
@@ -428,7 +430,12 @@ export async function updateDraftBody(args: {
       { status: 409, code: 'stale' },
     );
   }
-  const body = bodySchemaFor(draft.type as ContentTypeKey).parse(args.body);
+  const parsedBody = bodySchemaFor(draft.type as ContentTypeKey).parse(args.body);
+  // Post details: "from the profile" is decided here, against the real facts.
+  const body = withDetails(
+    parsedBody,
+    normaliseDetails(detailsOf(parsedBody), await getBusinessFacts(draft.companyId)),
+  );
   const nextStatus: ContentStatus =
     draft.status === 'APPROVED' ? 'DRAFT' : draft.status;
   // A person's edit is re-checked against the same rules (it can fix — or

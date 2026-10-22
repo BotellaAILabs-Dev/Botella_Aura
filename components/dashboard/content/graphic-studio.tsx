@@ -25,6 +25,19 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from '@/components/ui/toaster';
+import { ImageVariantPanel } from '@/components/dashboard/content/image-variant-panel';
+import { ImageLightbox, type LightboxImage } from '@/components/ui/image-lightbox';
+import {
+  groupVariants,
+  LOGO_MODE_HINTS,
+  LOGO_MODE_LABELS,
+  LOGO_MODES,
+  LOGO_POSITIONS,
+  type LogoInfo,
+  type LogoMode,
+  type LogoPosition,
+  type VariantInfo,
+} from '@/lib/image-variants';
 import {
   ASPECT_RATIOS,
   type AspectRatioKey,
@@ -69,6 +82,8 @@ interface ProviderStatus {
   credentialEnv: string;
   supportedRatios: AspectRatioKey[];
   maxImagesPerRequest: number;
+  /** Can refine an existing image (lib/image-variants.ts). */
+  canEdit?: boolean;
 }
 
 interface Usage {
@@ -92,6 +107,10 @@ export interface GraphicAsset {
   fileSize: number;
   createdAt: string;
   attached: boolean;
+  /** Which variant and version this is (lib/image-variants.ts); absent on older payloads. */
+  variant?: VariantInfo | null;
+  logo?: LogoInfo | null;
+  creative?: unknown;
 }
 
 interface Props {
@@ -170,6 +189,13 @@ export function GraphicStudio({
   const [customHeight, setCustomHeight] = useState(1350);
   const [style, setStyle] = useState<ImageStyleKey>('professional');
   const [variations, setVariations] = useState(1);
+  // The logo setting for the next generation (each image keeps its own after).
+  const [logoMode, setLogoMode] = useState<LogoMode>('none');
+  const [logoPosition, setLogoPosition] = useState<LogoPosition>('bottom-right');
+  // Which per-image action is running (refine / regenerate / logo).
+  const [variantBusy, setVariantBusy] = useState<string | null>(null);
+  // The full-screen preview: the images it steps through, and which is shown.
+  const [preview, setPreview] = useState<{ ids: string[]; index: number } | null>(null);
 
   const [assets, setAssets] = useState<GraphicAsset[]>(initialAssets);
   const [attached, setAttached] = useState<Set<string>>(
@@ -365,6 +391,7 @@ export function GraphicStudio({
             : { aspectRatio: format }),
           style,
           variations,
+          ...(logoMode !== 'none' ? { logo: { mode: logoMode, position: logoPosition } } : {}),
         }),
       });
 
@@ -437,6 +464,7 @@ export function GraphicStudio({
           substitutedFrom?: string;
           aspectRatio?: string;
           warning?: string;
+          variant?: { asset: GraphicAsset };
         };
         error?: string | null;
       };
@@ -477,9 +505,17 @@ export function GraphicStudio({
     substitutedFrom?: string;
     aspectRatio?: string;
     warning?: string;
+    /** One image's next version (refine / regenerate / make room for a logo). */
+    variant?: { asset: GraphicAsset };
   }) {
-    const produced = result.assets ?? [];
-    setAssets((prev) => [...produced, ...prev]);
+    const produced = result.variant ? [result.variant.asset] : (result.assets ?? []);
+    setAssets((prev) => [...produced, ...prev.filter((a) => !produced.some((p) => p.id === a.id))]);
+    if (result.variant) {
+      const l = result.variant.asset.logo;
+      toast.success('New version ready — the previous one is kept.', {
+        ...(l?.mode === 'include' && !l.applied && l.reason ? { description: l.reason } : {}),
+      });
+    }
     setSelected(produced[0]?.id ?? null);
 
     if (result.substitutedFrom && result.aspectRatio) {
@@ -606,6 +642,68 @@ export function GraphicStudio({
   }
 
   /**
+   * Work on ONE image (refine, regenerate, make room for a logo): queued like
+   * a generation, and the result is that image's next version.
+   */
+  async function runVariantJob(label: string, url: string, body: Record<string, unknown>) {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setError(null);
+    setVariantBusy(label);
+    setPhase('generating');
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ draftId, ...body }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; jobId?: string; reused?: boolean };
+      if (!res.ok || !data.jobId) {
+        toast.error(data.error ?? 'That did not work. Your images are unchanged.');
+        return;
+      }
+      if (!data.reused) void fetch(`/api/jobs/${data.jobId}/run`, { method: 'POST' }).catch(() => undefined);
+      await pollJob(data.jobId);
+    } catch {
+      toast.error('Could not reach the server. Your images are unchanged.');
+    } finally {
+      inFlight.current = false;
+      setVariantBusy(null);
+      setPhase('idle');
+    }
+  }
+
+  async function setImageLogo(assetId: string, mode: LogoMode, position: LogoPosition) {
+    if (mode === 'space') {
+      await runVariantJob('logo', `/api/content/graphics/${assetId}/logo`, { mode, position });
+      return;
+    }
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setVariantBusy('logo');
+    try {
+      const res = await fetch(`/api/content/graphics/${assetId}/logo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ draftId, mode, position }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; asset?: GraphicAsset; changed?: boolean; note?: string | null };
+      if (!res.ok || !data.asset) {
+        toast.error(data.error ?? 'Could not change the logo setting.');
+        return;
+      }
+      const asset = data.asset;
+      setAssets((prev) => [asset, ...prev.filter((a) => a.id !== asset.id)]);
+      setSelected(asset.id);
+      if (data.note) toast.warning(data.note);
+      else toast.success(data.changed ? 'New version made — the previous one is kept.' : 'Logo setting saved.');
+    } finally {
+      inFlight.current = false;
+      setVariantBusy(null);
+    }
+  }
+
+  /**
    * History is the whole workspace's graphics, not just this draft's, so it is
    * a separate fetch and a separate list. Loaded on first open and reused after
    * that — reopening the panel should not re-query.
@@ -631,10 +729,27 @@ export function GraphicStudio({
   }
 
   const busy = phase !== 'idle';
+  // One tile per variant (its newest version); the panel shows all versions.
+  const variants = groupVariants(assets.map((a) => ({ ...a, variant: a.variant ?? null })));
+  const latestPerVariant = variants.map((g) => g.versions[g.versions.length - 1]!);
+  const versionCount = Object.fromEntries(variants.map((g) => [g.versions[g.versions.length - 1]!.id, g.versions.length]));
+  const canRefine = providers.some((p) => p.configured && p.canEdit);
   const selectedAsset =
     assets.find((a) => a.id === selected) ??
     history?.find((a) => a.id === selected) ??
     null;
+
+  /** Open the preview on `id`, stepping through `list` (images only). */
+  const openPreview = (id: string, list: GraphicAsset[]) => {
+    const ids = list.filter((a) => !isVideo(a)).map((a) => a.id);
+    const index = ids.indexOf(id);
+    if (index >= 0) setPreview({ ids, index });
+  };
+  const byId = new Map([...(history ?? []), ...assets].map((a) => [a.id, a]));
+  const previewImages: LightboxImage[] = (preview?.ids ?? [])
+    .map((id) => byId.get(id))
+    .filter((a): a is GraphicAsset => Boolean(a))
+    .map(toLightbox);
 
   const selectCls =
     'h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -853,6 +968,44 @@ export function GraphicStudio({
               Each variation is a separate paid generation.
             </p>
           </div>
+
+          <fieldset className="space-y-1.5 sm:col-span-2">
+            <legend className="text-sm font-medium">Logo</legend>
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Logo">
+              {LOGO_MODES.map((m) => (
+                <Button
+                  key={m}
+                  type="button"
+                  size="sm"
+                  role="radio"
+                  aria-checked={logoMode === m}
+                  variant={logoMode === m ? 'default' : 'outline'}
+                  onClick={() => setLogoMode(m)}
+                  disabled={!canEdit}
+                >
+                  {LOGO_MODE_LABELS[m]}
+                </Button>
+              ))}
+              {logoMode !== 'none' && (
+                <select
+                  aria-label="Logo corner"
+                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  value={logoPosition}
+                  onChange={(e) => setLogoPosition(e.target.value as LogoPosition)}
+                  disabled={!canEdit}
+                >
+                  {LOGO_POSITIONS.map((p) => (
+                    <option key={p} value={p}>
+                      {p.replace('-', ' ')}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {LOGO_MODE_HINTS[logoMode]} You can change it for each image afterwards.
+            </p>
+          </fieldset>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -970,6 +1123,7 @@ export function GraphicStudio({
                       selected={selected}
                       canEdit={canEdit}
                       onSelect={setSelected}
+                      onPreview={(id) => openPreview(id, group.items)}
                       onAttach={attach}
                       onAdd={(id) => attach(id, false)}
                       onDelete={remove}
@@ -979,11 +1133,14 @@ export function GraphicStudio({
               )
             ) : (
               <Gallery
-                assets={assets}
+                assets={latestPerVariant}
+                versionCount={versionCount}
                 attached={attached}
                 selected={selected}
+                selectedRoot={selectedAsset?.variant?.rootId ?? selectedAsset?.id ?? null}
                 canEdit={canEdit}
                 onSelect={setSelected}
+                onPreview={(id) => openPreview(id, latestPerVariant)}
                 onAttach={attach}
                 onAdd={(id) => attach(id, false)}
                 onDelete={remove}
@@ -992,9 +1149,29 @@ export function GraphicStudio({
           </section>
         )}
 
-        {selectedAsset && (
+        {selectedAsset && !isVideo(selectedAsset) && assets.some((a) => a.id === selectedAsset.id) ? (
+          <ImageVariantPanel
+            key={selectedAsset.id}
+            versions={variants.find((g) => g.rootId === (selectedAsset.variant?.rootId ?? selectedAsset.id))?.versions ?? [selectedAsset]}
+            selectedId={selectedAsset.id}
+            attached={attached}
+            canEdit={canEdit}
+            busy={busy || variantBusy !== null}
+            busyLabel={variantBusy}
+            canRefine={canRefine}
+            canAdd={attached.size > 0 && attached.size < 10}
+            onSelect={setSelected}
+            onAttach={(id) => attach(id)}
+            onAdd={(id) => attach(id, false)}
+            onRefine={(id, instruction) => runVariantJob('refine', `/api/content/graphics/${id}/refine`, { instruction })}
+            onRegenerate={(id) => runVariantJob('regenerate', `/api/content/graphics/${id}/regenerate`, {})}
+            onLogo={setImageLogo}
+            onPreview={(id, versions) => openPreview(id, versions as GraphicAsset[])}
+          />
+        ) : selectedAsset && (
           <SelectedGraphic
             asset={selectedAsset}
+            onPreview={() => openPreview(selectedAsset.id, [selectedAsset])}
             isAttached={attached.has(selectedAsset.id)}
             canAdd={attached.size > 0 && attached.size < 10}
             canEdit={canEdit}
@@ -1004,6 +1181,18 @@ export function GraphicStudio({
             regenerating={busy}
           />
         )}
+
+        <ImageLightbox
+          images={previewImages}
+          index={preview && previewImages.length ? preview.index : null}
+          onIndexChange={(index) => {
+            setPreview((p) => (p ? { ...p, index } : p));
+            // The selection follows what is being looked at.
+            const id = preview?.ids[index];
+            if (id) setSelected(id);
+          }}
+          onClose={() => setPreview(null)}
+        />
       </CardContent>
     </Card>
   );
@@ -1135,6 +1324,9 @@ function NotConfigured({ providers }: { providers: ProviderStatus[] }) {
 
 function Gallery({
   assets,
+  onPreview,
+  versionCount = {},
+  selectedRoot = null,
   attached,
   selected,
   canEdit,
@@ -1144,6 +1336,12 @@ function Gallery({
   onDelete,
 }: {
   assets: GraphicAsset[];
+  /** Open the full-screen preview on this image. */
+  onPreview?: (id: string) => void;
+  /** Versions per variant, keyed by the tile's (newest) id. */
+  versionCount?: Record<string, number>;
+  /** The variant whose versions are open in the panel. */
+  selectedRoot?: string | null;
   attached: Set<string>;
   selected: string | null;
   canEdit: boolean;
@@ -1160,10 +1358,14 @@ function Gallery({
         <figure key={asset.id} className="space-y-1.5">
           <button
             type="button"
-            onClick={() => onSelect(asset.id)}
-            aria-pressed={selected === asset.id}
+            onClick={() => {
+              onSelect(asset.id);
+              if (!isVideo(asset)) onPreview?.(asset.id);
+            }}
+            aria-label={isVideo(asset) ? `Select video, ${asset.aspectRatio}` : `Open image, ${asset.aspectRatio}, in a larger view`}
+            aria-pressed={selected === asset.id || (selectedRoot !== null && (asset.variant?.rootId ?? asset.id) === selectedRoot)}
             className={`relative block w-full overflow-hidden rounded-lg border transition-all ${
-              selected === asset.id
+              selected === asset.id || (selectedRoot !== null && (asset.variant?.rootId ?? asset.id) === selectedRoot)
                 ? 'border-primary ring-2 ring-primary/30'
                 : 'border-border hover:border-primary/50'
             } ${aspectClass(asset.aspectRatio)}`}
@@ -1201,6 +1403,11 @@ function Gallery({
             {attached.has(asset.id) && (
               <span className="absolute right-1.5 top-1.5 rounded-full bg-primary p-1 text-primary-foreground">
                 <Check className="h-3 w-3" />
+              </span>
+            )}
+            {(versionCount[asset.id] ?? 1) > 1 && (
+              <span className="absolute bottom-1.5 left-1.5 rounded bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-foreground shadow-sm">
+                {versionCount[asset.id]} versions
               </span>
             )}
           </button>
@@ -1262,6 +1469,7 @@ function isVideo(asset: { mimeType: string }): boolean {
 
 function SelectedGraphic({
   asset,
+  onPreview,
   isAttached,
   canAdd,
   canEdit,
@@ -1271,6 +1479,8 @@ function SelectedGraphic({
   regenerating,
 }: {
   asset: GraphicAsset;
+  /** Open the full-screen preview (images). */
+  onPreview?: () => void;
   isAttached: boolean;
   /** The post has media and room for more (an Instagram carousel). */
   canAdd: boolean;
@@ -1292,14 +1502,21 @@ function SelectedGraphic({
           {isVideo(asset) ? (
             <video src={asset.url} className="h-full w-full object-cover" controls muted playsInline preload="metadata" />
           ) : (
-            <RetryingImage
-              src={asset.url}
-              alt="Selected graphic preview"
-              className="h-full w-full object-cover"
-              decoding="async"
-              width={asset.width}
-              height={asset.height}
-            />
+            <button
+              type="button"
+              onClick={onPreview}
+              className="block h-full w-full cursor-zoom-in"
+              aria-label="Open the selected graphic in a larger view"
+            >
+              <RetryingImage
+                src={asset.url}
+                alt="Selected graphic preview"
+                className="h-full w-full object-cover"
+                decoding="async"
+                width={asset.width}
+                height={asset.height}
+              />
+            </button>
           )}
         </div>
         <div className="min-w-[200px] flex-1 space-y-2 text-sm">
@@ -1343,4 +1560,17 @@ function SelectedGraphic({
       </div>
     </section>
   );
+}
+
+/** An asset as the full-screen preview shows it (its full-resolution file). */
+function toLightbox(asset: GraphicAsset): LightboxImage {
+  const ext = asset.mimeType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png';
+  return {
+    src: asset.url,
+    alt: `Generated graphic, ${asset.aspectRatio}`,
+    width: asset.width,
+    height: asset.height,
+    downloadName: `graphic-${asset.id}.${ext}`,
+    caption: `${asset.width}×${asset.height} · ${asset.aspectRatio}`,
+  };
 }

@@ -4,6 +4,8 @@ import { db } from '@/lib/db';
 import { assertContentIntact, contentHash } from '@/server/approval/approval.service';
 import { claimPublication, finishPublication, type Outcome } from '@/server/content/publication-store';
 import { httpRequest } from '@/lib/http';
+import { linkedInApiVersion, linkedInVersionSunsetMessage } from '@/lib/linkedin-api';
+import { escapeLittleText } from '@/lib/linkedin-little';
 import { logger } from '@/lib/logger';
 import { getPublishContext } from '@/server/services/linkedin.service';
 import { recordExecutionResult } from '@/server/connections/health.service';
@@ -22,6 +24,7 @@ import { resolvePlatform, platformSpec, type SocialPlatformKey } from '@/lib/pla
 import { getAsset, readAssetBytes } from '@/server/media/asset.service';
 import { validateForPlatform, validateMediaSet } from '@/server/media/validate';
 import { signedAssetUrl } from '@/server/media/asset-url';
+import { readableUrl } from '@/server/media/storage';
 import {
   buildMediaContent,
   uploadLinkedInImage,
@@ -68,8 +71,7 @@ import {
 const ORG_POSTING_SCOPE = 'w_organization_social'; // Company Page (needs approval)
 const MEMBER_POSTING_SCOPE = 'w_member_social'; // personal profile (self-serve "Share on LinkedIn")
 // LinkedIn versions the /rest/posts endpoint (YYYYMM) and rejects out-of-window
-// versions with HTTP 426. Override via LINKEDIN_API_VERSION when this ages out.
-const LINKEDIN_API_VERSION = process.env.LINKEDIN_API_VERSION || '202503';
+// versions with HTTP 426 — one default for every LinkedIn call (lib/linkedin-api.ts).
 
 /**
  * Instagram fetches the image from the URL we hand it, and does so while
@@ -80,7 +82,8 @@ const INSTAGRAM_ASSET_URL_TTL_MS = 15 * 60 * 1000;
 
 export type PublishResult =
   /** `externalId`: the network's id for the post, when it gives one. */
-  | { mode: 'published'; url: string | null; externalId?: string | null }
+  /** `alreadyPublished`: another attempt (a click, a tab, an overlapping run) published it first. */
+  | { mode: 'published'; url: string | null; externalId?: string | null; alreadyPublished?: boolean }
   | { mode: 'manual'; text: string; reason: string }
   | { mode: 'reconnect'; message: string }
   /**
@@ -345,7 +348,7 @@ export async function publishDraft({
     retry,
   });
   if (!claim.claimed) {
-    if (claim.reason === 'already_published') return { mode: 'published', url: claim.publication.url };
+    if (claim.reason === 'already_published') return { mode: 'published', url: claim.publication.url, alreadyPublished: true };
     return { mode: 'manual', text: renderForManual(draft), reason: CLAIM_REFUSED[claim.reason] };
   }
 
@@ -402,10 +405,17 @@ async function publishToLinkedIn(args: {
     };
   }
 
-  const commentary = renderLinkedInCommentary(draft);
-  if (!commentary) {
+  // A LinkedIn post renders as hook / paragraphs / CTA / hashtags; an image
+  // post as its caption, CTA and hashtags — exactly the text the preview shows
+  // (server/content/multi-publish.service.ts). Without the image-post case,
+  // every image post fell back to "post it by hand".
+  const written = renderLinkedInCommentary(draft) ?? (type === 'IMAGE_POST' ? renderForManual(draft) : null);
+  if (!written) {
     return { mode: 'manual', text: renderForManual(draft), reason: 'Draft body was invalid.' };
   }
+  // LinkedIn's commentary is "little" text: reserved characters escaped, or
+  // "(", "*", "@"… are read as markup and the post is cut (lib/linkedin-little.ts).
+  const commentary = escapeLittleText(written);
   const scopes = (ctx.scope ?? '').split(/[\s,]+/);
 
   // Decide the author first: LinkedIn registers an uploaded image against an
@@ -499,7 +509,7 @@ async function postToLinkedIn(
     headers: {
       authorization: `Bearer ${token}`,
       'content-type': 'application/json',
-      'linkedin-version': LINKEDIN_API_VERSION,
+      'linkedin-version': linkedInApiVersion(),
       'x-restli-protocol-version': '2.0.0',
     },
     body: JSON.stringify({
@@ -528,7 +538,11 @@ async function postToLinkedIn(
       new Error(
         res.status === 401
           ? 'LinkedIn refused the stored credentials. Reconnect LinkedIn in Connections.'
-          : `LinkedIn publish failed (${res.status}).`,
+          : res.status === 426
+            ? linkedInVersionSunsetMessage(linkedInApiVersion())
+            : res.status === 429
+            ? 'LinkedIn is rate-limiting publishing right now (HTTP 429). Try again later.'
+            : `LinkedIn publish failed (${res.status}).`,
       ),
       { status: 502, providerStatus: res.status },
     );
@@ -628,8 +642,8 @@ async function publishToInstagram(args: {
   }
 
   // Meta fetches the media itself, so it needs URLs it can reach: a signed,
-  // short-lived link for an image (server/media/asset-url.ts); the bucket URL
-  // for a video (too large to serve through a function).
+  // short-lived link for an image (server/media/asset-url.ts); a presigned
+  // bucket URL for a video (too large to serve through a function).
   // One image → a feed post; one video → a Reel; 2–10 items → a carousel.
   const items: InstagramItem[] = [];
   for (const m of media) {
@@ -637,7 +651,9 @@ async function publishToInstagram(args: {
       if (!m.storageUrl) {
         return { mode: 'manual', text: caption, reason: 'The video’s stored file is missing. Add the video again, then publish.' };
       }
-      items.push({ kind: 'VIDEO', url: m.storageUrl });
+      // Presigned for an hour: Meta downloads the video while it processes
+      // the container, which can take several minutes.
+      items.push({ kind: 'VIDEO', url: readableUrl(m.storageUrl, 60 * 60) });
     } else {
       // Instagram takes JPEG only: a PNG/WebP is served re-encoded (the
       // stored image is unchanged).
@@ -679,19 +695,40 @@ async function publishToInstagram(args: {
  * picked again; drafts that can't auto-publish (wrong type / pending platform
  * approval / missing media) are counted as skipped and left as calendar markers.
  */
-export async function runScheduledPublishes(now: Date = new Date()): Promise<{
+export async function runScheduledPublishes(
+  now: Date = new Date(),
+  opts: {
+    /** Stop starting new publishes after this (the function's time limit is 60 s). */
+    deadline?: Date;
+    limit?: number;
+    /** Tests only: the publisher (default publishDraft). */
+    publish?: typeof publishDraft;
+  } = {},
+): Promise<{
   attempted: number;
   published: number;
   skipped: number;
+  /** Due, but left for the next run because the time budget ran out. */
+  deferred: number;
 }> {
+  const publish = opts.publish ?? publishDraft;
   const due = await db.contentDraft.findMany({
     where: {
+      // Approved by a person — nothing else is ever published by the scheduler.
       status: 'APPROVED',
       scheduledFor: { lte: now },
       publishedAt: null,
+      // Already in a person's hands (failed / copied for manual posting), or
+      // already out (processing / published): not picked again. Without this
+      // a frequent scheduler re-selects every stuck post on every run — and
+      // enough of them fill the batch so new, due posts are never reached.
+      // Rate-limited attempts are retried by the execution sweep instead.
+      NOT: { publications: { some: { status: { in: ['FAILED', 'MANUAL', 'PROCESSING', 'PUBLISHED'] } } } },
     },
+    // Oldest first: the most overdue post goes out first.
+    orderBy: [{ scheduledFor: 'asc' }, { id: 'asc' }],
     select: { id: true, companyId: true, type: true, platform: true },
-    take: 200,
+    take: opts.limit ?? 100,
   });
 
   // A person cancelled its execution: never published by the scheduler.
@@ -700,13 +737,20 @@ export async function runScheduledPublishes(now: Date = new Date()): Promise<{
 
   let published = 0;
   let skipped = 0;
+  let deferred = 0;
   for (const d of due) {
+    // Don't start a publish the function may be stopped in the middle of:
+    // an interrupted attempt needs a person to check the account.
+    if (opts.deadline && Date.now() >= opts.deadline.getTime()) {
+      deferred++;
+      continue;
+    }
     if (cancelled.has(d.id)) {
       skipped++;
       continue;
     }
     try {
-      const result = await publishDraft({
+      const result = await publish({
         companyId: d.companyId,
         userId: null, // system-triggered; audit userId null
         draftId: d.id,
@@ -714,7 +758,8 @@ export async function runScheduledPublishes(now: Date = new Date()): Promise<{
         // retries it (it used to, every day, for ever).
         automatic: true,
       });
-      if (result.mode === 'published') published++;
+      // Published by THIS run — not one that found another run had done it.
+      if (result.mode === 'published' && !result.alreadyPublished) published++;
       else skipped++;
     } catch (err) {
       skipped++;
@@ -724,5 +769,6 @@ export async function runScheduledPublishes(now: Date = new Date()): Promise<{
       });
     }
   }
-  return { attempted: due.length, published, skipped };
+  if (deferred) logger.info('scheduled publish: time budget reached, the rest go next run', { deferred });
+  return { attempted: due.length - deferred, published, skipped, deferred };
 }

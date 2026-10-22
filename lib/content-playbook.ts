@@ -286,4 +286,10 @@ export const VARIATION_ANGLES = [
   'Lead with a specific moment or short story the reader recognises.',
   'Lead with a bold, specific point of view backed by a fact from the material.',
   'Lead with a practical tip, use or idea the reader can act on.',
+  // Further angles, for "More recommendations" — the first three are what
+  // a new draft's versions take.
+  'Lead with the outcome the reader gets, described the way they would say it.',
+  'Lead with a question the reader is already asking themselves.',
+  'Lead with a behind-the-scenes look at how the business does it.',
+  'Lead with a common mistake or misconception, then the better way.',
 ] as const;

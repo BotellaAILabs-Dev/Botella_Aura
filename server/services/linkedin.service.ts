@@ -1,6 +1,7 @@
 import type { LinkedInConnection } from '@prisma/client';
 import { pkceEnabled } from '@/lib/pkce';
 import { db } from '@/lib/db';
+import { absoluteUrl } from '@/lib/app-url';
 import { syncLinkedInMirror } from '@/server/connections/manager.service';
 import { decrypt, encrypt } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
@@ -42,9 +43,13 @@ export function isLinkedInConfigured(): boolean {
   );
 }
 
+/**
+ * The registered callback. Built like every other OAuth redirect (APP_URL,
+ * then NEXTAUTH_URL, then the Vercel production URL) — not NEXTAUTH_URL
+ * alone, which sent people back to localhost on a deployment without it.
+ */
 export function getRedirectUri(): string {
-  const base = process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
-  return `${base}/api/linkedin/callback`;
+  return absoluteUrl('/api/linkedin/callback');
 }
 
 /**

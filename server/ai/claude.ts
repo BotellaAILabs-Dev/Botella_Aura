@@ -189,10 +189,42 @@ export class EmptyCompletionError extends Error {
 }
 
 /** Nothing about a bad key or a malformed request improves by trying again. */
+/**
+ * A 429 from Gemini says which quota ran out and when to try again
+ * (google.rpc.QuotaFailure / RetryInfo). Null when the body says neither.
+ */
+export function geminiQuota(body: string): { quotaId: string | null; retryAfterMs: number | null } | null {
+  try {
+    const details = ((JSON.parse(body) as { error?: { details?: unknown[] } }).error?.details ?? []) as {
+      violations?: { quotaId?: string; quotaMetric?: string }[];
+      retryDelay?: string;
+    }[];
+    const quotaId = details.flatMap((d) => d.violations ?? []).map((v) => v.quotaId ?? v.quotaMetric ?? '').find(Boolean) ?? null;
+    const delay = details.map((d) => d.retryDelay).find(Boolean);
+    const seconds = delay ? Number.parseFloat(delay) : NaN;
+    const retryAfterMs = Number.isFinite(seconds) ? Math.round(seconds * 1000) : null;
+    return quotaId || retryAfterMs !== null ? { quotaId, retryAfterMs } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A provider wait longer than this is not worth retrying within a request. */
+export const MAX_RETRY_WAIT_MS = 30_000;
+
+/** A spent quota that will not come back within a request (a daily limit, or a long wait). */
+export function isQuotaExhausted(err: unknown): boolean {
+  const e = err as { status?: number; quotaId?: string | null; retryAfterMs?: number | null } | null;
+  if (e?.status !== 429) return false;
+  return /PerDay/i.test(e.quotaId ?? '') || (typeof e.retryAfterMs === 'number' && e.retryAfterMs > MAX_RETRY_WAIT_MS);
+}
+
 export function isRetryable(err: unknown): boolean {
   if (err instanceof ClaudeNotConfiguredError) return false;
   const status = (err as { status?: number } | null)?.status;
   if (typeof status === 'number') {
+    // A spent daily quota (or a long wait) won't clear in a second: fail now.
+    if (isQuotaExhausted(err)) return false;
     // 429 and 5xx are transient; 400/401/403/404 are not.
     return status === 429 || status >= 500;
   }
@@ -366,11 +398,17 @@ async function callGemini(
   }
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
+    const quota = res.status === 429 ? geminiQuota(detail) : null;
     const error = new Error(
-      `Gemini API error (${res.status}): ${detail.slice(0, 200)}`,
+      `Gemini API error (${res.status}): ${
+        quota?.quotaId
+          ? `quota ${quota.quotaId} exhausted${quota.retryAfterMs !== null ? `, resets in about ${Math.ceil(quota.retryAfterMs / 60_000)} min` : ''}`
+          : detail.slice(0, 200)
+      }`,
     );
-    // Carry the status so isRetryable() can tell a bad key from a rate limit.
-    Object.assign(error, { status: res.status });
+    // Carry the status (and, for a quota, when it resets) so isRetryable()
+    // can tell a bad key from a brief rate limit from a spent daily quota.
+    Object.assign(error, { status: res.status, ...(quota ?? {}) });
     throw error;
   }
   const data = (await res.json()) as {
@@ -420,6 +458,10 @@ export async function completeStructured<S extends ZodTypeAny>(
   try {
     return await attempt();
   } catch (err) {
+    // The re-ask is for a reply that didn't match the schema. A provider that
+    // refused the call (quota, key, outage — already retried by complete())
+    // is not fixed by rephrasing; asking again only spends more quota.
+    if (err instanceof ClaudeNotConfiguredError || typeof (err as { status?: unknown } | null)?.status === 'number') throw err;
     const detail =
       err instanceof SchemaValidationError ? err.message : String(err);
     logger.warn('completeStructured: first attempt invalid, retrying once', {
@@ -447,6 +489,11 @@ export function aiFailureMessage(err: unknown): string | null {
     (typeof status === 'number' && /anthropic|claude/i.test(String((err as { name?: string }).name ?? '')));
   if (!fromProvider) return null;
   if (status === 429) {
+    if (isQuotaExhausted(err)) {
+      const ms = (err as { retryAfterMs?: number | null }).retryAfterMs;
+      const when = typeof ms === 'number' && ms > 0 ? (ms >= 90 * 60_000 ? `in about ${Math.round(ms / 3_600_000)} hour(s)` : `in about ${Math.ceil(ms / 60_000)} minutes`) : 'later';
+      return `Aura’s writer is at its limit right now — the AI provider’s usage quota is used up. Nothing was changed — try again ${when}.`;
+    }
     return 'Aura’s writer is at its limit right now (rate limit or quota). Nothing was changed — try again in a few minutes.';
   }
   return 'Aura’s writer did not answer. Nothing was changed — try again.';

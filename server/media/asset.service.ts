@@ -1,6 +1,7 @@
 import type { GeneratedAsset, Prisma } from '@prisma/client';
 
 import { db } from '@/lib/db';
+import { isHiddenAsset, logoOf, variantOf, type LogoInfo, type VariantInfo } from '@/lib/image-variants';
 import { recordContentChange } from '@/server/approval/approval.service';
 import { logger } from '@/lib/logger';
 import { recordAudit } from '@/server/services/audit.service';
@@ -75,6 +76,12 @@ export interface AssetView {
     fallback: boolean;
     fallbackReason: string | null;
   } | null;
+  /** Which variant this image belongs to and which version it is (lib/image-variants.ts). */
+  variant: VariantInfo;
+  /** Its logo setting, when one was chosen. */
+  logo: LogoInfo | null;
+  /** A logo-free copy kept behind a version with the logo — not listed on its own. */
+  hidden: boolean;
 }
 
 export function toAssetView(
@@ -100,6 +107,9 @@ export function toAssetView(
     createdAt: asset.createdAt.toISOString(),
     attached: attachedAssetIds.has(asset.id),
     creative: creativeOf(asset.metadata),
+    variant: variantOf(asset.id, asset.metadata),
+    logo: logoOf(asset.metadata),
+    hidden: isHiddenAsset(asset.metadata),
   };
 }
 
@@ -468,13 +478,18 @@ export async function assetsThisMonth(companyId: string): Promise<number> {
   // brand's own colours) — re-setting its text spends no generation. Counted
   // as total minus creatives: a NOT on a JSON path would also drop every
   // asset that has no "kind" at all (NULL in SQL), i.e. all of them.
-  const [all, creatives] = await Promise.all([
+  // Likewise a logo version (lib/image-variants.ts): the exact logo placed on
+  // an image already counted, or that image without it — no generation.
+  const [all, creatives, logoVersions] = await Promise.all([
     db.generatedAsset.count({ where }),
     db.generatedAsset.count({
       where: { ...where, metadata: { path: ['kind'], equals: 'creative' } },
     }),
+    db.generatedAsset.count({
+      where: { ...where, metadata: { path: ['variant', 'action'], equals: 'logo' } },
+    }),
   ]);
-  return all - creatives;
+  return all - creatives - logoVersions;
 }
 
 /**

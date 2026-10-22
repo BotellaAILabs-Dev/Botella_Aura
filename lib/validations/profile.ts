@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { CONTENT_CHANNELS } from '@/lib/validations/planner';
 import { CONTENT_TYPES, type ContentTypeKey } from '@/lib/validations/content';
+import { detailProblem, type BusinessFacts, type DetailKey } from '@/lib/post-details';
 
 /**
  * The workspace's own description of itself: its brand assets and who it is
@@ -94,6 +95,32 @@ export const businessProfileSchema = z.object({
 });
 
 export type BusinessProfile = z.infer<typeof businessProfileSchema>;
+
+/**
+ * The business's own contact facts, offered to posts as pre-approved details
+ * (lib/post-details.ts). Kept with the profile in `preferences.business`,
+ * deliberately NOT in the business context the AI reads: Aura never writes
+ * contact details into copy, people add them per post.
+ */
+const contactFact = (key: DetailKey) =>
+  z
+    .string()
+    .trim()
+    .max(300)
+    .nullable()
+    .optional()
+    .transform((v) => v || null)
+    .superRefine((v, ctx) => {
+      const problem = v ? detailProblem(key, v) : null;
+      if (problem) ctx.addIssue({ code: 'custom', message: problem });
+    });
+
+export const contactFactsSchema = z.object({
+  address: contactFact('address'),
+  phone: contactFact('phone'),
+  contactEmail: contactFact('email'),
+});
+export type ContactFacts = z.infer<typeof contactFactsSchema>;
 
 /** True once the workspace has said what it does in its own words. */
 export function hasBusinessProfile(profile: BusinessProfile | null): boolean {
@@ -219,4 +246,14 @@ export function hasBrandAssets(assets: BrandAssets | null): boolean {
   return Boolean(
     assets.logoAssetId || assets.primaryColor || assets.secondaryColor || assets.accentColor,
   );
+}
+
+/** The facts a post may carry, from the profile — none of them guessed. */
+export function businessFactsFrom(website: string | null | undefined, contact: ContactFacts | null): BusinessFacts {
+  return {
+    website: website?.trim() || null,
+    address: contact?.address ?? null,
+    phone: contact?.phone ?? null,
+    email: contact?.contactEmail ?? null,
+  };
 }

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
   CONTENT_TYPES,
+  aiBodySchemaFor,
   bodySchemaFor,
   imagePostSchema,
   type ContentTypeKey,
@@ -29,7 +30,7 @@ describe('IMAGE_POST — the single-image format', () => {
   it('is a real content type with a schema, a label and a platform', () => {
     expect(CONTENT_TYPES).toContain('IMAGE_POST');
     expect(CONTENT_TYPE_LABELS.IMAGE_POST).toBe('Single image post');
-    expect(bodySchemaFor('IMAGE_POST')).toBe(imagePostSchema);
+    expect(aiBodySchemaFor('IMAGE_POST')).toBe(imagePostSchema);
     expect(defaultPlatformFor('IMAGE_POST')).toBe('INSTAGRAM');
   });
 

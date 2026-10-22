@@ -128,7 +128,11 @@ async function main() {
     }
     if (url) {
       check('on the current Graph version', url.pathname === '/v23.0/dialog/oauth', url.pathname);
-      check('asking exactly the documented permissions', (url.searchParams.get('scope') ?? '').split(' ').sort().join() === [...META_SCOPES].sort().join(), url.searchParams.get('scope') ?? '');
+      if (process.env.META_LOGIN_CONFIG_ID) {
+        check('Facebook Login for Business: the configuration id, no scope', url.searchParams.get('config_id') === process.env.META_LOGIN_CONFIG_ID && !url.searchParams.has('scope'), url.search);
+      } else {
+        check('asking exactly the documented permissions', (url.searchParams.get('scope') ?? '').split(' ').sort().join() === [...META_SCOPES].sort().join(), url.searchParams.get('scope') ?? '');
+      }
       check('with a signed state', /\./.test(url.searchParams.get('state') ?? ''));
       check('returning to the Meta callback', url.searchParams.get('redirect_uri') === `${BASE}/api/connectors/meta/callback`, url.searchParams.get('redirect_uri') ?? '');
       const pkceOn = ['1', 'true', 'yes'].includes((process.env.META_OAUTH_PKCE ?? '').toLowerCase());
@@ -151,7 +155,7 @@ async function main() {
       const after = await db.connection.findUnique({ where: { id: conn.id } });
       check(
         'a valid state without this browser’s binding cookie is refused, nothing changes',
-        /same browser/.test(location) && after?.updatedAt.getTime() === conn.updatedAt.getTime(),
+        /code=state_mismatch/.test(location) && /different browser|same browser/.test(location) && after?.updatedAt.getTime() === conn.updatedAt.getTime(),
         `${cb.status} ${location.slice(0, 160)}`,
       );
     }
@@ -180,7 +184,8 @@ async function main() {
     check('and changes nothing', (await db.connection.findUnique({ where: { id: conn.id } }))?.status === 'CONNECTED');
     const deauth = await callback('/api/meta/deauthorize', signRequest({ user_id: FB_USER, algorithm: 'HMAC-SHA256' }, SECRET));
     const dead = await db.connection.findUnique({ where: { id: conn.id } });
-    check('Meta’s deauthorize disconnects it and forgets the token', deauth.status === 200 && dead?.status === 'DISCONNECTED' && dead.accessTokenEnc === null, `${deauth.status} ${dead?.status}`);
+    // Marked REVOKED (kept visible, tokens forgotten) since the Connection Manager.
+    check('Meta’s deauthorize marks it revoked and forgets the token', deauth.status === 200 && dead?.status === 'REVOKED' && dead.accessTokenEnc === null && dead.health === 'DISCONNECTED', `${deauth.status} ${dead?.status}`);
     const del = await callback('/api/meta/data-deletion', signRequest({ user_id: FB_USER, algorithm: 'HMAC-SHA256' }, SECRET));
     const body = (await del.json()) as { url?: string; confirmation_code?: string };
     check('data deletion answers with a status URL and a code', del.status === 200 && /^[0-9a-f]{16}$/.test(body.confirmation_code ?? '') && Boolean(body.url?.includes(body.confirmation_code ?? '-')), JSON.stringify(body));

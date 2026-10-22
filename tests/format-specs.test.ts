@@ -18,6 +18,7 @@ import {
 } from '@/lib/recommendation-context-handoff';
 import { platformsForType } from '@/lib/platforms';
 import {
+  aiBodySchemaFor,
   bodySchemaFor,
   CONTENT_TYPES,
   isCopyOnlyType,
@@ -50,13 +51,18 @@ describe('every format is fully defined', () => {
   it.each(CONTENT_TYPES)(
     '%s: the declared output fields are exactly the schema’s',
     (type) => {
-      const shape = (bodySchemaFor(type) as unknown as ZodObject<ZodRawShape>)
+      // What the AI is told to write is exactly what it is held to.
+      const shape = (aiBodySchemaFor(type) as unknown as ZodObject<ZodRawShape>)
         .shape;
       expect(Object.keys(FORMAT_SPECS[type].output.fields).sort()).toEqual(
         Object.keys(shape).sort(),
       );
       for (const key of Object.keys(shape))
         expect(FORMAT_SPECS[type].output.schemaText).toContain(`"${key}"`);
+      // The stored body adds only the post's details — never asked of the AI.
+      const stored = (bodySchemaFor(type) as unknown as ZodObject<ZodRawShape>).shape;
+      expect(Object.keys(stored).sort()).toEqual([...Object.keys(shape), 'details'].sort());
+      expect(FORMAT_SPECS[type].output.schemaText).not.toContain('"details"');
     },
   );
 

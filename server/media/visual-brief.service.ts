@@ -60,7 +60,7 @@ export async function visualBriefForDraft(
   const marketing = company ? readMarketingProfile(company) : null;
   const voice = brandVoiceProfileSchema.safeParse(company?.brandVoiceProfile);
   const req = visualFor(type, platform);
-  const hook = firstLine(renderForManual(draft));
+  const hook = firstLine(renderForManual(draft, { details: false }));
 
   return {
     brief: buildVisualBrief({

@@ -385,6 +385,7 @@ const RULE_DIMENSION: Record<QualityIssue['code'], ReviewDimension> = {
   'unsupported-claim': 'accuracy',
   'unsupported-number': 'accuracy',
   'facts-changed': 'accuracy',
+  'details-unconfirmed': 'accuracy',
   'robotic-phrase': 'clarity',
   repetition: 'clarity',
   'no-cta': 'cta',

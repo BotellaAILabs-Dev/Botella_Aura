@@ -90,7 +90,7 @@ export async function generateImagePrompt(
 ): Promise<ImagePromptResult> {
   const { draft, platform, style, guidance, userId } = args;
 
-  const contentText = renderForManual(draft).slice(0, 3000);
+  const contentText = renderForManual(draft, { details: false }).slice(0, 3000);
   const spec = platformSpec(platform);
   const styleDirection = STYLE_DIRECTION[style];
   // A photographic style is briefed as a photograph, in the network's

@@ -135,7 +135,8 @@ export async function factCheckDraft(
   }
 
   return checkFacts({
-    text: renderForManual({ ...draft, body } as ContentDraft),
+    // Details are confirmed facts people supplied, checked on their own.
+    text: renderForManual({ ...draft, body } as ContentDraft, { details: false }),
     sources,
     competitors: competitors.map((c) => c.name),
     now,

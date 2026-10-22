@@ -3,16 +3,20 @@
 import { db } from '@/lib/db';
 import {
   brandAssetsSchema,
+  businessFactsFrom,
   businessProfileSchema,
+  contactFactsSchema,
   contentFormatsSchema,
   marketingProfileSchema,
   resolveEnabledFormats,
   type BrandAssets,
   type BusinessProfile,
+  type ContactFacts,
   type ContentFormats,
   type MarketingProfile,
 } from '@/lib/validations/profile';
 import type { ContentTypeKey } from '@/lib/validations/content';
+import type { BusinessFacts } from '@/lib/post-details';
 
 /**
  * Reading and writing the workspace profile stored in `Company.preferences`.
@@ -47,6 +51,35 @@ export function readBusinessProfile(
 ): BusinessProfile | null {
   const parsed = businessProfileSchema.safeParse(bagOf(company).business ?? {});
   return parsed.success ? parsed.data : null;
+}
+
+export function readContactFacts(
+  company: Pick<Company, 'preferences'>,
+): ContactFacts {
+  const parsed = contactFactsSchema.safeParse(bagOf(company).business ?? {});
+  return parsed.success ? parsed.data : { address: null, phone: null, contactEmail: null };
+}
+
+/**
+ * The approved facts a post may carry as details: the website and the
+ * contact facts from Settings. What is not set is null — never guessed.
+ */
+export async function getBusinessFacts(companyId: string): Promise<BusinessFacts> {
+  const company = await db.company.findUnique({
+    where: { id: companyId },
+    select: { website: true, preferences: true },
+  });
+  if (!company) return businessFactsFrom(null, null);
+  return businessFactsFrom(company.website, readContactFacts(company));
+}
+
+/** Save the contact facts (an emptied field removes it). */
+export async function saveContactFacts(companyId: string, facts: ContactFacts): Promise<void> {
+  await mergeSection(companyId, 'business', {
+    address: facts.address ?? undefined,
+    phone: facts.phone ?? undefined,
+    contactEmail: facts.contactEmail ?? undefined,
+  });
 }
 
 export function readMarketingProfile(
@@ -108,7 +141,7 @@ export async function getWorkspaceProfile(companyId: string): Promise<{
  */
 async function mergeSection(
   companyId: string,
-  key: 'brand' | 'marketingProfile' | 'contentFormats',
+  key: 'brand' | 'marketingProfile' | 'contentFormats' | 'business',
   value: Record<string, unknown>,
 ): Promise<void> {
   const company = await db.company.findUnique({

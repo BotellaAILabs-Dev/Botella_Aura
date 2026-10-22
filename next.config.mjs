@@ -5,6 +5,11 @@ const nextConfig = {
 
   experimental: {
     /**
+     * instrumentation.ts: at server start, report which integrations are
+     * configured (variable names only, never values).
+     */
+    instrumentationHook: true,
+    /**
      * Client-side Router Cache lifetime.
      *
      * Every page under /dashboard is `force-dynamic`, and Next 14's default
@@ -75,6 +80,23 @@ const nextConfig = {
        */
       { protocol: 'https', hostname: '**' },
     ],
+  },
+  /**
+   * Baseline security headers. Nothing embeds Aura in a frame, so framing is
+   * refused outright — otherwise another site could overlay the Approve /
+   * Publish buttons (clickjacking).
+   */
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+        ],
+      },
+    ];
   },
 };
 

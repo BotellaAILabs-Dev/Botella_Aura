@@ -24,6 +24,20 @@ export interface ImageGenerationParams {
   style?: string;
 }
 
+/**
+ * Edit an existing image with one natural-language instruction ("warmer
+ * light, move the glass to the right"). The provider receives the image and
+ * returns ONE new image; the original is never modified.
+ */
+export interface ImageEditParams {
+  image: { data: Buffer; mimeType: string };
+  /** The instruction, with the preservation rules already folded in. */
+  prompt: string;
+  aspectRatio: AspectRatioKey;
+  width: number;
+  height: number;
+}
+
 /** One image as it comes back from a provider, before we persist it. */
 export interface GeneratedImage {
   /** Raw bytes. Providers that return a URL are fetched inside the provider. */
@@ -56,6 +70,18 @@ export interface ImageGenerationProvider {
   /** True when the deployment has credentials for it. */
   isConfigured(): boolean;
   generateImage(params: ImageGenerationParams): Promise<GeneratedImage[]>;
+  /**
+   * Image editing (image + instruction → new image), for providers whose
+   * API supports it. Absent means "cannot edit"; `canEdit` refines that for
+   * providers where it depends on the configured model.
+   */
+  editImage?(params: ImageEditParams): Promise<GeneratedImage>;
+  canEdit?(): boolean;
+}
+
+/** Whether this provider can refine an existing image right now. */
+export function supportsEditing(p: ImageGenerationProvider): boolean {
+  return typeof p.editImage === 'function' && p.isConfigured() && (p.canEdit?.() ?? true);
 }
 
 /**

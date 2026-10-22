@@ -118,9 +118,25 @@ export async function putVideo(args: {
   return { storage: 'EXTERNAL', storageUrl: await s3Put(config, key, args.data, args.mimeType) };
 }
 
+/**
+ * A URL that reads a stored object, for someone without bucket credentials
+ * (this server, a browser, or Instagram fetching a video).
+ *
+ * Objects in our bucket get a presigned GET that expires after `ttlSeconds`,
+ * so the bucket itself can stay private. A URL served from a public CDN
+ * domain (ASSET_S3_PUBLIC_BASE_URL), or one outside the configured bucket, is
+ * returned unchanged.
+ */
+export function readableUrl(storageUrl: string, ttlSeconds = 15 * 60): string {
+  const config = s3Config();
+  if (!config) return storageUrl;
+  if (!storageUrl.startsWith(`${config.endpoint}/${config.bucket}/`)) return storageUrl;
+  return presignGet(config, storageUrl, ttlSeconds);
+}
+
 /** Fetch an EXTERNAL asset's bytes back (used when publishing needs the file). */
 export async function fetchExternal(url: string): Promise<Buffer | null> {
-  const res = await httpRequest(url, { timeoutMs: 20_000, retries: 1 });
+  const res = await httpRequest(readableUrl(url, 5 * 60), { timeoutMs: 20_000, retries: 1 });
   if (!res.ok) {
     logger.error('asset storage: could not read stored object', {
       status: res.status,
@@ -182,6 +198,37 @@ function keyFromUrl(config: S3Config, url: string): string | null {
     return url.slice(config.publicBaseUrl.length + 1);
   }
   return null;
+}
+
+/** RFC 3986 encoding, as SigV4 requires (encodeURIComponent leaves !'()* alone). */
+function encodeRfc3986(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+/**
+ * SigV4 query-string signing for a GET (a "presigned URL"). S3 caps the
+ * lifetime at 7 days. Exported for the test against AWS's published example.
+ */
+export function presignGet(config: S3Config, objectUrlToSign: string, ttlSeconds: number, now = new Date()): string {
+  const url = new URL(objectUrlToSign);
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const date = amzDate.slice(0, 8);
+  const scope = `${date}/${config.region}/s3/aws4_request`;
+  const params: Record<string, string> = {
+    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+    'X-Amz-Credential': `${config.accessKeyId}/${scope}`,
+    'X-Amz-Date': amzDate,
+    'X-Amz-Expires': String(Math.max(1, Math.min(604_800, Math.floor(ttlSeconds)))),
+    'X-Amz-SignedHeaders': 'host',
+  };
+  const query = Object.keys(params)
+    .sort()
+    .map((k) => `${encodeRfc3986(k)}=${encodeRfc3986(params[k]!)}`)
+    .join('&');
+  const canonicalRequest = ['GET', url.pathname, query, `host:${url.host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n');
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, hash(canonicalRequest)].join('\n');
+  const signature = crypto.createHmac('sha256', signingKey(config, date)).update(stringToSign).digest('hex');
+  return `${url.origin}${url.pathname}?${query}&X-Amz-Signature=${signature}`;
 }
 
 async function s3Request(

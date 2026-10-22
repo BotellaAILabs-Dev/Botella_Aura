@@ -27,7 +27,8 @@ import {
 import { getTeam } from '@/server/services/team.service';
 import { can } from '@/lib/rbac';
 import { PageHeader } from '@/components/dashboard/page-header';
-import { getWorkspaceProfile } from '@/server/company/profile.service';
+import { getBusinessFacts, getWorkspaceProfile } from '@/server/company/profile.service';
+import { ContactFactsCard } from '@/components/dashboard/settings/contact-facts-card';
 import { TeamManager } from '@/components/dashboard/team-manager';
 import { EmailDiagnosticsCard } from '@/components/dashboard/email-diagnostics-card';
 import { Button } from '@/components/ui/button';
@@ -49,11 +50,12 @@ export default async function SettingsPage() {
   // Layout guarantees an active company, but guard for types.
   if (!active) return null;
 
-  const [company, membership, team, profile] = await Promise.all([
+  const [company, membership, team, profile, businessFacts] = await Promise.all([
     getCompanyById(active.id),
     getMembership(user.id, active.id),
     getTeam(active.id),
     getWorkspaceProfile(active.id),
+    getBusinessFacts(active.id),
   ]);
   if (!company || !membership) return null;
 
@@ -75,6 +77,7 @@ export default async function SettingsPage() {
       />
 
       <TimezoneCard initial={safeTimeZone(company.timezone)} canEdit={canEdit} />
+      <ContactFactsCard initial={businessFacts} canEdit={canEdit} />
 
       {/* Business details live on About my business, the one place they are
           shown and edited — with where each came from and what is missing. */}

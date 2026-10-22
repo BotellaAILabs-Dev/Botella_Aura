@@ -121,6 +121,9 @@ async function main() {
     { name: 'connection-setup', path: '/dashboard/connections/meta/setup' },
     { name: 'publishing', path: '/dashboard/executions' },
     { name: 'settings', path: '/dashboard/settings' },
+    { name: 'privacy', path: '/privacy' },
+    { name: 'terms', path: '/terms' },
+    { name: 'data-deletion', path: '/data-deletion' },
   ];
 
   fs.mkdirSync(SHOTS, { recursive: true });

@@ -76,7 +76,10 @@ describe('the platform playbook', () => {
     expect(rules).toMatch(/human copywriter/);
     expect(rules).toMatch(/Never claim what the material does not support/);
     for (const p of ROBOTIC_PHRASES) expect(rules).toContain(p);
-    expect(VARIATION_ANGLES).toHaveLength(3);
+    // A new draft's 1–3 versions take the first three; "More recommendations"
+    // draws on the rest. Every angle is distinct.
+    expect(VARIATION_ANGLES.length).toBeGreaterThanOrEqual(6);
+    expect(new Set(VARIATION_ANGLES).size).toBe(VARIATION_ANGLES.length);
   });
 });
 

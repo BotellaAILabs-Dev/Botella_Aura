@@ -22,9 +22,10 @@ import {
   type VariationKind,
 } from '@/lib/content-variations';
 import { redactSensitive } from '@/lib/generation-context';
+import { detailsOf, withDetails } from '@/lib/post-details';
 import { platformSpec, type SocialPlatformKey } from '@/lib/platforms';
 import {
-  bodySchemaFor,
+  aiBodySchemaFor,
   type ContentTone,
   type ContentTypeKey,
 } from '@/lib/validations/content';
@@ -79,10 +80,10 @@ interface DraftMeta {
 }
 
 const textOf = (type: ContentTypeKey, body: unknown) =>
-  renderForManual({ type, body } as unknown as ContentDraft);
+  renderForManual({ type, body } as unknown as ContentDraft, { details: false });
 
 /** What the variation must keep, from the brief the draft was written from. */
-function preserveContextFor(
+export function preserveContextFor(
   draft: ContentDraft,
   meta: DraftMeta,
   avoid: string[],
@@ -178,7 +179,7 @@ export async function createVariation(args: {
       '',
       `HOW THIS FORMAT WORKS${targetPlatform ? ` ON ${platformSpec(targetPlatform).label.toUpperCase()}` : ''}:\n${playbook.rules.map((r) => `- ${r}`).join('\n')}`,
       '',
-      `CURRENT VERSION (JSON):\n${JSON.stringify(draft.body)}`,
+      `CURRENT VERSION (JSON):\n${JSON.stringify(withDetails(draft.body, null))}`,
       knowledge
         ? `\nCOMPANY KNOWLEDGE (facts you may use):\n${knowledge.slice(0, 4000)}`
         : '',
@@ -202,13 +203,16 @@ export async function createVariation(args: {
       // Only that field changes — the rest is the current version, as it is.
       return withField(draft.body, field, value);
     }
-    return completeStructured({
-      schema: bodySchemaFor(type),
+    const copy = await completeStructured({
+      schema: aiBodySchemaFor(type),
       system: w.system,
       prompt,
       maxTokens: type === 'BLOG' ? 4000 : 1600,
       effort: type === 'BLOG' ? 'high' : 'medium',
     });
+    // A new version starts with the details of the one it was made from;
+    // from then on each version keeps its own.
+    return withDetails(copy, detailsOf(draft.body));
   };
 
   let body = await write();

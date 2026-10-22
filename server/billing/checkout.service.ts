@@ -1,4 +1,5 @@
 import type { Plan } from '@prisma/client';
+import { getAppUrl } from '@/lib/app-url';
 import { getStripe, priceIdForPlan } from '@/lib/stripe';
 import { db } from '@/lib/db';
 import { ensureSubscription } from '@/server/billing/subscription.service';
@@ -17,7 +18,8 @@ export class BillingConfigError extends Error {
   }
 }
 
-const APP_URL = () => process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
+/** Stripe's return links: the app's public URL (APP_URL, NEXTAUTH_URL, then Vercel's). */
+const APP_URL = () => getAppUrl();
 
 export async function createCheckoutSession(args: {
   companyId: string;

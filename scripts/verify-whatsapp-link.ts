@@ -18,6 +18,7 @@
  * Run (app running with the same WHATSAPP_* values):
  *   VERIFY_BASE_URL=http://localhost:3001 pnpm verify:whatsapp-link
  */
+import { resolveSentUrl } from './lib/wa-stub';
 import bcrypt from 'bcryptjs';
 
 import { db } from '@/lib/db';
@@ -143,11 +144,13 @@ async function main() {
     console.log('Sign-in link');
     const hi = await say(FROM, 'Hi');
     const payload = hi?.payload as { kind?: string; url?: string } | null;
+    // Sent links are kept as "[sent]" (not stored); with the local stub the link is read from what it received.
+    const linkUrl = await resolveSentUrl(FROM, payload?.url);
     check('“Hi” from an unknown number gets a sign-in button', payload?.kind === 'cta', JSON.stringify(payload));
-    check('it opens Aura’s own site', Boolean(payload?.url?.startsWith(`${BASE}/whatsapp/link/`)), payload?.url);
+    check('it opens Aura’s own site', Boolean(linkUrl?.startsWith(`${BASE}/whatsapp/link/`)), linkUrl);
     check('the welcome text is the one asked for', bodyOf(hi).startsWith('Welcome to Botella Aura!'));
     check('the stored history does not keep the link', !hi?.body?.includes('/whatsapp/link/'));
-    const path = new URL(payload!.url!).pathname;
+    const path = new URL(linkUrl!).pathname;
 
     console.log('Page');
     const signedOut = await web.req('GET', path);

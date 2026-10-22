@@ -88,6 +88,32 @@ describe('fetchRemoteImage — URL guard', () => {
     vi.unstubAllGlobals();
   });
 
+  it('rejects IPv4-mapped IPv6 loopback', async () => {
+    await expect(fetchRemoteImage('http://[::ffff:127.0.0.1]/a.png')).rejects.toThrow(/not reachable/i);
+  });
+
+  it('refuses a redirect to a private address, without fetching it', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 302,
+      headers: new Headers({ location: 'http://169.254.169.254/latest/meta-data/' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(fetchRemoteImage('https://example.com/a.png')).rejects.toThrow(/not reachable/i);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
+  it('follows a redirect to a public host, and stops after three', async () => {
+    const image = { ok: true, status: 200, headers: new Headers({ 'content-length': '3' }), arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
+    const hop = { ok: false, status: 301, headers: new Headers({ location: '/next.png' }) };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(hop).mockResolvedValueOnce(image));
+    await expect(fetchRemoteImage('https://example.com/a.png')).resolves.toBeInstanceOf(Buffer);
+    vi.stubGlobal('fetch', vi.fn(async () => hop));
+    await expect(fetchRemoteImage('https://example.com/a.png')).rejects.toThrow(/redirects too many times/i);
+    vi.unstubAllGlobals();
+  });
+
   it('surfaces a non-2xx as a readable message', async () => {
     vi.stubGlobal(
       'fetch',

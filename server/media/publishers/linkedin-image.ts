@@ -1,4 +1,5 @@
 import { httpRequest } from '@/lib/http';
+import { linkedInApiVersion, linkedInVersionSunsetMessage } from '@/lib/linkedin-api';
 import { logger } from '@/lib/logger';
 
 /**
@@ -21,7 +22,6 @@ import { logger } from '@/lib/logger';
  * uses the token the existing LinkedIn connection already holds.
  */
 const API_BASE = 'https://api.linkedin.com';
-const LINKEDIN_API_VERSION = process.env.LINKEDIN_API_VERSION || '202503';
 
 /** How long to wait for LinkedIn to finish processing an uploaded image. */
 const PROCESSING_TIMEOUT_MS = 30_000;
@@ -38,7 +38,7 @@ export class LinkedInMediaError extends Error {
 function headers(token: string): Record<string, string> {
   return {
     authorization: `Bearer ${token}`,
-    'linkedin-version': LINKEDIN_API_VERSION,
+    'linkedin-version': linkedInApiVersion(),
     'x-restli-protocol-version': '2.0.0',
   };
 }
@@ -80,7 +80,9 @@ export async function uploadLinkedInImage(args: {
       detail: detail.slice(0, 300),
     });
     throw new LinkedInMediaError(
-      initRes.status === 403
+      initRes.status === 426
+        ? linkedInVersionSunsetMessage(linkedInApiVersion())
+        : initRes.status === 403
         ? 'LinkedIn refused the image upload. The connection needs posting permission — reconnect and approve "Share on LinkedIn".'
         : `LinkedIn would not accept an image upload (HTTP ${initRes.status}).`,
     );
@@ -144,7 +146,10 @@ async function waitForImage(token: string, imageUrn: string): Promise<void> {
       timeoutMs: 8000,
       retries: 0,
     });
-    if (!res.ok) break; // Not fatal — the post can still reference the URN.
+    // Not fatal — the post can still reference the URN. Expected for a member
+    // token: LinkedIn's versioned GET /rest/images needs more than
+    // w_member_social (write-only), so a personal-profile post skips the wait.
+    if (!res.ok) break;
 
     const body = (await res.json().catch(() => ({}))) as ImageStatusResponse;
     const status = body.status;

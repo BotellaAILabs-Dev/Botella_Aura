@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { SOCIAL_PLATFORMS } from '@/lib/platforms';
+import { postDetailsSchema } from '@/lib/post-details';
 
 /**
  * Content Studio schemas — the single source of truth for every content type's
@@ -199,8 +200,35 @@ export type ContentBody =
   | CampaignCopyBody
   | PromoBody;
 
-/** Map a content type to its body schema. */
+/**
+ * Map a content type to its STORED body schema: the copy plus the post's
+ * own details (website, address, phone, email — lib/post-details.ts).
+ */
 export function bodySchemaFor(type: ContentTypeKey) {
+  return STORED_SCHEMAS[type];
+}
+
+const withPostDetails = <S extends z.AnyZodObject>(schema: S) =>
+  schema.extend({ details: postDetailsSchema.optional() });
+
+const STORED_SCHEMAS = {
+  LINKEDIN_POST: withPostDetails(linkedInPostSchema),
+  IMAGE_POST: withPostDetails(imagePostSchema),
+  CAROUSEL: withPostDetails(carouselSchema),
+  TWEET_THREAD: withPostDetails(threadSchema),
+  BLOG: withPostDetails(blogSchema),
+  EMAIL: withPostDetails(emailSchema),
+  AD: withPostDetails(adSchema),
+  CAMPAIGN_COPY: withPostDetails(campaignCopySchema),
+  PROMO: withPostDetails(promoSchema),
+};
+
+/**
+ * The shape the AI writes: the copy only. It has no `details`, so the
+ * writer can never fill in a website, address, phone or email — those are
+ * added by people (lib/post-details.ts) and re-attached after every rewrite.
+ */
+export function aiBodySchemaFor(type: ContentTypeKey) {
   switch (type) {
     case 'LINKEDIN_POST':
       return linkedInPostSchema;

@@ -1,5 +1,6 @@
 import { unsupportedNumbers } from '@/lib/ai-opportunity-detection';
 import { ROBOTIC_PHRASES, type CopyLimits } from '@/lib/content-playbook';
+import { DETAIL_LABELS, detailsOf, unconfirmedDetails } from '@/lib/post-details';
 import { bodySchemaFor, type ContentTypeKey } from '@/lib/validations/content';
 
 /**
@@ -44,7 +45,9 @@ export interface QualityIssue {
     | 'hashtags'
     | 'no-cta'
     /** A variation changed a fact from the original (lib/content-variations.ts). */
-    | 'facts-changed';
+    | 'facts-changed'
+    /** A website/address/phone/email typed for the post is not confirmed yet (lib/post-details.ts). */
+    | 'details-unconfirmed';
   severity: IssueSeverity;
   message: string;
 }
@@ -443,6 +446,17 @@ export function checkQuality(
       message: ctx.ctaRequired
         ? 'No call to action, and this format needs one — say what the reader should do next.'
         : 'No call to action — say what the reader should do next.',
+    });
+  }
+
+  // Contact details typed for this post are facts only a person can vouch
+  // for: confirmed before approval, never assumed (lib/post-details.ts).
+  const unconfirmed = unconfirmedDetails(detailsOf(body));
+  if (unconfirmed.length) {
+    push({
+      code: 'details-unconfirmed',
+      severity: 'block',
+      message: `Confirm the ${unconfirmed.map((k) => DETAIL_LABELS[k].toLowerCase()).join(', ')} on this post is correct before it is approved.`,
     });
   }
 

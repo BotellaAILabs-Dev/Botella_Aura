@@ -4,6 +4,7 @@ import type { AspectRatioKey } from '@/lib/platforms';
 import {
   ImageProviderError,
   type GeneratedImage,
+  type ImageEditParams,
   type ImageGenerationParams,
   type ImageGenerationProvider,
 } from '@/server/media/types';
@@ -47,6 +48,52 @@ export const openAiImageProvider: ImageGenerationProvider = {
 
   isConfigured() {
     return Boolean(process.env.OPENAI_API_KEY);
+  },
+
+  /** gpt-image models edit through /v1/images/edits; DALL·E 3 cannot. */
+  canEdit() {
+    return (process.env.OPENAI_IMAGE_MODEL || DEFAULT_MODEL).startsWith('gpt-image');
+  },
+
+  async editImage(params: ImageEditParams): Promise<GeneratedImage> {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new ImageProviderError('OPENAI', 'OpenAI is not configured on this deployment.', 503, false);
+    }
+    const size = SIZE_FOR_RATIO[params.aspectRatio] ?? '1024x1024';
+    const model = process.env.OPENAI_IMAGE_MODEL || DEFAULT_MODEL;
+    const ext = params.image.mimeType === 'image/jpeg' ? 'jpg' : params.image.mimeType === 'image/webp' ? 'webp' : 'png';
+    const form = new FormData();
+    form.append('model', model);
+    form.append('prompt', params.prompt);
+    form.append('size', size);
+    form.append('quality', 'high');
+    form.append('n', '1');
+    form.append('image', new Blob([new Uint8Array(params.image.data)], { type: params.image.mimeType }), `image.${ext}`);
+
+    const res = await httpRequest('https://api.openai.com/v1/images/edits', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${apiKey}` },
+      body: form,
+      timeoutMs: TIMEOUT_MS,
+      retries: 0,
+    });
+    const payload = (await res.json().catch(() => ({}))) as OpenAiImageResponse;
+    if (!res.ok) {
+      logger.error('openai image edit failed', { status: res.status, code: payload.error?.code, type: payload.error?.type });
+      throw new ImageProviderError(
+        'OPENAI',
+        describeFailure(res.status, payload.error?.message),
+        res.status === 429 ? 429 : 502,
+        res.status === 429 || res.status >= 500,
+      );
+    }
+    const [width, height] = size.split('x').map(Number) as [number, number];
+    for (const item of payload.data ?? []) {
+      const bytes = await readImage(item);
+      if (bytes) return { data: bytes, mimeType: 'image/png', width, height, metadata: { model, size, edit: true } };
+    }
+    throw new ImageProviderError('OPENAI', 'OpenAI accepted the edit but returned no image. Try rewording the instruction.', 502);
   },
 
   async generateImage(params: ImageGenerationParams): Promise<GeneratedImage[]> {

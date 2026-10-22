@@ -62,6 +62,13 @@ export interface OAuthConfig {
    * The browser binding (lib/pkce.ts) applies to every provider regardless.
    */
   pkceEnv?: string;
+  /**
+   * Env var holding a login CONFIGURATION id (Meta's Facebook Login for
+   * Business). When set, the dialog gets `config_id` and no `scope`: the
+   * configuration chosen in Meta's dashboard decides the permissions and the
+   * token type, as Meta recommends. Unset: `scope` is sent (classic login).
+   */
+  configIdEnv?: string;
 }
 
 export interface ApiKeyConfig {
@@ -310,6 +317,9 @@ export const PROVIDERS: Record<string, ConnectorProvider> = {
       // Meta documents PKCE for its manual login flow (OIDC variant); turn on
       // once tested with this app's permissions (docs/META-INTEGRATION.md).
       pkceEnv: 'META_OAUTH_PKCE',
+      // Facebook Login for Business: the configuration's id (a "User access
+      // token" configuration with the permissions in docs/META-APP-SETUP.md).
+      configIdEnv: 'META_LOGIN_CONFIG_ID',
       // Facebook Login returns a 1–2 hour token and no refresh token: without
       // this exchange a connection silently expired the same afternoon. The
       // long-lived token lasts about 60 days, and Page tokens derived from it

@@ -142,7 +142,12 @@ export function buildAuthorizeUrl(args: {
   url.searchParams.set('client_id', clientId);
   url.searchParams.set('redirect_uri', redirectUri(args.connectorId));
   url.searchParams.set('response_type', 'code');
-  if (cfg.scopes.length > 0) {
+  // A login configuration (Meta's Facebook Login for Business) carries the
+  // permissions itself: send its id, and no scope (Meta recommends against both).
+  const configId = cfg.configIdEnv ? process.env[cfg.configIdEnv]?.trim() : '';
+  if (configId) {
+    url.searchParams.set('config_id', configId);
+  } else if (cfg.scopes.length > 0) {
     url.searchParams.set('scope', cfg.scopes.join(' '));
   }
   url.searchParams.set(

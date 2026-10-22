@@ -56,3 +56,7 @@ next-env.d.ts
 
 # verify:responsive screenshots
 .responsive-shots/
+
+# Local WhatsApp demo log (scripts/demo-whatsapp.ts)
+.demo-whatsapp.log
+.dev-server.log

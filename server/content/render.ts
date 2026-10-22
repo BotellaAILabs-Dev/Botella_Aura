@@ -12,6 +12,7 @@ import {
   type CampaignCopyBody,
   type PromoBody,
 } from '@/lib/validations/content';
+import { detailsOf, renderDetails } from '@/lib/post-details';
 
 const tags = (list: string[]) =>
   list.map((h) => `#${h.replace(/^#/, '')}`).join(' ');
@@ -31,10 +32,26 @@ const lines = (parts: (string | false | null | undefined)[]) =>
  * copy-out for email and ad copy. This never fabricates a "published" state;
  * it just formats what the user posts by hand.
  */
-export function renderForManual(draft: ContentDraft): string {
+export interface RenderOptions {
+  /**
+   * Include the post's details (website, address, phone, email). On by
+   * default — they are part of what is posted. Off where the text is
+   * analysed or handed to an AI (fact check, image prompts), since details
+   * are confirmed facts people supplied, not copy to check or rewrite.
+   */
+  details?: boolean;
+}
+
+/** The post's details as the lines that follow its call to action. */
+function detailBlock(body: unknown, opts: RenderOptions): string {
+  return opts.details === false ? '' : renderDetails(detailsOf(body)).join('\n');
+}
+
+export function renderForManual(draft: ContentDraft, opts: RenderOptions = {}): string {
   const type = draft.type as ContentTypeKey;
   const parsed = bodySchemaFor(type).safeParse(draft.body);
   if (!parsed.success) return '';
+  const info = detailBlock(parsed.data, opts);
 
   switch (type) {
     case 'LINKEDIN_POST': {
@@ -44,13 +61,14 @@ export function renderForManual(draft: ContentDraft): string {
         '',
         b.paragraphs.join('\n\n'),
         b.cta && `\n${b.cta}`,
+        info && `\n${info}`,
         '',
         tags(b.hashtags),
       ]);
     }
     case 'IMAGE_POST': {
       const b = parsed.data as ImagePostBody;
-      return lines([b.caption, b.cta && `\n${b.cta}`, '', tags(b.hashtags)]);
+      return lines([b.caption, b.cta && `\n${b.cta}`, info && `\n${info}`, '', tags(b.hashtags)]);
     }
     case 'CAROUSEL': {
       const b = parsed.data as CarouselBody;
@@ -62,6 +80,7 @@ export function renderForManual(draft: ContentDraft): string {
         '',
         slides,
         b.cta && `\n${b.cta}`,
+        info && `\n${info}`,
         '',
         tags(b.hashtags),
       ]);
@@ -69,14 +88,15 @@ export function renderForManual(draft: ContentDraft): string {
     case 'TWEET_THREAD': {
       const b = parsed.data as ThreadBody;
       const thread = b.tweets.map((t, i) => `${i + 1}/ ${t}`).join('\n\n');
-      return b.hashtags.length ? `${thread} ${tags(b.hashtags)}` : thread;
+      const withInfo = info ? `${thread}\n\n${info}` : thread;
+      return b.hashtags.length ? `${withInfo} ${tags(b.hashtags)}` : withInfo;
     }
     case 'BLOG': {
       const b = parsed.data as BlogBody;
       const sections = b.sections
         .map((s) => `## ${s.heading}\n\n${s.body}`)
         .join('\n\n');
-      return [`# ${b.headline}`, b.subtitle, '', sections]
+      return [`# ${b.headline}`, b.subtitle, '', sections, info]
         .filter(Boolean)
         .join('\n\n')
         .trim();
@@ -90,6 +110,7 @@ export function renderForManual(draft: ContentDraft): string {
         b.greeting && `${b.greeting}\n`,
         b.paragraphs.join('\n\n'),
         b.cta && `\n[ ${b.cta} ]`,
+        info && `\n${info}`,
         b.signOff && `\n${b.signOff}`,
       ]);
     }
@@ -100,6 +121,7 @@ export function renderForManual(draft: ContentDraft): string {
         `Headline: ${b.headline}`,
         b.description && `Description: ${b.description}`,
         `Button: ${b.cta}`,
+        info,
       ]
         .filter(Boolean)
         .join('\n\n');
@@ -113,6 +135,7 @@ export function renderForManual(draft: ContentDraft): string {
         `Long copy:\n${b.longCopy}`,
         b.proofPoints.length && `Proof points:\n${b.proofPoints.map((p) => `- ${p}`).join('\n')}`,
         b.cta && `Call to action: ${b.cta}`,
+        info,
       ]
         .filter(Boolean)
         .join('\n\n');
@@ -126,6 +149,7 @@ export function renderForManual(draft: ContentDraft): string {
         b.urgency,
         b.terms && `Terms: ${b.terms}`,
         b.cta && `[ ${b.cta} ]`,
+        info,
       ]
         .filter(Boolean)
         .join('\n\n');
@@ -139,11 +163,13 @@ export function renderLinkedInCommentary(draft: ContentDraft): string | null {
   if (!parsed.success) return null;
   const b = parsed.data as LinkedInPostBody;
   const hashtags = tags(b.hashtags);
+  const info = detailBlock(parsed.data, {});
   return [
     b.hook,
     '',
     b.paragraphs.join('\n\n'),
     b.cta && `\n${b.cta}`,
+    info && `\n${info}`,
     hashtags && `\n${hashtags}`,
   ]
     .filter(Boolean)

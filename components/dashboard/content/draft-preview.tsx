@@ -1,3 +1,4 @@
+import { detailsOf, renderDetails } from '@/lib/post-details';
 import {
   Image as ImageIcon,
   Linkedin,
@@ -42,6 +43,27 @@ export function DraftPreview({
     );
   }
 
+  const lines = renderDetails(detailsOf(parsed.data));
+  const preview = previewFor(type, parsed.data);
+  if (!lines.length) return preview;
+  // The post's details (website, address, phone, email) are posted after
+  // the copy — shown here exactly as they will read.
+  return (
+    <div className="space-y-2">
+      {preview}
+      <div className="rounded-md border border-dashed border-border px-4 py-3 text-sm" aria-label="Post details">
+        {lines.map((l) => (
+          <p key={l} className="break-words [overflow-wrap:anywhere]">
+            {l}
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function previewFor(type: ContentTypeKey, data: unknown) {
+  const parsed = { data };
   switch (type) {
     case 'LINKEDIN_POST':
       return <PostPreview b={parsed.data as LinkedInPostBody} />;

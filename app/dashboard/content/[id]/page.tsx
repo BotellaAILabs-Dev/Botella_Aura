@@ -36,7 +36,11 @@ import { PageHeader } from '@/components/dashboard/page-header';
 import { Badge, statusBadgeVariant } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { DraftPreview } from '@/components/dashboard/content/draft-preview';
-import { availableVariations } from '@/lib/content-variations';
+import { availableVariations, HEADLINE_FIELD, MAX_VERSIONS } from '@/lib/content-variations';
+import { detailsOf } from '@/lib/post-details';
+import { VersionWorkspace, type VersionCardData } from '@/components/dashboard/content/version-workspace';
+import { getBusinessFacts } from '@/server/company/profile.service';
+import { hasCta, versionsOf } from '@/server/content/version-workspace.service';
 import type { SocialPlatformKey } from '@/lib/platforms';
 import { CreatedFromSuggestion } from '@/components/dashboard/content/created-from-suggestion';
 import { FactCheckPanel } from '@/components/dashboard/content/fact-check-panel';
@@ -201,6 +205,36 @@ export default async function DraftDetailPage({
     getPolicyContext(active.id),
   ]);
   const toReview = claimsToReview(factCheck).length;
+
+  // Recommendations: every version with its own copy, CTA and details.
+  const businessFacts = await getBusinessFacts(active.id);
+  const workspace = versionsOf(draft);
+  const headlineField = HEADLINE_FIELD[type];
+  const workspaceVersions: VersionCardData[] = workspace.versions.map((v, i) => {
+    const body = ((v.body ?? {}) as Record<string, unknown>);
+    // The version in use is the draft: its quality is the current one.
+    const quality = (i === workspace.active ? meta.quality : (v.quality as QualityReport | undefined)) ?? null;
+    const blockers = (quality?.issues ?? []).filter((x) => x.severity === 'block').map((x) => x.message);
+    const last = v.previous?.[0];
+    return {
+      index: i,
+      angle: v.angle ?? '',
+      isActive: i === workspace.active,
+      body,
+      preview: renderForManual({ ...draft, body } as typeof draft),
+      headline: headlineField && typeof body[headlineField] === 'string' ? (body[headlineField] as string) : '',
+      cta: typeof body.cta === 'string' ? body.cta : null,
+      details: detailsOf(body),
+      approvable: quality?.approvable ?? true,
+      blockers,
+      previousCount: v.previous?.length ?? 0,
+      lastChange: last ? last.note : null,
+      platformLabel: v.platform ? platformSpec(v.platform).label : null,
+      // Only variations are fact-checked; versions written at generation are originals.
+      factsKept: v.facts ? v.facts.introduced.length === 0 : null,
+      introduced: v.facts?.introduced ?? [],
+    };
+  });
   // The AI Reviewer's result (lib/content-review.ts), and whether it is of
   // the body as it stands.
   const review = storedReview(draft);
@@ -248,6 +282,16 @@ export default async function DraftDetailPage({
         {/* Preview + actions */}
         <div className="space-y-5">
           <DraftPreview type={type} body={draft.body} />
+          <VersionWorkspace
+            draftId={draft.id}
+            updatedAt={draft.updatedAt.toISOString()}
+            editable={canEdit}
+            hasCta={hasCta(type)}
+            allowMore={type !== 'BLOG'}
+            maxVersions={MAX_VERSIONS}
+            facts={businessFacts}
+            versions={workspaceVersions}
+          />
           <ReviewPanel
             draftId={draft.id}
             review={review}

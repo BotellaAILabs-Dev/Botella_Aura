@@ -150,6 +150,10 @@ Instagram account — use test accounts.
 
 ## 6. App Review checklist
 
+Full, status-tracked version (with the public `/privacy`, `/terms` and
+`/data-deletion` pages and WhatsApp production steps):
+[META-APP-REVIEW-CHECKLIST.md](META-APP-REVIEW-CHECKLIST.md).
+
 - [ ] **Business verification** completed in Meta Business Manager.
 - [ ] **Privacy Policy URL** (public) describing what Aura stores from Meta:
       encrypted access token, Page and Instagram account ids and names, and

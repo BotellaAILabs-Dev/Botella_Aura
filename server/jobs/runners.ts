@@ -121,6 +121,27 @@ const RUNNERS: Record<GenerationJobKind, Runner> = {
       throw new Error('That draft no longer exists, so there is nothing to illustrate.');
     }
 
+    // One existing image: refine, regenerate, or make room for a logo — the
+    // result is that variant's next version (server/media/variant.service.ts).
+    if (inputs.variant) {
+      const { refineVariant, regenerateVariant } = await import('@/server/media/variant.service');
+      const v = inputs.variant;
+      await report(v.action === 'regenerate' ? 'Regenerating this image…' : 'Refining your image…', 35);
+      const asset =
+        v.action === 'regenerate'
+          ? await regenerateVariant({ draft, userId: job.userId, assetId: v.assetId, jobId: job.id })
+          : await refineVariant({
+              draft,
+              userId: job.userId,
+              assetId: v.assetId,
+              instruction: v.instruction ?? '',
+              ...(v.action === 'make_space' ? { makeSpace: v.position ?? 'bottom-right' } : {}),
+              jobId: job.id,
+            });
+      await report('Preparing the preview…', 95);
+      return { variant: { asset, from: v.assetId, action: v.action } } as unknown as JobResult;
+    }
+
     // A marketing creative: copy, photograph and layout in one run.
     if (inputs.creative) {
       const result = await generateCreative({
@@ -158,6 +179,7 @@ const RUNNERS: Record<GenerationJobKind, Runner> = {
         : {}),
       style: inputs.style,
       variations: inputs.variations,
+      ...(inputs.logo ? { logo: inputs.logo } : {}),
     });
 
     await report('Preparing previews…', 90);

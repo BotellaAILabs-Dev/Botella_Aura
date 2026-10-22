@@ -160,6 +160,11 @@ export default async function HomePage() {
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-6 py-8 text-sm text-muted-foreground sm:flex-row">
           <Logo />
           <span>© {new Date().getFullYear()} Botella AI Labs · Human-in-the-loop by design</span>
+          <nav className="flex gap-4">
+            <Link href="/privacy" className="hover:text-foreground">Privacy</Link>
+            <Link href="/terms" className="hover:text-foreground">Terms</Link>
+            <Link href="/data-deletion" className="hover:text-foreground">Data deletion</Link>
+          </nav>
         </div>
       </footer>
     </div>

@@ -58,7 +58,6 @@ export function ContentAssistantPanel({
   tone,
   quality,
   variations,
-  activeVariation,
   options = [],
 }: {
   draftId: string;
@@ -77,7 +76,6 @@ export function ContentAssistantPanel({
   options?: VariationOption[];
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<number | null>(null);
   const [making, setMaking] = useState<string | null>(null);
   const [pickTone, setPickTone] = useState('');
   const [channel, setChannel] = useState('');
@@ -161,26 +159,6 @@ export function ContentAssistantPanel({
   }
   const blocking = quality?.issues.filter((i) => i.severity === 'block') ?? [];
   const warnings = quality?.issues.filter((i) => i.severity === 'warn') ?? [];
-
-  async function use(index: number) {
-    setBusy(index);
-    try {
-      const res = await fetch(`/api/content/drafts/${draftId}/variation`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index }),
-      });
-      if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        toast.error(b.error ?? 'Could not switch versions.');
-        return;
-      }
-      toast.success('Switched version. Undo is available.');
-      router.refresh();
-    } finally {
-      setBusy(null);
-    }
-  }
 
   return (
     <div className="space-y-4 text-sm">
@@ -318,78 +296,13 @@ export function ContentAssistantPanel({
       )}
 
       {variations.length > 1 && (
-        <div className="space-y-2">
-          <p className="flex items-center gap-2 font-medium text-foreground">
-            <Layers className="h-4 w-4" /> {variations.length} versions
-          </p>
-          <ul className="space-y-2">
-            {variations.map((v, i) => (
-              <li
-                key={i}
-                className={
-                  'rounded-md border p-3 ' +
-                  (i === activeVariation
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border')
-                }
-              >
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="flex flex-wrap items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {v.angle || `Version ${i + 1}`}
-                    {v.platformLabel && (
-                      <Badge variant="outline" className="normal-case">
-                        {v.platformLabel}
-                      </Badge>
-                    )}
-                    {v.factsKept === true && (
-                      <Badge variant="secondary" className="normal-case">
-                        Facts kept
-                      </Badge>
-                    )}
-                  </span>
-                  {i === activeVariation ? (
-                    <Badge>In use</Badge>
-                  ) : (
-                    editable && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy !== null}
-                        loading={busy === i}
-                        onClick={() => use(i)}
-                      >
-                        Use this version
-                      </Button>
-                    )
-                  )}
-                </div>
-                <p className="line-clamp-3 text-foreground">{v.snippet}</p>
-                {v.text && (
-                  <details className="mt-1 text-xs">
-                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                      Read this version
-                    </summary>
-                    <p className="mt-1 whitespace-pre-wrap rounded bg-muted/40 p-2 text-foreground">
-                      {v.text}
-                    </p>
-                  </details>
-                )}
-                {v.factsKept === false && (
-                  <p className="mt-1 text-xs text-destructive">
-                    Changes facts from the original: {(v.introduced ?? []).join(', ')}
-                  </p>
-                )}
-                {!v.approvable && (
-                  <p className="mt-1 text-xs text-destructive">
-                    Has {v.issues} issue{v.issues === 1 ? '' : 's'} to fix
-                    before approval
-                    {v.blockers?.length ? `: ${v.blockers.join(' ')}` : '.'}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <a
+          href="#recommendations"
+          className="flex items-center gap-2 rounded-md border border-border p-3 font-medium text-foreground hover:bg-muted"
+        >
+          <Layers className="h-4 w-4" aria-hidden /> {variations.length} versions — compare, edit and choose them under
+          Recommendations
+        </a>
       )}
     </div>
   );

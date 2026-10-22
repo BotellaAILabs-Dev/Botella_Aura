@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-helpers';
 import { getMembership } from '@/server/services/company.service';
 import { readAssetBytes } from '@/server/media/asset.service';
+import { readableUrl } from '@/server/media/storage';
 import { verifyAssetSignature } from '@/server/media/asset-url';
 import { needsJpeg, toJpeg } from '@/server/media/jpeg';
 import { logger } from '@/lib/logger';
@@ -62,7 +63,8 @@ export async function GET(
     if (!owner.storageUrl) return notFound();
     return new Response(null, {
       status: 302,
-      headers: { location: owner.storageUrl, 'cache-control': 'private, no-store' },
+      // A short-lived presigned link, so the bucket need not be public.
+      headers: { location: readableUrl(owner.storageUrl), 'cache-control': 'private, no-store' },
     });
   }
 

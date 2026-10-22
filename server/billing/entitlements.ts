@@ -149,12 +149,10 @@ export async function requireEntitlement(companyId: string, feature: Feature): P
   }
 
   if (feature === 'imageGeneration') {
-    const monthStart = new Date();
-    monthStart.setUTCDate(1);
-    monthStart.setUTCHours(0, 0, 0, 0);
-    const generated = await db.generatedAsset.count({
-      where: { companyId, createdAt: { gte: monthStart } },
-    });
+    // One definition of "images generated this month" (creatives and logo
+    // versions are not generations) — the same count the studio shows.
+    const { assetsThisMonth } = await import('@/server/media/asset.service');
+    const generated = await assetsThisMonth(companyId);
     if (generated >= eff.limits.maxImagesPerMonth) {
       throw new EntitlementError(
         `Your ${eff.limits.label} plan includes ${eff.limits.maxImagesPerMonth} generated graphics per month, and you have used them all. Upgrade for more — your existing graphics stay available.`,

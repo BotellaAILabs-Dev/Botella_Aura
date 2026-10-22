@@ -4,6 +4,7 @@ import {
   carouselSchema,
   threadSchema,
   blogSchema,
+  aiBodySchemaFor,
   bodySchemaFor,
 } from '@/lib/validations/content';
 
@@ -81,10 +82,24 @@ describe('blogSchema', () => {
 });
 
 describe('bodySchemaFor', () => {
-  it('maps each content type to its schema', () => {
-    expect(bodySchemaFor('LINKEDIN_POST')).toBe(linkedInPostSchema);
-    expect(bodySchemaFor('CAROUSEL')).toBe(carouselSchema);
-    expect(bodySchemaFor('TWEET_THREAD')).toBe(threadSchema);
-    expect(bodySchemaFor('BLOG')).toBe(blogSchema);
+  it('maps each content type to its schema (the AI writes the copy only)', () => {
+    expect(aiBodySchemaFor('LINKEDIN_POST')).toBe(linkedInPostSchema);
+    expect(aiBodySchemaFor('CAROUSEL')).toBe(carouselSchema);
+    expect(aiBodySchemaFor('TWEET_THREAD')).toBe(threadSchema);
+    expect(aiBodySchemaFor('BLOG')).toBe(blogSchema);
+  });
+
+  it('the stored body is the copy plus optional post details', () => {
+    const copy = { hook: 'A hook', paragraphs: ['One.', 'Two.', 'Three.'], cta: '', hashtags: [] };
+    expect(bodySchemaFor('LINKEDIN_POST').parse(copy)).toEqual(linkedInPostSchema.parse(copy));
+    const withDetails = bodySchemaFor('LINKEDIN_POST').parse({
+      ...copy,
+      details: { website: { value: 'https://example.com/tasting', source: 'user', confirmed: true } },
+    }) as { details?: { website?: { value: string } } };
+    expect(withDetails.details?.website?.value).toBe('https://example.com/tasting');
+    // A malformed detail is refused, not stored.
+    expect(bodySchemaFor('LINKEDIN_POST').safeParse({ ...copy, details: { phone: { value: 'call us' } } }).success).toBe(false);
+    // The AI's schema has no details at all: anything it adds is dropped.
+    expect('details' in (aiBodySchemaFor('LINKEDIN_POST').parse({ ...copy, details: { website: { value: 'https://x.io' } } }) as object)).toBe(false);
   });
 });

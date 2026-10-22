@@ -2,6 +2,7 @@ import type { ImageProvider } from '@prisma/client';
 import type { AspectRatioKey } from '@/lib/platforms';
 import {
   NoImageProviderError,
+  supportsEditing,
   type ImageGenerationProvider,
 } from '@/server/media/types';
 import { openAiImageProvider } from '@/server/media/providers/openai';
@@ -41,6 +42,8 @@ export interface ProviderStatus {
   credentialEnv: string;
   supportedRatios: AspectRatioKey[];
   maxImagesPerRequest: number;
+  /** Can refine an existing image with an instruction (lib/image-variants.ts). */
+  canEdit: boolean;
 }
 
 /** Every provider with its configuration status — safe to send to the client. */
@@ -54,6 +57,7 @@ export function listProviders(): ProviderStatus[] {
     credentialEnv: p.credentialEnv,
     supportedRatios: p.supportedRatios,
     maxImagesPerRequest: p.maxImagesPerRequest,
+    canEdit: supportsEditing(p),
   }));
 }
 
@@ -104,4 +108,19 @@ export function alternativeProviders(
   exclude: ImageProvider,
 ): ImageGenerationProvider[] {
   return REGISTRY.filter((p) => p.id !== exclude && p.isConfigured());
+}
+
+/**
+ * A provider that can refine an existing image (image + instruction → new
+ * image): the one that made it when it can, else the first that can.
+ * Null when none is configured — the caller says what to set.
+ */
+export function resolveEditProvider(preferred?: ImageProvider | null): ImageGenerationProvider | null {
+  const capable = REGISTRY.filter(supportsEditing);
+  return capable.find((p) => p.id === preferred) ?? capable[0] ?? null;
+}
+
+/** Whether any configured provider can refine images (for the UI). */
+export function isEditingAvailable(): boolean {
+  return REGISTRY.some(supportsEditing);
 }

@@ -259,7 +259,7 @@ export async function writeCopy(args: {
   };
   const request = meta.source?.brief?.trim() ?? '';
   const context = draftContext(draft.aiMetadata);
-  const post = renderForManual(draft);
+  const post = renderForManual(draft, { details: false });
   const locked: Partial<Record<TextField | 'eventName', string>> = {};
   for (const k of [
     'eyebrow',
@@ -514,7 +514,8 @@ export async function buildSpec(args: {
       colors,
       logoAssetId: brand.logoAssetId,
       logoUrl: brand.logoUrl,
-      showLogo: input.showLogo,
+      showLogo: (input.logoMode ?? (input.showLogo ? 'include' : 'none')) === 'include',
+      logoMode: input.logoMode ?? (input.showLogo ? 'include' : 'none'),
     },
     photo: {
       assetId: input.photo === 'reuse' ? (input.photoAssetId ?? null) : null,
@@ -597,6 +598,10 @@ async function logoImage(
   if (spec.brand.logoAssetId || spec.brand.logoUrl) {
     warnings.push(
       'Your logo could not be read (it must be a PNG or JPEG), so the business name is shown instead.',
+    );
+  } else if (spec.brand.logoMode === 'include') {
+    warnings.push(
+      'No logo uploaded yet, so the business name is shown instead. Upload it in Settings → Brand, or choose “No logo” or “Add logo later”.',
     );
   }
   return null;

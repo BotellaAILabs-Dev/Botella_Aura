@@ -16,6 +16,7 @@
  * Run (app running with the same WHATSAPP_* values):
  *   VERIFY_BASE_URL=http://localhost:3001 pnpm verify:whatsapp-social
  */
+import { resolveSentUrl } from './lib/wa-stub';
 import bcrypt from 'bcryptjs';
 
 import { db } from '@/lib/db';
@@ -102,7 +103,7 @@ async function say(text: string, replyId?: string, timeoutMs = 150_000): Promise
     where: { conversationId: inbound!.conversationId, direction: 'OUTBOUND', createdAt: { gte: inbound!.createdAt } },
     orderBy: { createdAt: 'asc' },
   });
-  return out.map((m) => {
+  const replies = out.map((m) => {
     const p = (m.payload ?? {}) as any;
     return {
       kind: p.kind,
@@ -111,6 +112,9 @@ async function say(text: string, replyId?: string, timeoutMs = 150_000): Promise
       url: p.url,
     };
   });
+  // Sent links are kept as "[sent]"; with the local stub, read them from what it received.
+  for (const r of replies) if (r.url === '[sent]') r.url = await resolveSentUrl(NUMBER, r.url);
+  return replies;
 }
 const last = (r: Reply[]) => r.at(-1) ?? { body: '', ids: [] };
 

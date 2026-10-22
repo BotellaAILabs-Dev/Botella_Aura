@@ -1,8 +1,15 @@
 import { z } from 'zod';
 
+import { LOGO_MODES, LOGO_POSITIONS } from '@/lib/image-variants';
 import { ASPECT_RATIOS, SOCIAL_PLATFORMS } from '@/lib/platforms';
 import { IMAGE_STYLES } from '@/lib/graphics-ui';
 import { creativeInputSchema, keepTextSchema } from '@/lib/creative/spec';
+
+/** A logo setting: include the exact logo, none, or leave room for it. */
+export const logoSettingSchema = z.object({
+  mode: z.enum(LOGO_MODES),
+  position: z.enum(LOGO_POSITIONS).default('bottom-right'),
+});
 
 /**
  * Graphic Generation input schemas.
@@ -72,6 +79,8 @@ export const generateGraphicSchema = z.object({
   // Capped here as well as in the service: cost control belongs at every layer
   // that can be reached from outside.
   variations: z.number().int().min(1).max(4).default(1),
+  /** Logo setting for these images (lib/image-variants.ts). */
+  logo: logoSettingSchema.optional(),
 });
 
 /** Attach an image the user supplies by URL rather than generating one. */
@@ -107,6 +116,33 @@ export const imageJobInputsSchema = z.object({
   creative: z
     .object({ input: creativeInputSchema, keepText: keepTextSchema.nullable().optional() })
     .optional(),
+  logo: logoSettingSchema.optional(),
+  /**
+   * Work on ONE existing image (lib/image-variants.ts): refine it with an
+   * instruction, regenerate it, or make room for a logo. The result is that
+   * variant's next version.
+   */
+  variant: z
+    .object({
+      action: z.enum(['refine', 'regenerate', 'make_space']),
+      assetId: z.string().min(1),
+      instruction: z.string().trim().max(1000).optional(),
+      position: z.enum(LOGO_POSITIONS).optional(),
+    })
+    .optional(),
+});
+
+/** Refine one image with a single instruction. */
+export const refineImageSchema = z.object({
+  draftId: z.string().min(1),
+  instruction: z.string().trim().min(3, 'Describe the change you want.').max(1000),
+});
+
+/** Change one image's logo setting. */
+export const imageLogoSchema = z.object({
+  draftId: z.string().min(1),
+  mode: z.enum(LOGO_MODES),
+  position: z.enum(LOGO_POSITIONS).default('bottom-right'),
 });
 
 /** Make a marketing creative (queued — it may photograph a new scene). */

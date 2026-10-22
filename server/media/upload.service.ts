@@ -37,6 +37,8 @@ const REMOTE_TIMEOUT_MS = 20_000;
  */
 export const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 const VIDEO_TIMEOUT_MS = 45_000;
+/** Redirect hops followed when downloading a remote image or video. */
+const MAX_REDIRECTS = 3;
 
 export class MediaFetchError extends Error {
   readonly status: number;
@@ -256,12 +258,26 @@ async function fetchRemote(
 
   let res: Response;
   try {
-    res = await httpRequest(url.toString(), {
-      timeoutMs: opts.timeoutMs,
-      retries: 1,
-      headers: { accept: opts.accept },
-    });
+    // Redirects are followed here, not by fetch, so every hop gets the same
+    // scheme and host checks — otherwise a public URL could redirect the
+    // server to an internal address.
+    for (let hop = 0; ; hop++) {
+      res = await httpRequest(url.toString(), {
+        timeoutMs: opts.timeoutMs,
+        retries: 1,
+        headers: { accept: opts.accept },
+        redirect: 'manual',
+      });
+      const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+      if (!location) break;
+      if (hop >= MAX_REDIRECTS) throw new MediaFetchError(`That ${opts.noun} URL redirects too many times.`);
+      url = new URL(location, url);
+      if ((url.protocol !== 'https:' && url.protocol !== 'http:') || isPrivateHost(url.hostname)) {
+        throw new MediaFetchError('That host is not reachable from here.', 400);
+      }
+    }
   } catch (err) {
+    if (err instanceof MediaFetchError) throw err;
     logger.warn(`media: remote ${opts.noun} fetch failed`, {
       host: url.hostname,
       error: err instanceof Error ? err.message : String(err),
@@ -312,7 +328,8 @@ async function fetchRemote(
 function isPrivateHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (host === 'localhost' || host.endsWith('.localhost')) return true;
-  if (host === '::1' || host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd')) {
+  // ::ffff:… is an IPv4 address in IPv6 form (e.g. [::ffff:127.0.0.1]).
+  if (host === '::' || host === '::1' || host.startsWith('::ffff:') || host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd')) {
     return true;
   }
 

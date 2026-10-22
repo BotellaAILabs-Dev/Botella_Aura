@@ -55,7 +55,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     // A creative run belongs to the creative studio, not this panel.
     const isCreative = Boolean((activeJob?.inputs as { creative?: unknown } | null)?.creative);
     return jsonOk({
-      assets: assets.map((a) => toAssetView(a, attached)),
+      // Logo-free copies kept behind a version with the logo are not listed.
+      assets: assets.map((a) => toAssetView(a, attached)).filter((a) => !a.hidden),
       activeJob: activeJob && !isCreative
         ? {
             jobId: activeJob.id,
@@ -138,6 +139,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         ...(input.customHeight ? { customHeight: input.customHeight } : {}),
         style: input.style,
         variations,
+        ...(input.logo ? { logo: input.logo } : {}),
       },
       // Scoped to this draft: two people generating for two different posts are
       // doing different work, and the second must not attach to the first's run.

@@ -6,7 +6,7 @@ import { getMembership } from '@/server/services/company.service';
 import { can } from '@/lib/rbac';
 import { absoluteUrl } from '@/lib/app-url';
 import { logger } from '@/lib/logger';
-import { bindingCookieName, decodeState, verifyBinding } from '@/server/connectors/oauth';
+import { bindingCookieName, decodeState, InvalidOAuthStateError, verifyBinding } from '@/server/connectors/oauth';
 import { completeOAuth } from '@/server/connectors/connection.service';
 import { getRequestMeta } from '@/lib/api';
 import { notifyUser } from '@/server/whatsapp/notify';
@@ -116,7 +116,16 @@ export async function GET(
       connectorId,
       error: reason,
     });
-    const code = /state|binding|expired/i.test(reason) ? 'bad_state' : /manages no Pages/i.test(reason) ? 'no_accounts' : 'exchange_failed';
+    // By the error's type, not its wording: a state/binding failure is
+    // "start again" (different browser → state_mismatch), never "exchange failed".
+    const code =
+      err instanceof InvalidOAuthStateError
+        ? /same browser/i.test(reason)
+          ? 'state_mismatch'
+          : 'bad_state'
+        : /manages no Pages/i.test(reason)
+          ? 'no_accounts'
+          : 'exchange_failed';
     return failed('error', connectorId, code, code === 'exchange_failed' ? reason : null);
   }
 }

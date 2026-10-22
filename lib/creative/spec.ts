@@ -141,6 +141,12 @@ export const creativeInputSchema = z.object({
   cta: line(30).optional(),
   website: line(80).optional(),
   showLogo: z.boolean().default(true),
+  /**
+   * The three-way logo setting (lib/image-variants.ts). When set it decides,
+   * and showLogo follows it: include — the exact uploaded logo; none — the
+   * business name instead; space — an empty slot to place the logo by hand.
+   */
+  logoMode: z.enum(['include', 'none', 'space']).optional(),
   colors: z
     .object({ primary: hex.optional(), accent: hex.optional() })
     .default({}),
@@ -230,6 +236,8 @@ export interface CreativeSpec {
     logoAssetId: string | null;
     logoUrl: string | null;
     showLogo: boolean;
+    /** Absent on creatives made before the three-way setting (showLogo decides). */
+    logoMode?: 'include' | 'none' | 'space';
   };
   photo: {
     assetId: string | null;

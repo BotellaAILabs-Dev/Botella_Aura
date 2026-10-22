@@ -14,6 +14,7 @@ import {
   playbookFor,
 } from '@/lib/content-playbook';
 import { issuesAsFeedback, type QualityReport } from '@/lib/content-quality';
+import { detailsOf, withDetails } from '@/lib/post-details';
 import {
   platformSpec,
   platformsForType,
@@ -36,6 +37,7 @@ import { firstVersion, versionMatching, withContentVersion } from '@/server/vers
 import { initialTrace } from '@/server/trace/trace.service';
 import { reviewAsFeedback } from '@/lib/content-review';
 import {
+  aiBodySchemaFor,
   bodySchemaFor,
   type ContentTone,
   type ContentTypeKey,
@@ -120,18 +122,21 @@ export async function checkAndRepair(args: {
     ctaRequired: args.ctaRequired ?? false,
   });
   const first = finalizeBody(args.type, args.body, qc);
-  const blocking = first.quality.issues.filter((i) => i.severity === 'block');
+  // Unconfirmed post details are a person's to confirm, not the writer's to fix.
+  const blocking = first.quality.issues.filter(
+    (i) => i.severity === 'block' && i.code !== 'details-unconfirmed',
+  );
   if (!blocking.length) return { ...first, repaired: false };
 
   try {
     const playbook = playbookFor(args.type, args.platform);
     const fixed = await completeStructured({
-      schema: bodySchemaFor(args.type),
+      schema: aiBodySchemaFor(args.type),
       system: args.w.system,
       prompt: [
         `TASK: Fix this ${playbook.label}. Keep everything that works; change only what the problems below require.`,
         '',
-        `CURRENT DRAFT (JSON):\n${JSON.stringify(first.body)}`,
+        `CURRENT DRAFT (JSON):\n${JSON.stringify(withDetails(first.body, null))}`,
         '',
         `PROBLEMS TO FIX:\n${issuesAsFeedback(blocking)}`,
         '',
@@ -140,7 +145,8 @@ export async function checkAndRepair(args: {
       maxTokens: maxTokensFor(args.type, 1),
       effort: 'medium',
     });
-    const second = finalizeBody(args.type, fixed, qc);
+    // The writer never sees or returns details: the body keeps its own.
+    const second = finalizeBody(args.type, withDetails(fixed, detailsOf(args.body)), qc);
     return { ...second, repaired: true };
   } catch (err) {
     logger.warn(
@@ -295,7 +301,7 @@ export async function generateDraft({
     .filter((l) => l !== '')
     .join('\n');
 
-  const bodySchema = bodySchemaFor(type);
+  const bodySchema = aiBodySchemaFor(type);
   const written: { angle: string; body: unknown }[] =
     n > 1
       ? (
@@ -546,7 +552,7 @@ export async function refineDraft({
     '',
     `HOW THIS FORMAT WORKS:\n${playbook.rules.map((r) => `- ${r}`).join('\n')}`,
     '',
-    `CURRENT DRAFT (JSON):\n${JSON.stringify(draft.body)}`,
+    `CURRENT DRAFT (JSON):\n${JSON.stringify(withDetails(draft.body, null))}`,
     '',
     `WHAT TO CHANGE: ${instructionFor(action, { tone, feedback, issues: currentIssues })}`,
     contextText ? `\n${contextText}` : '',
@@ -560,7 +566,7 @@ export async function refineDraft({
     .join('\n');
 
   const raw = await completeStructured({
-    schema: bodySchemaFor(type),
+    schema: aiBodySchemaFor(type),
     system: w.system,
     prompt,
     maxTokens: maxTokensFor(type, 1),
@@ -568,7 +574,8 @@ export async function refineDraft({
   });
   const result = await checkAndRepair({
     type,
-    body: raw,
+    // A rewrite changes the copy only; the post's details stay as they are.
+    body: withDetails(raw, detailsOf(draft.body)),
     w,
     platform,
     sources: groundingSources(brief, context.evidence.join('\n'), knowledge),

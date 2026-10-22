@@ -17,6 +17,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { ImageLightbox } from '@/components/ui/image-lightbox';
+import { LOGO_MODE_LABELS, LOGO_MODES, type LogoMode } from '@/lib/image-variants';
 import { toast } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import {
@@ -86,7 +89,8 @@ type Form = {
   offer: string;
   cta: string;
   website: string;
-  showLogo: boolean;
+  /** Include the exact logo, show the name instead, or leave an empty slot. */
+  logoMode: LogoMode;
   primary: string;
   accent: string;
   photoDirection: string;
@@ -108,7 +112,7 @@ const EMPTY: Form = {
   offer: '',
   cta: '',
   website: '',
-  showLogo: true,
+  logoMode: 'include',
   primary: '',
   accent: '',
   photoDirection: '',
@@ -184,6 +188,9 @@ export function CreativeStudio({
     { warnings: [], removed: [] },
   );
   const polling = useRef(false);
+  const [refineText, setRefineText] = useState('');
+  // Full-screen preview: an index into this post's creatives.
+  const [previewAt, setPreviewAt] = useState<number | null>(null);
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -210,7 +217,7 @@ export function CreativeStudio({
         offer: s.text.offer ?? '',
         cta: s.text.cta ?? '',
         website: s.text.website ?? '',
-        showLogo: s.brand.showLogo,
+        logoMode: s.brand.logoMode ?? (s.brand.showLogo ? 'include' : 'none'),
         primary: s.brand.colors.primary,
         accent: s.brand.colors.accent,
         photoDirection: s.photo.direction ?? '',
@@ -263,6 +270,8 @@ export function CreativeStudio({
                 warnings: string[];
                 removed: string[];
               };
+              /** A refinement: the creative's next version (lib/image-variants.ts). */
+              variant?: { asset: { id: string } };
             } | null;
           };
           setProgress(j.progress?.message ?? null);
@@ -275,6 +284,11 @@ export function CreativeStudio({
                 ? 'Creative made on your brand background (no AI photo).'
                 : 'Creative ready.',
             );
+            return;
+          }
+          if (j.status === 'SUCCEEDED' && j.result?.variant) {
+            await load(j.result.variant.asset.id);
+            toast.success('Refined — the previous creative is kept under Earlier creatives.');
             return;
           }
           if (j.status === 'FAILED') {
@@ -320,7 +334,8 @@ export function CreativeStudio({
     offer: or(form.offer),
     cta: or(form.cta),
     website: or(form.website),
-    showLogo: form.showLogo,
+    showLogo: form.logoMode === 'include',
+    logoMode: form.logoMode,
     colors: {
       ...(or(form.primary) ? { primary: form.primary } : {}),
       ...(or(form.accent) ? { accent: form.accent } : {}),
@@ -392,6 +407,25 @@ export function CreativeStudio({
       toast.error(d.error ?? 'Could not start the creative.');
       return;
     }
+    await poll(d.jobId);
+  }
+
+  /** Refine the current creative's photo with one instruction (a new version). */
+  async function refine() {
+    if (!current || refineText.trim().length < 3) return;
+    setBusy('refine');
+    const res = await fetch(`/api/content/graphics/${current.asset.id}/refine`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ draftId, instruction: refineText.trim() }),
+    });
+    const d = (await res.json().catch(() => ({}))) as { jobId?: string; error?: string };
+    if (!res.ok || !d.jobId) {
+      setBusy(null);
+      toast.error(d.error ?? 'Could not refine this creative.');
+      return;
+    }
+    setRefineText('');
     await poll(d.jobId);
   }
 
@@ -506,12 +540,22 @@ export function CreativeStudio({
               }}
             >
               {current ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={current.asset.url}
-                  alt={spec?.text.headline ?? 'Marketing creative'}
-                  className="h-full w-full object-contain"
-                />
+                <button
+                  type="button"
+                  className="block h-full w-full cursor-zoom-in"
+                  aria-label="Open this creative in a larger view"
+                  onClick={() => {
+                    const at = (data?.creatives ?? []).findIndex((c) => c.asset.id === current.asset.id);
+                    setPreviewAt(at >= 0 ? at : null);
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={current.asset.url}
+                    alt={spec?.text.headline ?? 'Marketing creative'}
+                    className="h-full w-full object-contain"
+                  />
+                </button>
               ) : (
                 <div className="p-6 text-center text-sm text-muted-foreground">
                   <ImageIcon className="mx-auto mb-2 h-6 w-6" aria-hidden />
@@ -519,6 +563,19 @@ export function CreativeStudio({
                   — and generate.
                 </div>
               )}
+              <ImageLightbox
+                images={(data?.creatives ?? []).map((c) => ({
+                  src: c.asset.url,
+                  alt: c.spec?.text.headline ?? 'Marketing creative',
+                  width: c.asset.width,
+                  height: c.asset.height,
+                  downloadName: `creative-${c.asset.id}.png`,
+                  caption: c.spec?.text.headline ?? undefined,
+                }))}
+                index={previewAt}
+                onIndexChange={setPreviewAt}
+                onClose={() => setPreviewAt(null)}
+              />
               {busy === 'generate' && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80 text-sm text-foreground">
                   <RefreshCw className="h-5 w-5 animate-spin" aria-hidden />
@@ -592,6 +649,34 @@ export function CreativeStudio({
                   </a>
                 </Button>
               </div>
+            )}
+            {current && canEdit && current.spec?.photo.assetId && (
+              <form
+                className="space-y-2 rounded-md border p-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void refine();
+                }}
+              >
+                <label htmlFor="creative-refine" className="text-sm font-medium">
+                  Edit / refine the photo
+                </label>
+                <Textarea
+                  id="creative-refine"
+                  value={refineText}
+                  onChange={(e) => setRefineText(e.target.value)}
+                  rows={2}
+                  maxLength={1000}
+                  placeholder="e.g. Reduce the Halloween decorations and make it more sophisticated"
+                  disabled={disabled}
+                />
+                <Button size="sm" type="submit" loading={busy === 'refine'} disabled={disabled || refineText.trim().length < 3}>
+                  Refine — keep this one
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Only the photograph changes; the text, layout and logo are put back exactly. A new version is made — this one stays under Earlier creatives.
+                </p>
+              </form>
             )}
             {data && data.creatives.length > 1 && (
               <div
@@ -828,17 +913,32 @@ export function CreativeStudio({
                 </div>
               </Field>
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={form.showLogo}
-                onChange={(e) => set('showLogo', e.target.checked)}
-                disabled={disabled}
-              />
-              {data?.brand.hasLogo
-                ? 'Show my logo'
-                : 'Show my business name (add a logo in Settings → Brand)'}
-            </label>
+            <fieldset className="space-y-1.5">
+              <legend className="text-sm font-medium">Logo</legend>
+              <div className="flex flex-wrap gap-3 text-sm">
+                {LOGO_MODES.map((m) => (
+                  <label key={m} className="flex items-center gap-1.5">
+                    <input
+                      type="radio"
+                      name="creative-logo"
+                      checked={form.logoMode === m}
+                      onChange={() => set('logoMode', m)}
+                      disabled={disabled}
+                    />
+                    {m === 'none' ? 'No logo (business name)' : LOGO_MODE_LABELS[m]}
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {form.logoMode === 'include'
+                  ? data?.brand.hasLogo
+                    ? 'Your exact uploaded logo is placed in the design — never redrawn.'
+                    : 'No logo uploaded yet — the business name is shown until you add one in Settings → Brand.'
+                  : form.logoMode === 'space'
+                    ? 'An empty space is left where the logo goes, for you to place it yourself.'
+                    : 'The business name is shown instead of a logo.'}
+              </p>
+            </fieldset>
 
             <div className="space-y-2 rounded-md border p-3">
               <p className="text-xs font-medium text-muted-foreground">

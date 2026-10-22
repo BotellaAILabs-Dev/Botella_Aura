@@ -5,6 +5,7 @@ import {
   ImageProviderError,
   fanOutFailure,
   type GeneratedImage,
+  type ImageEditParams,
   type ImageGenerationParams,
   type ImageGenerationProvider,
 } from '@/server/media/types';
@@ -134,6 +135,69 @@ export const googleImageProvider: ImageGenerationProvider = {
 
   isConfigured() {
     return Boolean(apiKey());
+  },
+
+  /** The gemini-* image models edit (Imagen, here, only generates). */
+  canEdit() {
+    return !isImagen(resolveModel());
+  },
+
+  async editImage(params: ImageEditParams): Promise<GeneratedImage> {
+    const key = apiKey();
+    const model = resolveModel();
+    if (!key || isImagen(model)) {
+      throw new ImageProviderError(
+        'GOOGLE',
+        isImagen(model)
+          ? 'The configured Google model (Imagen) cannot edit images. Use a Gemini image model to refine.'
+          : 'Google image generation is not configured on this deployment.',
+        503,
+        false,
+      );
+    }
+    // The same call as generation, with the image as an input part: the
+    // model returns the edited picture as an inlineData part.
+    const res = await httpRequest(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { inlineData: { mimeType: params.image.mimeType, data: params.image.data.toString('base64') } },
+                { text: params.prompt },
+              ],
+            },
+          ],
+          generationConfig: {
+            responseModalities: ['TEXT', 'IMAGE'],
+            imageConfig: { aspectRatio: params.aspectRatio },
+          },
+        }),
+        timeoutMs: 45_000,
+        retries: RETRIES,
+      },
+    );
+    const payload = (await res.json().catch(() => ({}))) as GenerateContentResponse;
+    if (!res.ok) throw failure(res.status, payload.error, model);
+    for (const candidate of payload.candidates ?? []) {
+      for (const part of candidate.content?.parts ?? []) {
+        if (!part.inlineData?.data) continue;
+        return {
+          data: Buffer.from(part.inlineData.data, 'base64'),
+          mimeType: part.inlineData.mimeType || 'image/png',
+          width: params.width,
+          height: params.height,
+          metadata: { model, aspectRatio: params.aspectRatio, edit: true },
+        };
+      }
+    }
+    const blocked =
+      Boolean(payload.promptFeedback?.blockReason) ||
+      (payload.candidates ?? []).some((c) => c.finishReason === 'SAFETY');
+    throw emptyResult(blocked);
   },
 
   async generateImage(params: ImageGenerationParams): Promise<GeneratedImage[]> {

@@ -272,7 +272,16 @@ export interface DraftVersion {
   tone?: ContentTone;
   /** The facts guard's result. */
   facts?: { introduced: string[]; corrected: boolean };
+  /**
+   * This version's own earlier texts (newest first), kept when it is edited
+   * or rewritten on its own, so it can be reverted without touching the
+   * other versions.
+   */
+  previous?: { body: unknown; at: string; note: string }[];
 }
+
+/** Earlier texts kept per version. */
+export const VERSION_HISTORY_LIMIT = 5;
 
 /** Most versions kept per draft; the oldest unused ones go first. */
 export const MAX_VERSIONS = 8;

@@ -196,7 +196,7 @@ export async function retryExecution(args: { companyId: string; userId: string; 
  * Nothing else is ever retried automatically — an attempt whose outcome is
  * unknown could post twice.
  */
-export async function runExecutionSweep(now: Date = new Date()): Promise<{ retried: number; retryFailed: number }> {
+export async function runExecutionSweep(now: Date = new Date(), opts: { deadline?: Date } = {}): Promise<{ retried: number; retryFailed: number; deferred: number }> {
   const due = await db.execution.findMany({
     where: { status: 'FAILED', nextAttemptAt: { lte: now } },
     orderBy: { nextAttemptAt: 'asc' },
@@ -204,9 +204,14 @@ export async function runExecutionSweep(now: Date = new Date()): Promise<{ retri
   });
   let retried = 0;
   let retryFailed = 0;
+  let deferred = 0;
   const { publishDraft } = await import('@/server/content/publish.service');
   for (const e of due) {
     if (e.attemptCount >= e.maxAttempts) continue;
+    if (opts.deadline && Date.now() >= opts.deadline.getTime()) {
+      deferred++;
+      continue;
+    }
     try {
       const r = await publishDraft({ companyId: e.companyId, userId: null, draftId: e.contentDraftId, automatic: true, retry: true, platform: e.platform as SocialPlatformKey });
       if (r.mode === 'published' || r.mode === 'processing') retried++;
@@ -216,7 +221,7 @@ export async function runExecutionSweep(now: Date = new Date()): Promise<{ retri
       logger.error('execution: automatic retry failed', { executionId: e.id, error: err instanceof Error ? err.message : String(err) });
     }
   }
-  return { retried, retryFailed };
+  return { retried, retryFailed, deferred };
 }
 
 /** Draft ids whose execution for their own network was cancelled (the scheduler skips them). */

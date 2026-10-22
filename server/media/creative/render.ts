@@ -320,6 +320,11 @@ function brandBlock(
   o: { onDark: boolean; color: string; maxWidth: number },
 ): Block {
   const b = c.spec.brand;
+  // "Add logo later": an empty slot where the logo goes — no name, no mark.
+  if (b.logoMode === 'space') {
+    const h = (c.landscape ? 7.5 : 7) * c.u + 2.2 * c.u;
+    return { el: div({ width: Math.round(Math.min(o.maxWidth * 0.4, h * 2.6)), height: Math.round(h) }), height: h };
+  }
   if (c.logo && b.showLogo) {
     const h = (c.landscape ? 7.5 : 7) * c.u;
     let w = (c.logo.width / c.logo.height) * h;
@@ -378,7 +383,7 @@ function eyebrowBlock(
 ): Block | null {
   // The business name is already set as the wordmark when there is no logo.
   const eyebrow = c.spec.text.eyebrow;
-  const shownAsWordmark = !(c.logo && c.spec.brand.showLogo);
+  const shownAsWordmark = !(c.logo && c.spec.brand.showLogo) && c.spec.brand.logoMode !== 'space';
   if (
     eyebrow &&
     shownAsWordmark &&

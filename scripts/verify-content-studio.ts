@@ -18,7 +18,7 @@ import type { ContentDraft } from '@prisma/client';
 import { db } from '@/lib/db';
 import { copyParts, type QualityReport } from '@/lib/content-quality';
 import { playbookFor } from '@/lib/content-playbook';
-import { isClaudeConfigured, getModel } from '@/server/ai/claude';
+import { aiFailureMessage, isClaudeConfigured, isQuotaExhausted, getModel } from '@/server/ai/claude';
 import { transition, updateDraftBody } from '@/server/content/content.service';
 import {
   generateDraft,
@@ -325,6 +325,20 @@ async function main() {
 
 main()
   .catch((err) => {
+    // The AI provider refused (quota, key, outage): the checks did not run.
+    // Said plainly — and still a failure exit, never a pass.
+    if (aiFailureMessage(err)) {
+      const e = err as { status?: number; quotaId?: string | null; retryAfterMs?: number | null; message?: string };
+      console.log(
+        `
+BLOCKED (external): the AI provider refused — ${e.message ?? 'no answer'}.` +
+          (isQuotaExhausted(err) && e.retryAfterMs ? ` Re-run in about ${Math.ceil(e.retryAfterMs / 60_000)} min.` : '') +
+          `
+${failures} check(s) BROKEN; the remaining live-generation checks were not run.`,
+      );
+      process.exitCode = 2;
+      return;
+    }
     console.error(err);
     process.exitCode = 1;
   })

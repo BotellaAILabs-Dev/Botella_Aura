@@ -307,8 +307,12 @@ export function bodyToFields(body: unknown): ReviewField[] {
       return;
     }
     if (v && typeof v === 'object') {
-      for (const [k, child] of Object.entries(v).sort(byOrder))
+      for (const [k, child] of Object.entries(v).sort(byOrder)) {
+        // Post details (website, address…) have their own editor with a
+        // confirmation step (lib/post-details.ts) — not free-text fields.
+        if (path.length === 0 && k === 'details') continue;
         walk(child, [...path, k], null, null);
+      }
     }
   };
   walk(body, [], null, null);
