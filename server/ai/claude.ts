@@ -14,7 +14,56 @@ import { logger } from '@/lib/logger';
  * failure; a clear typed error otherwise so callers can fall back gracefully.
  */
 export const DEFAULT_MODEL = 'claude-opus-4-8';
-const DEFAULT_GEMINI_MODEL = 'gemini-flash-latest';
+/**
+ * Gemini models per tier.
+ *
+ * There used to be one: `gemini-flash-latest`, on the reasoning that "Gemini's
+ * flash model is already the cheap end of that family, so the tier does not
+ * change anything". That stopped being true. `gemini-flash-latest` is an
+ * ALIAS, Google moved it, and it now takes longer than 45 seconds to answer a
+ * small JSON request — measured, not inferred.
+ *
+ * Nothing errored. The WhatsApp assistant's router has a 15-second budget, so
+ * it timed out, retried, timed out again, and fell back to its menu — which a
+ * user experiences as "Sorry, I didn't catch that" to a perfectly clear
+ * sentence. The assistant looked broken; the model was just slow.
+ *
+ * So the tier is honoured on this path too, and the defaults are models that
+ * were timed rather than assumed. `-lite` everywhere looks surprising for the
+ * premium tier, and it is the honest default on a free key: of the larger
+ * models, 3.8-flash timed out at 60s, 3.6-flash answered 503 "high demand",
+ * and pro-latest answered 429 "quota exceeded". A deployment with a paid key,
+ * or any preference of its own, sets the three variables below.
+ *
+ * Anthropic stays the recommended provider for anything a customer reads;
+ * these tiers are the fallback path, not the intended one.
+ */
+const GEMINI_TIER_DEFAULTS: Record<ModelTier, string> = {
+  cheap: 'gemini-3.5-flash-lite',
+  standard: 'gemini-3.5-flash-lite',
+  premium: 'gemini-3.5-flash-lite',
+};
+
+const GEMINI_TIER_ENV: Record<ModelTier, string> = {
+  cheap: 'GEMINI_MODEL_CHEAP',
+  standard: 'GEMINI_MODEL_STANDARD',
+  premium: 'GEMINI_MODEL_PREMIUM',
+};
+
+/**
+ * The Gemini model for a tier.
+ *
+ * `GEMINI_MODEL` still overrides every tier, so a deployment that pinned a
+ * model before this existed behaves exactly as it did — including one that
+ * pinned the slow alias, which is its choice to make.
+ */
+function geminiModelFor(tier: ModelTier): string {
+  return (
+    process.env[GEMINI_TIER_ENV[tier]] ||
+    process.env.GEMINI_MODEL ||
+    GEMINI_TIER_DEFAULTS[tier]
+  );
+}
 const STREAM_THRESHOLD_TOKENS = 8000;
 
 /**
@@ -120,9 +169,7 @@ export function isClaudeConfigured(): boolean {
 
 export function getModel(tier: ModelTier = 'premium'): string {
   if (hasAnthropic()) return modelFor(tier).id;
-  // Gemini's flash model is already the cheap end of that family, so the tier
-  // does not change anything on the fallback path.
-  return process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+  return geminiModelFor(tier);
 }
 
 function geminiKey(): string {
@@ -274,7 +321,7 @@ export async function complete(options: CompleteOptions): Promise<string> {
     if (hasAnthropic())
       return callAnthropic(system, prompt, maxTokens, effort, tier, timeoutMs);
     if (isGeminiConfigured())
-      return callGemini(system, prompt, maxTokens, timeoutMs, { json, effort });
+      return callGemini(system, prompt, maxTokens, timeoutMs, { json, effort, tier });
     throw new ClaudeNotConfiguredError();
   };
 
@@ -364,9 +411,14 @@ async function callGemini(
   prompt: string,
   maxTokens: number,
   timeoutMs: number,
-  options: { json: boolean; effort: NonNullable<CompleteOptions['effort']> },
+  options: {
+    json: boolean;
+    effort: NonNullable<CompleteOptions['effort']>;
+    /** Which model class the caller asked for; the tier picks the model. */
+    tier: ModelTier;
+  },
 ): Promise<string> {
-  const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+  const model = geminiModelFor(options.tier);
   let res: Response;
   try {
     res = await fetch(

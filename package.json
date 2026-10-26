@@ -83,6 +83,7 @@
     "verify:image-preview": "tsx scripts/verify-image-preview.ts",
     "whatsapp:check": "tsx scripts/whatsapp-check.ts",
     "demo:whatsapp": "tsx scripts/demo-whatsapp.ts",
+    "whatsapp:local": "node scripts/whatsapp-local.mjs",
     "env:check": "tsx scripts/env-check.ts",
     "verify:sprint9:all": "tsx scripts/verify-sprint9-all.ts",
     "load:meta-stub": "tsx scripts/load/meta-stub.ts",
