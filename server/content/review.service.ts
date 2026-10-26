@@ -3,6 +3,11 @@ import type { ContentDraft, Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { copyParts } from '@/lib/content-quality';
+import {
+  classifySource,
+  storedSourceSafety,
+  TOPIC_LABEL,
+} from '@/lib/brand-safety';
 import { ctaRequired, FORMAT_SPECS } from '@/lib/content-formats';
 import { playbookFor } from '@/lib/content-playbook';
 import { redactSensitive } from '@/lib/generation-context';
@@ -99,6 +104,36 @@ export function missingParts(type: ContentTypeKey, body: unknown): string[] {
   return [...missing];
 }
 
+/**
+ * The source block for the reviewer: what the piece was written from, and the
+ * deterministic verdict on it (lib/brand-safety.ts).
+ *
+ * Re-classifies the stored material rather than trusting the stored posture,
+ * so a draft written before the verdict existed — or under an older version of
+ * the rules — is still judged by the rules in force now. The stored verdict is
+ * the fallback for the case where the material was not kept.
+ */
+function sourceFor(meta: Meta): ReviewerInput['source'] {
+  const material =
+    typeof meta.sourceMaterial === 'string' ? meta.sourceMaterial.trim() : '';
+  const stored = storedSourceSafety(meta);
+  if (!material) {
+    return stored
+      ? {
+          material: null,
+          posture: stored.posture,
+          concerns: [...new Set(stored.hits.map((h) => TOPIC_LABEL[h.topic]))],
+        }
+      : null;
+  }
+  const safety = classifySource(material);
+  return {
+    material: material.slice(0, 4000),
+    posture: safety.posture,
+    concerns: [...new Set(safety.hits.map((h) => TOPIC_LABEL[h.topic]))],
+  };
+}
+
 async function reviewerInputFor(draft: ContentDraft): Promise<{
   input: ReviewerInput;
   ctaChecked: boolean;
@@ -190,6 +225,11 @@ async function reviewerInputFor(draft: ContentDraft): Promise<{
     request: source.brief ?? null,
     facts: knowledge.slice(0, 3000),
     alcohol: w.alcohol,
+    // The material the piece was written from, with the verdict reached on it
+    // at the time. Both were stored by the generator; a draft written before
+    // that gets null, and the reviewer judges it as it did before rather than
+    // on a source nobody recorded.
+    source: sourceFor(meta),
   };
   return {
     input,

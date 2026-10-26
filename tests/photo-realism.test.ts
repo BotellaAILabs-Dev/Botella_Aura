@@ -12,6 +12,7 @@ import {
   asksForNonPhoto,
   isPhotographic,
   mergeNegative,
+  photoNegativeFor,
   shotKindOf,
   withPhotoRealism,
 } from '@/lib/photo-realism';
@@ -101,11 +102,51 @@ describe('Graphic Studio prompt without an AI provider', () => {
     expect(r.negativePrompt).not.toMatch(/AI-generated look/);
   });
 
-  it('the photo negative prompt puts text first, then the tells of generated images', () => {
-    expect(PHOTO_NEGATIVE.startsWith('text, letters')).toBe(true);
-    expect(PHOTO_NEGATIVE).toMatch(/name badges/);
-    expect(PHOTO_NEGATIVE).toMatch(/AI-generated look/);
-    expect(PHOTO_NEGATIVE).toMatch(/plastic or waxy skin/);
+  // This replaces a test that asserted the OLD order — the full no-text list
+  // first, then whatever fitted. It passed while the terms that actually
+  // matter were being dropped: the list is capped at NEGATIVE_MAX, the text
+  // terms filled it, and "distorted hands", "extra fingers", "deformed faces"
+  // and "posed stock smiles" never reached a single image model. That is why
+  // photographs without people looked real and photographs with people did
+  // not. "name badges" is no longer asserted because it is now what gets
+  // dropped instead — a correct trade, and the one the old test prevented.
+  it('the photo negative prompt keeps the terms that matter for the shot', () => {
+    const people = photoNegativeFor('people');
+    expect(people.startsWith('text, letters')).toBe(true);
+    expect(people).toMatch(/AI-generated look/);
+    for (const term of [
+      'distorted hands',
+      'extra fingers',
+      'deformed faces',
+      'posed stock smiles',
+      'plastic or waxy skin',
+    ]) {
+      expect(people).toContain(term);
+    }
+
+    // A product shot spends the same budget on its own failures instead.
+    const product = photoNegativeFor('product');
+    expect(product).toContain('warped products');
+    expect(product).toContain('impossible reflections');
+  });
+
+  it('every shot kind fits the stored limit', () => {
+    for (const kind of ['people', 'product', 'place', 'event'] as const) {
+      const n = photoNegativeFor(kind);
+      expect(n.length).toBeLessThanOrEqual(NEGATIVE_MAX);
+      // Whole terms only — never a fragment cut mid-word.
+      expect(n.endsWith(',')).toBe(false);
+      expect(n.split(', ').pop()!.length).toBeGreaterThan(2);
+    }
+  });
+
+  it('briefs the people failures only when there are people in frame', () => {
+    expect(withPhotoRealism('two colleagues reviewing a plan').prompt).toContain(
+      'Real photographed people',
+    );
+    expect(
+      withPhotoRealism('a bottle on a styled surface').prompt,
+    ).not.toContain('Real photographed people');
   });
 });
 

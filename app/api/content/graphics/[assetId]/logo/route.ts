@@ -8,7 +8,7 @@ import { setVariantLogo } from '@/server/media/variant.service';
 import { queueVariantJob, variantError, variantRequest } from '../_variant';
 
 /**
- * POST /api/content/graphics/:assetId/logo { draftId, mode, position }
+ * POST /api/content/graphics/:assetId/logo { draftId, mode, position, tint }
  *
  * Change ONE image's logo setting; the result is its next version.
  *   include — the exact uploaded logo is placed on it (instant, no AI)
@@ -17,6 +17,10 @@ import { queueVariantJob, variantError, variantRequest } from '../_variant';
  *             one image)
  * If the logo cannot be placed (none uploaded, unreadable), the image is
  * unchanged and `note` says why.
+ *
+ * `tint` recolours the mark for legibility (white on a dark photograph, say).
+ * Its shape and transparency are the uploaded file's; only its ink changes.
+ * A change of tint alone is a real change, so it produces a new version.
  */
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +46,7 @@ export async function POST(req: Request, { params }: { params: { assetId: string
       assetId: asset.id,
       mode: input.mode,
       position: input.position,
+      tint: input.tint,
     });
     return jsonOk(result);
   } catch (error) {

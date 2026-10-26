@@ -7,6 +7,13 @@ import { completeStructured, getModel } from '@/server/ai/claude';
 import { politeFetchHtml } from '@/server/knowledge/robots';
 import { htmlToText } from '@/server/knowledge/extract';
 import { logger } from '@/lib/logger';
+import {
+  classifySource,
+  refusalFor,
+  safetyInstructions,
+  storedSourceSafety,
+  type SourceSafety,
+} from '@/lib/brand-safety';
 import { generateBrandVoiceProfile } from '@/server/content/brand-voice.service';
 import {
   TONE_GUIDANCE,
@@ -70,10 +77,34 @@ import {
 // Bumped when the prompt changes materially, so a draft's aiMetadata records
 // which set of instructions produced it.
 // s8 writes per platform playbook, in variations, and checks every draft.
-const PROMPT_VERSION = 's8.playbook-quality';
+// s9 holds the copy to its source material and refuses to market off a source
+// about real harm (lib/brand-safety.ts).
+const PROMPT_VERSION = 's9.source-fidelity-safety';
 
 /** Undo steps kept per draft. */
 const HISTORY_LIMIT = 5;
+
+/**
+ * The copy must be about what it was asked to be about.
+ *
+ * This sounds too obvious to need saying, and it was not being said. A model
+ * handed a business context, a brand voice, a format spec and a one-line
+ * brief will reliably produce an excellent post about the BUSINESS, because
+ * that is where almost all of the material is — and quietly drop the specific
+ * trend, source or instruction that prompted it. The copy reads well, passes
+ * every other check, and is not what anyone asked for.
+ *
+ * So the brief and the source are named as the subject, and drifting off them
+ * is called out as the failure it is.
+ */
+const SOURCE_FIDELITY = [
+  'STAY ON THE SOURCE MATERIAL:',
+  '- The BRIEF and any SOURCE MATERIAL or REFERENCE PAGE in the context below are the subject of this piece. Write about THAT.',
+  '- Reflect what the source actually says. Do not reach past it for a more convenient or more flattering topic.',
+  '- If the source makes a specific point, carries a specific finding, or describes a specific situation, that point is in the piece.',
+  '- The business context is there to tell you WHO is speaking and HOW — not what about. Do not let it replace the subject.',
+  '- Never contradict the source, and never invent detail it does not contain.',
+].join('\n');
 
 interface TypeSpec {
   label: string;
@@ -117,9 +148,17 @@ export async function checkAndRepair(args: {
   sources: string[];
   /** A missing call to action blocks (and is repaired) — lib/content-formats.ts. */
   ctaRequired?: boolean;
+  /**
+   * The verdict on the material this was written from (lib/brand-safety.ts).
+   * A promotional tone on a source about real harm blocks, and the repair
+   * pass is what rewrites it — which is the whole point of passing it here
+   * rather than only reporting it.
+   */
+  sourceSafety?: SourceSafety;
 }): Promise<{ body: unknown; quality: QualityReport; repaired: boolean }> {
   const qc = qualityContextFor(args.type, args.platform, args.w, args.sources, {
     ctaRequired: args.ctaRequired ?? false,
+    ...(args.sourceSafety ? { sourceSafety: args.sourceSafety } : {}),
   });
   const first = finalizeBody(args.type, args.body, qc);
   // Unconfirmed post details are a person's to confirm, not the writer's to fix.
@@ -140,6 +179,10 @@ export async function checkAndRepair(args: {
         '',
         `PROBLEMS TO FIX:\n${issuesAsFeedback(blocking)}`,
         '',
+        // The repair has to be told the rule, not just that it was broken:
+        // "remove the celebratory language" with no reason reads as a style
+        // note, and the rewrite comes back just as promotional.
+        args.sourceSafety ? `${safetyInstructions(args.sourceSafety)}\n` : '',
         `Return JSON of this exact shape: ${TYPE_SPECS[args.type].schemaText}`,
       ].join('\n'),
       maxTokens: maxTokensFor(args.type, 1),
@@ -222,6 +265,61 @@ export async function generateDraft({
   const reference = await fetchReferenceContext(
     `${brief.text}\n${source.brief ?? ''}\n${company.website ?? ''}`,
   );
+
+  // Can this material be marketed off at all? (lib/brand-safety.ts)
+  //
+  // Read BEFORE anything is written, from the same text the writer will be
+  // grounded in: the trend's title, summary and suggested angle, the person's
+  // brief, and any page fetched from it. A story about people dying must not
+  // reach the writer as just another topic with a hook attached — which is
+  // exactly how a LinkedIn post promoting whiskey as "bringing people
+  // together" came to be written off a report of deaths.
+  const sourceMaterial = [
+    brief.text,
+    source.brief && source.brief !== brief.text ? source.brief : '',
+    ...reference.map((r) => `${r.url}\n${r.text}`),
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+  const sourceSafety = classifySource(sourceMaterial);
+  const refusal = refusalFor(sourceSafety, type);
+  if (refusal) {
+    logger.warn('generator: refused — source is not marketing material', {
+      companyId,
+      type,
+      source: source.kind,
+      ref: source.ref ?? null,
+      topics: sourceSafety.hits.map((h) => h.topic),
+    });
+    await recordAudit({
+      action: 'CONTENT_DRAFT_CREATED',
+      userId,
+      companyId,
+      metadata: {
+        type,
+        source: source.kind,
+        ref: source.ref ?? null,
+        refused: true,
+        reason: 'source_not_marketable',
+        posture: sourceSafety.posture,
+        topics: sourceSafety.hits.map((h) => h.topic),
+      },
+    });
+    throw Object.assign(new Error(refusal), {
+      status: 422,
+      code: 'source_not_marketable',
+    });
+  }
+  if (sourceSafety.posture !== 'clear') {
+    logger.info('generator: source needs careful handling', {
+      companyId,
+      type,
+      posture: sourceSafety.posture,
+      topics: sourceSafety.hits.map((h) => h.topic),
+    });
+  }
+
   // Make sure a voice profile exists before the context is read, so a first
   // draft is never written without one (NON-NEGOTIABLE #5).
   await generateBrandVoiceProfile({ company, userId });
@@ -283,13 +381,27 @@ export async function generateDraft({
     tone
       ? `\nTONE FOR THIS PIECE (within the brand voice): ${TONE_GUIDANCE[tone]}`
       : '',
+    // What the piece was asked for, restated as a rule the copy is held to.
+    // A piece that reads well but is about something else is a failure, and
+    // the format and voice instructions alone never said so.
+    `\n${SOURCE_FIDELITY}`,
+    // When the source involves real harm, the rules come BEFORE the variation
+    // instructions — "take a genuinely different angle" is otherwise an
+    // invitation to find the promotional one.
+    sourceSafety.posture !== 'clear'
+      ? `\n${safetyInstructions(sourceSafety)}`
+      : '',
     n > 1
       ? `\nEach version must take a genuinely different angle and hook — not the same text reworded:\n${VARIATION_ANGLES.slice(
           0,
           n,
         )
           .map((a, i) => `${i + 1}. ${a}`)
-          .join('\n')}`
+          .join('\n')}${
+          sourceSafety.posture !== 'clear'
+            ? '\nEvery version follows the source-safety rules above. A version that sells off this source is not an acceptable alternative.'
+            : '\nEvery version stays on the same topic and source material — a different angle on THIS subject, never a different subject.'
+        }`
       : '',
     '',
     contextText,
@@ -354,6 +466,7 @@ export async function generateDraft({
         platform,
         sources,
         ctaRequired: mustHaveCta,
+        sourceSafety,
       })),
     })),
   );
@@ -393,6 +506,16 @@ export async function generateDraft({
     // and redacted — the record behind "why did it say that".
     context: generationContextRecord(context) as unknown as Prisma.InputJsonObject,
     brandVoiceApplied: true,
+    // The safety verdict on the material it was written from, kept so a
+    // rewrite, a variation and the reviewer are all held to the same reading
+    // of the source — and so "why was this blocked" has an answer later.
+    sourceSafety: sourceSafety as unknown as Prisma.InputJsonObject,
+    // The source material itself, so the reviewer can judge whether the copy
+    // reflects it. The assembled context record keeps only section metadata
+    // (generationContextRecord), and re-fetching a trend or a page at review
+    // time would be judging the piece against material it was never written
+    // from. Capped — a reviewer needs the substance, not the whole page.
+    sourceMaterial: sourceMaterial.slice(0, 4000),
     referenceUsed: context.trace.referenceUrls.length > 0,
     writtenFor: platform,
     tone: tone ?? null,
@@ -547,6 +670,12 @@ export async function refineDraft({
     .map((i) => `- ${i.message}`)
     .join('\n');
 
+  // The verdict recorded when this was first written. A rewrite is still a
+  // piece written off that same source, so the rules travel with it — without
+  // this, "regenerate" on a sensitive piece quietly produces the promotional
+  // version the first pass was stopped from writing.
+  const sourceSafety = storedSourceSafety(meta);
+
   const prompt = [
     `TASK: Revise this ${playbook.label}.`,
     '',
@@ -555,6 +684,9 @@ export async function refineDraft({
     `CURRENT DRAFT (JSON):\n${JSON.stringify(withDetails(draft.body, null))}`,
     '',
     `WHAT TO CHANGE: ${instructionFor(action, { tone, feedback, issues: currentIssues })}`,
+    sourceSafety && sourceSafety.posture !== 'clear'
+      ? `\n${safetyInstructions(sourceSafety)}`
+      : '',
     contextText ? `\n${contextText}` : '',
     knowledge
       ? `\nCOMPANY KNOWLEDGE (facts you may use):\n${knowledge.slice(0, 6000)}`
@@ -586,6 +718,7 @@ export async function refineDraft({
       ((meta.brief ?? null) as { cta?: { expected?: boolean } } | null)?.cta
         ?.expected ?? null,
     ),
+    ...(sourceSafety ? { sourceSafety } : {}),
   });
 
   const history = [

@@ -11,6 +11,10 @@ import {
   variationInstruction,
   withField,
   type DraftVersion,
+  droppedTopicTerms,
+  topicOverlap,
+  topicTerms,
+  TOPIC_DRIFT_FLOOR,
 } from '@/lib/content-variations';
 import { CONTENT_TYPES } from '@/lib/validations/content';
 import { SAMPLE_BODIES } from './fixtures/format-bodies';
@@ -179,5 +183,84 @@ describe('versions', () => {
     expect(
       (withField(body, 'hook', 'x'.repeat(500)).hook as string).length,
     ).toBe(300);
+  });
+});
+
+/**
+ * Topic drift.
+ *
+ * A variation is allowed to change every word; it is not allowed to change
+ * the SUBJECT. The fact check (findIntroducedFacts, above) catches a version
+ * that invents a number — this catches the other half: a version that invents
+ * nothing, reads well, and is simply about something else.
+ */
+describe('topic drift', () => {
+  const original =
+    'Our distillery switched to locally malted barley this spring. ' +
+    'The maltings are forty miles away, which cut our grain haulage by half ' +
+    'and gave the spirit a rounder, biscuity character.';
+
+  it('ignores grammar and marketing filler when deciding the subject', () => {
+    const terms = topicTerms(original);
+    expect(terms.has('distillery')).toBe(true);
+    expect(terms.has('barley')).toBe(true);
+    expect(terms.has('malting')).toBe(true);
+    // Words every brand post contains say nothing about what this one is about.
+    for (const filler of ['with', 'which', 'their', 'business', 'customer', 'growth']) {
+      expect(terms.has(filler)).toBe(false);
+    }
+  });
+
+  it('counts a singular and a plural as the same subject', () => {
+    expect(topicTerms('distilleries').has('distillery')).toBe(true);
+    expect(topicTerms('maltings').has('malting')).toBe(true);
+  });
+
+  it('a genuinely different hook on the same subject stays on topic', () => {
+    const sameSubject =
+      'Forty miles. That is how far our barley now travels to be malted — ' +
+      'down from the other end of the country. Half the haulage, and a ' +
+      'rounder, biscuity spirit out of the distillery for it.';
+    expect(topicOverlap(original, sameSubject)).toBeGreaterThan(
+      TOPIC_DRIFT_FLOOR,
+    );
+  });
+
+  it('a post about something else entirely has drifted', () => {
+    const different =
+      'Hospitality is changing. Guests want provenance, they want a story, ' +
+      'and they want to feel welcome the moment they walk in. Here is how we ' +
+      'train our front-of-house team to deliver that.';
+    expect(topicOverlap(original, different)).toBeLessThan(TOPIC_DRIFT_FLOOR);
+  });
+
+  it('names what the variation dropped, so the message can say', () => {
+    const dropped = droppedTopicTerms(original, 'A short note about hospitality.');
+    expect(dropped.length).toBeGreaterThan(0);
+    expect(dropped).toContain('distillery');
+  });
+
+  it('a shorter version of the same post is not drift', () => {
+    // Shortening is a legitimate variation and must never be flagged.
+    expect(
+      topicOverlap(original, 'Our distillery now uses locally malted barley.'),
+    ).toBeGreaterThan(TOPIC_DRIFT_FLOOR);
+  });
+
+  it('treats an empty original as on topic rather than dividing by zero', () => {
+    expect(topicOverlap('', 'anything at all')).toBe(1);
+    expect(topicOverlap('the and of', 'anything at all')).toBe(1);
+    expect(topicOverlap('anything at all', '')).toBe(1);
+  });
+
+  it('a longer version that adds material on the same subject is not drift', () => {
+    // The mirror of shortening: "expand" adds words of its own, and must not
+    // be read as a change of subject either.
+    const expanded =
+      original +
+      ' The maltings floor-malt in small batches, so each delivery is ' +
+      'traceable to a single field, and our stillman can taste the difference ' +
+      'between one farm and the next.';
+    expect(topicOverlap(original, expanded)).toBeGreaterThan(TOPIC_DRIFT_FLOOR);
   });
 });

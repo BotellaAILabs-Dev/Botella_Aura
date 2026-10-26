@@ -88,6 +88,24 @@ export interface DigestItem {
   aiSummary: string;
   /** A suggested post angle/hook — from Claude, or a fallback. */
   suggestedAngle: string;
+  /**
+   * Whether this item is something to market off at all (lib/brand-safety.ts).
+   *
+   * Added because a digest item about people dying arrived with a cheerful
+   * suggested angle attached, and that angle became the brief a LinkedIn post
+   * promoting whiskey was written from. The digest is where the problem
+   * starts, so the verdict is recorded here — older digests omit it, which
+   * reads as "not assessed" rather than "safe".
+   */
+  safety?: {
+    posture: 'clear' | 'caution' | 'unsuitable';
+    /** In plain words, for the card: "deaths or fatalities". */
+    concerns: string[];
+    /** False when no respectful commercial angle exists. */
+    suitableForPromotion: boolean;
+    /** One sentence on why, shown on the item. */
+    reason: string | null;
+  };
 }
 
 /** A relevant upcoming seasonal / event-based marketing moment. */

@@ -17,10 +17,14 @@ import {
   VARIATION_LABELS,
   variationInstruction,
   withField,
+  droppedTopicTerms,
+  topicOverlap,
+  TOPIC_DRIFT_FLOOR,
   type DraftVersion,
   type PreserveContext,
   type VariationKind,
 } from '@/lib/content-variations';
+import { safetyInstructions, storedSourceSafety } from '@/lib/brand-safety';
 import { redactSensitive } from '@/lib/generation-context';
 import { detailsOf, withDetails } from '@/lib/post-details';
 import { platformSpec, type SocialPlatformKey } from '@/lib/platforms';
@@ -160,6 +164,10 @@ export async function createVariation(args: {
   const originalText = textOf(type, draft.body);
   const field =
     kind === 'cta' ? 'cta' : kind === 'headline' ? HEADLINE_FIELD[type] : null;
+  // The verdict on the material the draft was written from, so a variation
+  // cannot become the promotional version the first pass was stopped from
+  // writing (lib/brand-safety.ts).
+  const sourceSafety = storedSourceSafety(meta as Record<string, unknown>);
 
   const instruction = variationInstruction(kind, {
     ...(args.tone ? { toneGuidance: TONE_GUIDANCE[args.tone] } : {}),
@@ -173,6 +181,15 @@ export async function createVariation(args: {
       `TASK: Make a variation of this ${playbook.label}. ${instruction}`,
       '',
       preserveInstructions(keep),
+      // A variation is a different way of saying the same thing. Said plainly,
+      // because "take a different angle" is otherwise read as licence to pick
+      // a different subject — which is what made alternative versions drift.
+      '- The SUBJECT does not change. A variation is a different angle, hook or wording on THIS topic — never a post about something else.',
+      // And when the source involves real harm, every version is bound by the
+      // same rules as the first one.
+      sourceSafety && sourceSafety.posture !== 'clear'
+        ? `\n${safetyInstructions(sourceSafety)}`
+        : '',
       fix?.length
         ? `\nYOUR LAST VERSION CHANGED OR INVENTED THESE FACTS: ${fix.join(' · ')}. Use only the facts in the current version and the evidence above.`
         : '',
@@ -241,6 +258,7 @@ export async function createVariation(args: {
     platform: targetPlatform,
     sources: [originalText, ...sources].filter(Boolean),
     ctaRequired: ctaRequired(type, meta.brief?.cta?.expected ?? null),
+    ...(sourceSafety ? { sourceSafety } : {}),
   });
   // Re-check after the quality repair, which may have rewritten copy too.
   introduced = findIntroducedFacts(
@@ -248,18 +266,56 @@ export async function createVariation(args: {
     textOf(type, checked.body),
     sources,
   );
-  const quality: QualityReport = introduced.length
-    ? {
-        ...checked.quality,
-        approvable: false,
-        issues: [
-          ...checked.quality.issues,
+  // Did the version stay on the original's subject? A changed FACT is caught
+  // above; this catches the other half — a version that invents nothing and is
+  // simply about something else. A field-only variation (a new headline or
+  // CTA) is exempt: it is a few words against a whole post, so the ratio says
+  // nothing about it.
+  const overlap = field ? 1 : topicOverlap(originalText, textOf(type, checked.body));
+  const drifted = overlap < TOPIC_DRIFT_FLOOR;
+  if (drifted) {
+    logger.info('variation: drifted off the original topic', {
+      draftId: draft.id,
+      kind,
+      overlap: Number(overlap.toFixed(2)),
+    });
+  }
+
+  const extraIssues: QualityReport['issues'] = [
+    ...(introduced.length
+      ? ([
           {
             code: 'facts-changed',
             severity: 'block',
             message: `This version changes facts from the original: ${introduced.join(', ')}. Edit them back, or keep the original.`,
           },
-        ],
+        ] as const)
+      : []),
+    ...(drifted
+      ? ([
+          {
+            code: 'topic-drift',
+            severity: 'block',
+            message:
+              'This version is no longer about the same topic as the original' +
+              (() => {
+                const lost = droppedTopicTerms(
+                  originalText,
+                  textOf(type, checked.body),
+                );
+                return lost.length ? ` — it drops ${lost.join(', ')}` : '';
+              })() +
+              '. Make it a different angle on the same subject, or keep the original.',
+          },
+        ] as const)
+      : []),
+  ];
+
+  const quality: QualityReport = extraIssues.length
+    ? {
+        ...checked.quality,
+        approvable: false,
+        issues: [...checked.quality.issues, ...extraIssues],
       }
     : checked.quality;
 

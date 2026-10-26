@@ -12,14 +12,15 @@ import { isImageStyle, type ImageStyleKey } from '@/lib/graphics-ui';
 import { visualBriefToPrompt, type VisualBrief } from '@/lib/visual-brief';
 import { visualBriefForDraft } from '@/server/media/visual-brief.service';
 import {
-  AI_LOOK_NEGATIVE,
-  NO_TEXT_NEGATIVE,
   PEOPLE_DIRECTION,
+  PEOPLE_REALISM,
+  PEOPLE_REALISM_SHORT,
   PLATFORM_PHOTO_DIRECTION,
   REALISM_DIRECTION,
   cameraFor,
   isPhotographic,
   mergeNegative,
+  photoNegativeFor,
   shotKindOf,
 } from '@/lib/photo-realism';
 
@@ -232,6 +233,13 @@ async function askModel(
     opts.photographic
       ? `PHOTOGRAPHIC REALISM (fold this into the prompt):\n${REALISM_DIRECTION}\n${PEOPLE_DIRECTION}\n`
       : '',
+    // Images without people were already reading as real; images with people
+    // were not. So the people brief is spelled out for the art director, who
+    // decides whether the scene has any — rather than being left to the one
+    // sentence above.
+    opts.photographic
+      ? `IF THERE ARE PEOPLE IN THE SHOT (fold this in too; skip it if the scene has none):\n${PEOPLE_REALISM}\n`
+      : '',
     guidance ? `THE USER ALSO ASKED FOR:\n${guidance}\n` : '',
     `HARD RULES (fold these into the prompt):\n${UNIVERSAL_RULES}`,
     '',
@@ -256,19 +264,26 @@ async function askModel(
   });
   // The tells of a generated image are always kept out of a photograph,
   // whatever the model remembered to list — ours first, so they always fit.
+  // Ordered for the shot the art director actually described, so a scene with
+  // people keeps its hands-and-faces terms (lib/photo-realism.ts).
   return opts.photographic
     ? {
         ...out,
-        negativePrompt: mergeNegative(PHOTO_NEGATIVE, out.negativePrompt),
+        negativePrompt: mergeNegative(
+          photoNegativeFor(shotKindOf(`${out.subject} ${out.prompt}`)),
+          out.negativePrompt,
+        ),
       }
     : out;
 }
 
 /**
- * The negative prompt for a photograph: any text first (garbled lettering is
- * the worst failure), then the tells of a generated image.
+ * The negative prompt for a photograph when the shot is not known.
+ *
+ * Prefer photoNegativeFor(kind) — it keeps the terms that matter for the
+ * actual shot. This stays for callers that have no scene to read.
  */
-export const PHOTO_NEGATIVE = mergeNegative(NO_TEXT_NEGATIVE, AI_LOOK_NEGATIVE);
+export const PHOTO_NEGATIVE = photoNegativeFor('people');
 
 /**
  * Deterministic prompt composition, used when no AI provider is configured or
@@ -297,6 +312,8 @@ export function heuristicPrompt(
     const scene = [guidance, visual?.product?.value, subject]
       .filter(Boolean)
       .join(' ');
+    const kind = shotKindOf(scene);
+    const withPeople = kind === 'people' || kind === 'event';
     // The realism and the hard rules always reach the model; the person's
     // own direction is clipped to the room left; the rest are added whole,
     // most important first, while they fit (fitPrompt).
@@ -305,11 +322,19 @@ export function heuristicPrompt(
     );
     const required = [
       opening,
-      cameraFor(shotKindOf(scene)),
+      cameraFor(kind),
       REALISM_DIRECTION,
       PEOPLE_DIRECTION,
-    ];
+      // Only where there are people to get wrong, and short — see
+      // PEOPLE_REALISM_SHORT on why the full brief does not go here.
+      ...(withPeople ? [PEOPLE_REALISM_SHORT] : []),
+    ].filter(Boolean);
     const optional = [
+      // First of the optionals: the platform's photographic register shapes
+      // the whole frame, where the palette and setting only tint it. The
+      // person's own direction still outranks it — fitPrompt places that
+      // immediately after the opening, before any of these are considered.
+      platformDirection,
       visual?.brand.avoid.length
         ? sentence(`Never depict: ${visual.brand.avoid.join(', ')}`)
         : '',
@@ -319,12 +344,11 @@ export function heuristicPrompt(
       visual?.brand.palette.length
         ? `Colour: built around ${visual.brand.palette.join(', ')} in light and surfaces, not as flat blocks.`
         : '',
-      platformDirection,
       visual?.setting ?? '',
     ];
     return {
       prompt: fitPrompt({ required, guidance, optional }),
-      negativePrompt: PHOTO_NEGATIVE,
+      negativePrompt: photoNegativeFor(kind),
       subject: subject.slice(0, 200),
       source: 'heuristic',
     };

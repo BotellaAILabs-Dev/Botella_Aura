@@ -1,9 +1,16 @@
 import type { Company } from '@prisma/client';
+import { z } from 'zod';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import {
+  anglePolicyFor,
+  classifySource,
+  TOPIC_LABEL,
+  type SourceSafety,
+} from '@/lib/brand-safety';
 import { recordAudit } from '@/server/services/audit.service';
 import {
-  completeJson,
+  completeStructured,
   isClaudeConfigured,
   getModel,
 } from '@/server/ai/claude';
@@ -192,45 +199,104 @@ export async function generateDigestForCompany({
   return digest;
 }
 
+/** The shape the enrichment call must return — validated, not hoped for. */
+const enrichmentSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        id: z.string().max(80),
+        aiSummary: z.string().max(600).default(''),
+        suggestedAngle: z.string().max(600).default(''),
+        /**
+         * The model's own judgment, on top of the deterministic verdict.
+         * Either saying no is enough — this catches what the patterns cannot
+         * (a story that is bleak without using any of the words), and the
+         * patterns catch what a cooperative model talks itself past.
+         */
+        suitableForPromotion: z.boolean().default(true),
+        notSuitableReason: z.string().max(300).default(''),
+      }),
+    )
+    .max(60),
+});
+
 /**
  * Enrich the top ranked items with a "why this matters" note and a suggested
  * post angle. One Claude call for the whole batch (cost-efficient), keyed by
  * item id. Falls back to a deterministic summary when Claude is unavailable or
  * errors — the digest still ships, clearly labeled as a fallback via payload.model.
+ *
+ * Every item is classified for brand safety FIRST, without a model
+ * (lib/brand-safety.ts). That order is the point. This function used to ask
+ * for "a concrete suggested post angle/hook" for every item it was handed,
+ * including a news story about people dying — and that angle then became the
+ * brief a post promoting whiskey was written from. The classification decides
+ * what may be asked for; the model never gets to decide that an angle exists.
+ *
+ * It was also the last generation path on the unvalidated `completeJson`: a
+ * reply with the wrong shape silently became "no enrichment", so a prompt that
+ * had quietly stopped working looked exactly like a quiet fallback. It is now
+ * schema-validated like the rest of the pipeline.
  */
 async function enrichItems(
   company: Pick<Company, 'name' | 'industry'>,
   ranked: ScoredTrendItem[],
   brand: DigestBrand,
 ): Promise<DigestItem[]> {
-  const base = (item: ScoredTrendItem): DigestItem => ({
-    id: item.id,
-    title: item.title,
-    url: item.url,
-    source: item.source,
-    sourceLabel: item.sourceLabel,
-    score: item.score,
-    publishedAt: item.publishedAt,
-    aiSummary: fallbackSummary(item, company),
-    suggestedAngle: fallbackAngle(item),
-  });
+  // Title, excerpt and source — everything known about the item before a
+  // model sees it.
+  const safetyOf = (item: ScoredTrendItem) =>
+    classifySource([item.title, item.summary ?? ''].join('\n'));
+
+  const base = (item: ScoredTrendItem): DigestItem => {
+    const safety = safetyOf(item);
+    const concerns = [...new Set(safety.hits.map((h) => TOPIC_LABEL[h.topic]))];
+    return {
+      id: item.id,
+      title: item.title,
+      url: item.url,
+      source: item.source,
+      sourceLabel: item.sourceLabel,
+      score: item.score,
+      publishedAt: item.publishedAt,
+      aiSummary: fallbackSummary(item, company),
+      suggestedAngle: fallbackAngle(item, safety),
+      safety: {
+        posture: safety.posture,
+        concerns,
+        suitableForPromotion: safety.posture !== 'unsuitable',
+        reason: safety.reason,
+      },
+    };
+  };
 
   if (ranked.length === 0) return [];
   if (!isClaudeConfigured()) return ranked.map(base);
 
+  const sensitive = ranked.filter((i) => safetyOf(i).posture !== 'clear');
+
   try {
-    const enriched = await completeJson<
-      Array<{ id: string; aiSummary: string; suggestedAngle: string }>
-    >({
-      system:
-        `You help ${company.name} decide what to post about. ` +
-        (brand.about ? `${brand.about}\n` : '') +
-        `Their brand voice: ${brand.voice}. ` +
+    const { items: enriched } = await completeStructured({
+      schema: enrichmentSchema,
+      system: [
+        `You help ${company.name} decide what to post about.`,
+        brand.about,
+        `Their brand voice: ${brand.voice}.`,
         'For each trend item, write (1) a one-sentence "why this matters to ' +
-        `${company.name}" and (2) a concrete suggested post angle/hook in their ` +
-        'voice. Respond with ONLY a JSON array, no prose.',
+          `${company.name}" and (2) a concrete suggested post angle or hook in their voice.`,
+        '',
+        'BRAND SAFETY — this overrides everything else:',
+        'Some news is not marketing material. If an item involves death, injury, violence, a disaster, crime, serious illness, war or real hardship, a brand must not use it as an occasion to promote, celebrate or sell anything — however indirect the link and however tasteful the wording.',
+        'For any such item set `suitableForPromotion` to false, give one plain sentence in `notSuitableReason`, and do NOT write a marketing hook in `suggestedAngle`: write instead what the business should understand from it, or say plainly that there is nothing to post.',
+        'Never suggest that the product comforts people, brings them together, or helps them through such an event.',
+        'This is not a judgment call to balance against engagement. When in doubt, say it is not suitable.',
+        '',
+        'Respond with ONLY valid JSON, no prose.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
       prompt: buildEnrichmentPrompt(company, ranked),
-      maxTokens: 2048,
+      maxTokens: 3000,
       effort: 'medium',
       tier: 'standard',
     });
@@ -239,13 +305,39 @@ async function enrichItems(
     return ranked.map((item) => {
       const e = byId.get(item.id);
       const out = base(item);
-      if (e?.aiSummary) out.aiSummary = e.aiSummary.trim();
-      if (e?.suggestedAngle) out.suggestedAngle = e.suggestedAngle.trim();
+      if (e?.aiSummary.trim()) out.aiSummary = e.aiSummary.trim();
+
+      // The two verdicts are combined by taking the stricter: the patterns
+      // cannot read a story that is grim without grim words, and a helpful
+      // model will talk itself past one that has them.
+      const deterministic = out.safety!;
+      const suitable =
+        deterministic.suitableForPromotion && (e?.suitableForPromotion ?? true);
+      out.safety = {
+        ...deterministic,
+        suitableForPromotion: suitable,
+        reason:
+          deterministic.reason ??
+          (e?.notSuitableReason.trim() ? e.notSuitableReason.trim() : null),
+        // A model-only objection still means the item needs careful handling.
+        posture:
+          deterministic.posture === 'clear' && !suitable
+            ? 'caution'
+            : deterministic.posture,
+      };
+
+      // The angle is taken only when the item may carry one. On an unsuitable
+      // item the deterministic line stands, whatever came back — this is the
+      // exact field that caused the failure, so it is not left to the model.
+      if (e?.suggestedAngle.trim() && suitable) {
+        out.suggestedAngle = e.suggestedAngle.trim();
+      }
       return out;
     });
   } catch (err) {
     logger.warn('digest: AI enrichment failed, using fallback summaries', {
       error: err instanceof Error ? err.message : String(err),
+      sensitiveItems: sensitive.length,
     });
     return ranked.map(base);
   }
@@ -255,23 +347,32 @@ function buildEnrichmentPrompt(
   company: Pick<Company, 'industry'>,
   items: ScoredTrendItem[],
 ): string {
-  const lines = items.map((it, i) =>
-    [
+  const lines = items.map((it, i) => {
+    // The verdict is stated on the item itself rather than as a general
+    // caution at the top. A policy in a preamble gets averaged across a list
+    // of twenty; attached to the item it applies to, it is unmissable.
+    const safety = classifySource([it.title, it.summary ?? ''].join('\n'));
+    return [
       `#${i + 1} id=${it.id}`,
       `title: ${it.title}`,
       `source: ${it.sourceLabel}`,
       it.summary ? `excerpt: ${it.summary.slice(0, 200)}` : undefined,
+      safety.posture !== 'clear'
+        ? `!! BRAND SAFETY: ${anglePolicyFor(safety)}`
+        : undefined,
     ]
       .filter(Boolean)
-      .join('\n'),
-  );
+      .join('\n');
+  });
   return [
     `Industry context: ${company.industry ?? 'general B2B'}`,
     '',
     'Trend items:',
     lines.join('\n\n'),
     '',
-    'Return: [{ "id": "<id>", "aiSummary": "...", "suggestedAngle": "..." }]',
+    'Return JSON of this exact shape, one entry per item:',
+    '{ "items": [{ "id": "<id>", "aiSummary": "...", "suggestedAngle": "...",',
+    '  "suitableForPromotion": true|false, "notSuitableReason": "" }] }',
   ].join('\n');
 }
 
@@ -293,9 +394,16 @@ async function synthesizeDigest(
     };
   }
 
+  // The recommendations are "post about this" instructions, so an unsuitable
+  // item must not become one — in the fallback either, which is what runs
+  // whenever there is no API key or the call fails.
+  const postable = items.filter(
+    (it) => it.safety?.suitableForPromotion !== false,
+  );
+
   const fallback = () => ({
     summary: `${items.length} topics are active in ${company.industry ?? 'your market'} today. The top theme: “${items[0]?.title ?? ''}”.`,
-    recommendations: items
+    recommendations: postable
       .slice(0, 3)
       .map((it) => `Post your take on “${it.title.slice(0, 70)}”.`),
     hashtags: deriveFallbackHashtags(items),
@@ -303,12 +411,17 @@ async function synthesizeDigest(
 
   if (!isClaudeConfigured()) return fallback();
 
+  const excluded = items.filter(
+    (it) => it.safety?.suitableForPromotion === false,
+  );
+
   try {
-    const out = await completeJson<{
-      summary: string;
-      recommendations: string[];
-      hashtags: string[];
-    }>({
+    const out = await completeStructured({
+      schema: z.object({
+        summary: z.string().max(1500).default(''),
+        recommendations: z.array(z.string().max(300)).max(6).default([]),
+        hashtags: z.array(z.string().max(60)).max(12).default([]),
+      }),
       system:
         `You are the trend analyst for ${company.name} (${company.industry ?? 'B2B'}). ` +
         (brand.about ? `${brand.about}\n` : '') +
@@ -316,25 +429,40 @@ async function synthesizeDigest(
         'From the trend items, produce: (1) "summary" — one tight paragraph on the ' +
         'themes worth paying attention to this week; (2) "recommendations" — 3 concrete, ' +
         'prioritized actions (each one sentence); (3) "hashtags" — 5-8 relevant hashtags ' +
-        'WITHOUT the leading # . Respond with ONLY a JSON object.',
-      prompt: items
-        .slice(0, 12)
-        .map((it, i) => `#${i + 1} ${it.title} (${it.sourceLabel})`)
-        .join('\n'),
+        'WITHOUT the leading # . ' +
+        'Items marked NOT FOR PROMOTION may inform the summary, but must never ' +
+        'become a recommendation to post, and must not supply a hashtag. Never ' +
+        'recommend marketing off death, injury, disaster, crime or hardship. ' +
+        'Respond with ONLY a JSON object.',
+      prompt: [
+        ...items
+          .slice(0, 12)
+          .map(
+            (it, i) =>
+              `#${i + 1} ${it.title} (${it.sourceLabel})${
+                it.safety?.suitableForPromotion === false
+                  ? ' — NOT FOR PROMOTION'
+                  : ''
+              }`,
+          ),
+        '',
+        'Return JSON: { "summary": "...", "recommendations": ["..."], "hashtags": ["..."] }',
+      ].join('\n'),
       maxTokens: 1024,
       effort: 'medium',
       tier: 'standard',
     });
     return {
-      summary: out.summary?.trim() || fallback().summary,
-      recommendations: Array.isArray(out.recommendations)
-        ? out.recommendations.slice(0, 4).map((r) => String(r).trim()).filter(Boolean)
-        : [],
-      hashtags: Array.isArray(out.hashtags)
-        ? out.hashtags
-            .slice(0, 8)
-            .map((h) => String(h).replace(/^#/, '').trim())
-            .filter(Boolean)
+      summary: out.summary.trim() || fallback().summary,
+      // Belt and braces: a recommendation that names an excluded item's
+      // headline is dropped, whatever the instruction said.
+      recommendations: out.recommendations
+        .map((r) => r.trim())
+        .filter(Boolean)
+        .filter((r) => !namesExcluded(r, excluded))
+        .slice(0, 4),
+      hashtags: out.hashtags.length
+        ? out.hashtags.map((h) => h.replace(/^#/, '').trim()).filter(Boolean)
         : deriveFallbackHashtags(items),
     };
   } catch (err) {
@@ -343,6 +471,34 @@ async function synthesizeDigest(
     });
     return fallback();
   }
+}
+
+/**
+ * Does this recommendation point at an item that must not be posted about?
+ *
+ * Matched on the distinctive words of the excluded headline rather than the
+ * whole string, because a recommendation paraphrases ("Share your view on the
+ * crash outside the distillery") instead of quoting. Four or more shared
+ * distinctive words is a reference; fewer is a coincidence of vocabulary.
+ */
+function namesExcluded(recommendation: string, excluded: DigestItem[]): boolean {
+  if (!excluded.length) return false;
+  const words = (s: string) =>
+    new Set(
+      s
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((w) => w.length > 4),
+    );
+  const rec = words(recommendation);
+  if (rec.size === 0) return false;
+  return excluded.some((it) => {
+    const title = words(it.title);
+    if (title.size === 0) return false;
+    let shared = 0;
+    for (const w of title) if (rec.has(w)) shared++;
+    return shared >= Math.min(4, title.size);
+  });
 }
 
 /** Deterministic hashtags: CamelCase the most common meaningful title words. */
@@ -399,7 +555,25 @@ function fallbackSummary(
     : '';
   return `Relevant on ${item.sourceLabel} to ${company.name}.${eng}`;
 }
-function fallbackAngle(item: ScoredTrendItem): string {
+/**
+ * The angle when no model wrote one.
+ *
+ * The fallback has to respect brand safety too: "Share your team's take on
+ * <story about a fatal crash>" is the same failure with no model involved,
+ * and this path runs on every deployment without an API key and every time
+ * the enrichment call fails.
+ */
+function fallbackAngle(item: ScoredTrendItem, safety: SourceSafety): string {
+  if (safety.posture === 'unsuitable') {
+    return `Not something to post about commercially — this item involves ${[
+      ...new Set(safety.hits.map((h) => TOPIC_LABEL[h.topic])),
+    ]
+      .slice(0, 2)
+      .join(' and ')}. Read it for context, not for content.`;
+  }
+  if (safety.posture === 'caution') {
+    return `If you post about this, keep it factual and useful — no promotion, no urgency, and nothing that reads as benefiting from it.`;
+  }
   return `Share your team's take on "${item.title.slice(0, 80)}" and what it means for your customers.`;
 }
 

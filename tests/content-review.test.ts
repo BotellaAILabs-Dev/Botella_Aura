@@ -386,6 +386,7 @@ describe('the reviewer prompt', () => {
     request: null,
     facts: '',
     alcohol: true,
+    source: null,
   };
 
   it('asks about every dimension, with what the piece was for — and never for a rewrite', () => {
@@ -396,5 +397,42 @@ describe('the reviewer prompt', () => {
     expect(p).toContain('ALCOHOL BUSINESS');
     expect(p).toContain(TEXT);
     expect(p).not.toMatch(/rewrite it|return the (fixed|revised)/i);
+  });
+
+  it('shows the source material, so fidelity to it can be judged at all', () => {
+    const p = buildReviewerPrompt({
+      ...input,
+      source: {
+        material: 'Rival chain cuts bourbon prices by 15% across 40 stores.',
+        posture: 'clear',
+        concerns: [],
+      },
+    });
+    expect(p).toContain('SOURCE MATERIAL THIS PIECE WAS WRITTEN FROM');
+    expect(p).toContain('cuts bourbon prices by 15%');
+    // No warning on ordinary material — the reviewer must not be primed to
+    // treat a competitor's price cut as a tragedy.
+    expect(p).not.toContain('WARNING');
+  });
+
+  it('warns about an unsafe source before showing it, and calls promotion a blocker', () => {
+    const p = buildReviewerPrompt({
+      ...input,
+      source: {
+        material: 'Three people died in a crash outside the distillery.',
+        posture: 'unsuitable',
+        concerns: ['deaths or fatalities'],
+      },
+    });
+    expect(p).toContain('WARNING');
+    expect(p).toContain('DEATHS OR FATALITIES');
+    // The warning precedes the material it is about.
+    expect(p.indexOf('WARNING')).toBeLessThan(
+      p.indexOf('SOURCE MATERIAL THIS PIECE WAS WRITTEN FROM'),
+    );
+  });
+
+  it('has no source block when the piece was written from nothing recorded', () => {
+    expect(buildReviewerPrompt(input)).not.toContain('SOURCE MATERIAL');
   });
 });

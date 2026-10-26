@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { LOGO_MODES, LOGO_POSITIONS } from '@/lib/image-variants';
+import { LOGO_MODES, LOGO_POSITIONS, LOGO_TINTS } from '@/lib/image-variants';
 import { ASPECT_RATIOS, SOCIAL_PLATFORMS } from '@/lib/platforms';
 import { IMAGE_STYLES } from '@/lib/graphics-ui';
 import { creativeInputSchema, keepTextSchema } from '@/lib/creative/spec';
@@ -9,6 +9,11 @@ import { creativeInputSchema, keepTextSchema } from '@/lib/creative/spec';
 export const logoSettingSchema = z.object({
   mode: z.enum(LOGO_MODES),
   position: z.enum(LOGO_POSITIONS).default('bottom-right'),
+  /**
+   * How the mark is coloured. Defaults to the uploaded file's own colours, so
+   * a client that does not send it behaves exactly as before.
+   */
+  tint: z.enum(LOGO_TINTS).default('original'),
 });
 
 /**
@@ -143,6 +148,7 @@ export const imageLogoSchema = z.object({
   draftId: z.string().min(1),
   mode: z.enum(LOGO_MODES),
   position: z.enum(LOGO_POSITIONS).default('bottom-right'),
+  tint: z.enum(LOGO_TINTS).default('original'),
 });
 
 /** Make a marketing creative (queued — it may photograph a new scene). */

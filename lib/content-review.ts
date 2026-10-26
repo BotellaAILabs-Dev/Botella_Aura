@@ -39,6 +39,7 @@ export const REVIEW_DIMENSIONS = [
   'completeness',
   'recommendation_alignment',
   'compliance',
+  'brand_safety',
 ] as const;
 export type ReviewDimension = (typeof REVIEW_DIMENSIONS)[number];
 
@@ -124,6 +125,15 @@ export const DIMENSION_INFO: Record<
     label: 'Compliance',
     question:
       'Could anything be a compliance problem — alcohol marketing rules, misleading or unsubstantiated claims, topics the brand avoids, regulated promises?',
+    weight: 1.5,
+    critical: true,
+  },
+  brand_safety: {
+    label: 'Brand safety',
+    question:
+      'Does the piece treat its source material appropriately? If the source involves death, injury, disaster, crime, illness or hardship, does the copy avoid celebrating, promoting or profiting from it — and does it reflect what the source actually says rather than pivoting to a convenient brand message?',
+    // Weighted with compliance, because this is the failure that reaches the
+    // public and cannot be taken back: a brand marketing off a tragedy.
     weight: 1.5,
     critical: true,
   },
@@ -256,6 +266,24 @@ export interface ReviewerInput {
   /** Business facts the piece may draw on. */
   facts: string;
   alcohol: boolean;
+  /**
+   * The material this piece was written FROM — the trend summary, the fetched
+   * page, the brief — and the deterministic verdict on it
+   * (lib/brand-safety.ts).
+   *
+   * Without this the reviewer was judging the copy entirely on its own terms,
+   * which is why a well-written, on-voice, compliant post promoting whiskey
+   * off a report of deaths passed review: nothing it could see was wrong. You
+   * cannot review fidelity to a source you were never shown.
+   */
+  source: {
+    /** The source material, trimmed. Null when the piece had none. */
+    material: string | null;
+    /** 'caution' or 'unsuitable' when the source involves real harm. */
+    posture: 'clear' | 'caution' | 'unsuitable';
+    /** What was found in it, in plain words. */
+    concerns: string[];
+  } | null;
 }
 
 const score15 = z.coerce.number().int().min(1).max(5);
@@ -295,6 +323,7 @@ export const REVIEWER_SYSTEM = [
   'Report concrete issues. Quote the exact words from the piece an issue is about. Suggest a fix in a sentence, but never write replacement copy.',
   'Only judge accuracy against the business details and evidence given: anything not in them that a reader would take as fact is an issue.',
   'For compliance, flag anything that could breach advertising or alcohol marketing rules, or that makes misleading, health or guaranteed claims. You flag; a person decides.',
+  'When you are shown the SOURCE MATERIAL, judge the piece against it: does it say what the source says, and does it treat the subject as the source would warrant? A piece that is well written but about something other than its source has failed. A piece that turns death, injury, disaster, crime, illness or hardship into an occasion to promote, celebrate or sell is a blocker, however well written and however indirect the link — score brand_safety 1 and say so.',
   'Respond with ONLY valid JSON matching the requested shape. No markdown, no prose.',
 ].join('\n');
 
@@ -355,6 +384,23 @@ export function buildReviewerPrompt(input: ReviewerInput): string {
     input.alcohol
       ? 'THIS IS AN ALCOHOL BUSINESS: apply responsible alcohol marketing rules (adults only, no excess, no health or social-success claims, no driving).'
       : '',
+    // The material the piece was written from, so fidelity and brand safety
+    // can be judged at all. The warning comes BEFORE the material: a reviewer
+    // that reads a tragedy as ordinary context first tends to go on reading
+    // it that way.
+    input.source?.material
+      ? [
+          '',
+          input.source.posture !== 'clear'
+            ? `WARNING — THE SOURCE MATERIAL BELOW INVOLVES ${input.source.concerns.join(', ').toUpperCase()}. ` +
+              'Real people were affected. Any promotional, celebratory or opportunistic framing of it is a blocker, not a nit.'
+            : '',
+          `SOURCE MATERIAL THIS PIECE WAS WRITTEN FROM:\n"""\n${input.source.material}\n"""`,
+          'The piece must reflect what this source says. Judge relevance and accuracy against it, not only against the business details.',
+        ]
+          .filter(Boolean)
+          .join('\n')
+      : '',
     '',
     `THE PIECE:\n"""\n${input.text}\n"""`,
     input.cta
@@ -389,15 +435,28 @@ const RULE_DIMENSION: Record<QualityIssue['code'], ReviewDimension> = {
   'robotic-phrase': 'clarity',
   repetition: 'clarity',
   'no-cta': 'cta',
+  'source-tone-mismatch': 'brand_safety',
+  // A version about a different subject is a relevance failure, not a safety
+  // one — the piece is fine, it is just not a version of this piece.
+  'topic-drift': 'relevance',
 };
 
-/** Dimensions the rules and fact check cover even without the reviewer model. */
+/**
+ * Dimensions the rules and fact check cover even without the reviewer model.
+ *
+ * brand_safety is in here because its rule is deterministic: the source is
+ * classified without a model, and promotional language on an unsafe source is
+ * matched without one. So a piece still gets a brand-safety verdict when the
+ * reviewer is down or over quota — which matters, since this is the dimension
+ * whose failure cannot be taken back once published.
+ */
 const RULE_COVERED: ReviewDimension[] = [
   'accuracy',
   'compliance',
   'channel_fit',
   'cta',
   'completeness',
+  'brand_safety',
 ];
 
 export interface ReviewSignals {

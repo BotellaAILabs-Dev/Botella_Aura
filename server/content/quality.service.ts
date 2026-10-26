@@ -2,6 +2,7 @@ import type { Campaign, Company, ContentDraft } from '@prisma/client';
 
 import { db } from '@/lib/db';
 import type { BusinessContext } from '@/lib/business-context';
+import type { SourceSafety } from '@/lib/brand-safety';
 import { HUMAN_WRITING_RULES, playbookFor } from '@/lib/content-playbook';
 import {
   applySafeFixes,
@@ -150,7 +151,7 @@ export function qualityContextFor(
   platform: SocialPlatformKey | null,
   w: WritingContext,
   sources: string[],
-  options: { ctaRequired?: boolean } = {},
+  options: { ctaRequired?: boolean; sourceSafety?: SourceSafety } = {},
 ): QualityContext {
   return {
     limits: playbookFor(type, platform).limits,
@@ -158,6 +159,12 @@ export function qualityContextFor(
     avoid: w.avoid,
     alcohol: w.alcohol,
     ...(options.ctaRequired ? { ctaRequired: true } : {}),
+    // Only carried when the source involves real harm; a clear verdict is left
+    // off, so the tone check stays entirely out of the way on ordinary
+    // material (lib/brand-safety.ts).
+    ...(options.sourceSafety && options.sourceSafety.posture !== 'clear'
+      ? { sourceSafety: options.sourceSafety }
+      : {}),
   };
 }
 

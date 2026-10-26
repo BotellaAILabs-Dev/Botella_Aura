@@ -32,10 +32,14 @@ import {
   LOGO_MODE_HINTS,
   LOGO_MODE_LABELS,
   LOGO_MODES,
+  LOGO_TINT_HINTS,
+  LOGO_TINT_LABELS,
+  LOGO_TINTS,
   LOGO_POSITIONS,
   type LogoInfo,
   type LogoMode,
   type LogoPosition,
+  type LogoTint,
   type VariantInfo,
 } from '@/lib/image-variants';
 import {
@@ -192,6 +196,10 @@ export function GraphicStudio({
   // The logo setting for the next generation (each image keeps its own after).
   const [logoMode, setLogoMode] = useState<LogoMode>('none');
   const [logoPosition, setLogoPosition] = useState<LogoPosition>('bottom-right');
+  // How the mark is coloured. 'original' is the uploaded file untouched; the
+  // rest are the one-colour versions a brand book has for dark or busy
+  // photographs (lib/image-variants.ts).
+  const [logoTint, setLogoTint] = useState<LogoTint>('original');
   // Which per-image action is running (refine / regenerate / logo).
   const [variantBusy, setVariantBusy] = useState<string | null>(null);
   // The full-screen preview: the images it steps through, and which is shown.
@@ -391,7 +399,9 @@ export function GraphicStudio({
             : { aspectRatio: format }),
           style,
           variations,
-          ...(logoMode !== 'none' ? { logo: { mode: logoMode, position: logoPosition } } : {}),
+          ...(logoMode !== 'none'
+            ? { logo: { mode: logoMode, position: logoPosition, tint: logoTint } }
+            : {}),
         }),
       });
 
@@ -673,9 +683,20 @@ export function GraphicStudio({
     }
   }
 
-  async function setImageLogo(assetId: string, mode: LogoMode, position: LogoPosition) {
+  /**
+   * Change one image's logo setting. `tint` defaults to the colour chosen for
+   * this session, so the per-image buttons place the logo the same way the
+   * next generation would — rather than silently reverting to the uploaded
+   * colours.
+   */
+  async function setImageLogo(
+    assetId: string,
+    mode: LogoMode,
+    position: LogoPosition,
+    tint: LogoTint = logoTint,
+  ) {
     if (mode === 'space') {
-      await runVariantJob('logo', `/api/content/graphics/${assetId}/logo`, { mode, position });
+      await runVariantJob('logo', `/api/content/graphics/${assetId}/logo`, { mode, position, tint });
       return;
     }
     if (inFlight.current) return;
@@ -685,7 +706,7 @@ export function GraphicStudio({
       const res = await fetch(`/api/content/graphics/${assetId}/logo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draftId, mode, position }),
+        body: JSON.stringify({ draftId, mode, position, tint }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string; asset?: GraphicAsset; changed?: boolean; note?: string | null };
       if (!res.ok || !data.asset) {
@@ -1001,9 +1022,31 @@ export function GraphicStudio({
                   ))}
                 </select>
               )}
+              {/* Colour only matters where the real logo is actually placed —
+                  "Add logo later" leaves the corner clean for the person to
+                  place it themselves, so there is nothing here to colour. */}
+              {logoMode === 'include' && (
+                <select
+                  aria-label="Logo colour"
+                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  value={logoTint}
+                  onChange={(e) => setLogoTint(e.target.value as LogoTint)}
+                  disabled={!canEdit}
+                >
+                  {LOGO_TINTS.map((t) => (
+                    <option key={t} value={t}>
+                      {LOGO_TINT_LABELS[t]}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             <p className="text-xs text-muted-foreground">
-              {LOGO_MODE_HINTS[logoMode]} You can change it for each image afterwards.
+              {LOGO_MODE_HINTS[logoMode]}
+              {logoMode === 'include' && logoTint !== 'original'
+                ? ` ${LOGO_TINT_HINTS[logoTint]}`
+                : ''}{' '}
+              You can change it for each image afterwards.
             </p>
           </fieldset>
         </div>

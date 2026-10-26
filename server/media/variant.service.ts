@@ -11,6 +11,7 @@ import {
   variantOf,
   type LogoMode,
   type LogoPosition,
+  type LogoTint,
   type VariantAction,
 } from '@/lib/image-variants';
 import { ASPECT_RATIOS, type AspectRatioKey } from '@/lib/platforms';
@@ -84,8 +85,14 @@ async function bytesOf(asset: GeneratedAsset): Promise<Buffer> {
   return data;
 }
 
-/** The brand's uploaded logo file, or why it cannot be used. */
-async function brandLogo(companyId: string): Promise<{ data: Buffer } | { reason: string }> {
+/**
+ * The brand's uploaded logo file and primary colour, or why the logo cannot
+ * be used. The colour comes along because tint 'brand' needs it, and reading
+ * it here means one brand load rather than two.
+ */
+async function brandLogo(
+  companyId: string,
+): Promise<{ data: Buffer; color: string | null } | { reason: string }> {
   const { loadBrand } = await import('@/server/media/creative/creative.service');
   const brand = await loadBrand(companyId);
   if (!brand.logoAssetId) {
@@ -97,11 +104,13 @@ async function brandLogo(companyId: string): Promise<{ data: Buffer } | { reason
   }
   const logo = await db.generatedAsset.findFirst({ where: { id: brand.logoAssetId, companyId } });
   const data = logo ? await readAssetBytes(logo) : null;
-  return data ? { data } : { reason: 'Your logo file could not be read. Upload it again in Settings → Brand.' };
+  return data
+    ? { data, color: brand.colors.primary }
+    : { reason: 'Your logo file could not be read. Upload it again in Settings → Brand.' };
 }
 
 /** Record the logo state on an asset without making a new version. */
-async function noteLogo(asset: GeneratedAsset, logo: { mode: LogoMode; position: LogoPosition; applied: boolean; reason: string | null }) {
+async function noteLogo(asset: GeneratedAsset, logo: { mode: LogoMode; position: LogoPosition; applied: boolean; reason: string | null; tint?: LogoTint; tintColor?: string | null }) {
   const updated = await db.generatedAsset.update({
     where: { id: asset.id },
     data: { metadata: { ...((asset.metadata ?? {}) as object), logo } as Prisma.InputJsonObject },
@@ -119,20 +128,29 @@ export async function placeLogoOn(args: {
   userId: string | null;
   assetId: string;
   position: LogoPosition;
+  /** How to colour the mark; 'original' (the default) leaves it untouched. */
+  tint?: LogoTint;
   hideSource?: boolean;
 }): Promise<AssetView> {
   const source = await getAsset(args.draft.companyId, args.assetId);
+  const tint = args.tint ?? 'original';
   const logo = await brandLogo(args.draft.companyId);
   if ('reason' in logo) {
-    return noteLogo(source, { mode: 'include', position: args.position, applied: false, reason: logo.reason });
+    return noteLogo(source, { mode: 'include', position: args.position, applied: false, reason: logo.reason, tint });
   }
   let placed;
   try {
-    placed = await overlayLogo({ image: await bytesOf(source), logo: logo.data, position: args.position });
+    placed = await overlayLogo({
+      image: await bytesOf(source),
+      logo: logo.data,
+      position: args.position,
+      tint,
+      brandColor: logo.color,
+    });
   } catch (err) {
     const reason = err instanceof LogoOverlayError ? err.message : 'The logo could not be placed on this image.';
     logger.warn('logo overlay failed', { assetId: source.id, error: err instanceof Error ? err.message : String(err) });
-    return noteLogo(source, { mode: 'include', position: args.position, applied: false, reason });
+    return noteLogo(source, { mode: 'include', position: args.position, applied: false, reason, tint });
   }
   const variant = variantOf(source.id, source.metadata);
   const version = await nextVersion(args.draft, variant.rootId);
@@ -148,7 +166,18 @@ export async function placeLogoOn(args: {
     platform: source.platform,
     metadata: {
       ...lineage(source, version, 'logo', null),
-      logo: { mode: 'include', position: args.position, applied: true, reason: null, box: placed.box },
+      logo: {
+        mode: 'include',
+        position: args.position,
+        applied: true,
+        reason: null,
+        box: placed.box,
+        tint,
+        // Null when 'brand' was asked for but the workspace has no usable
+        // primary colour — the logo then keeps its own colours, and this
+        // records that it did.
+        tintColor: placed.tintColor,
+      },
       cleanId: source.id,
     },
   });
@@ -172,7 +201,7 @@ async function storeVersion(args: {
   prompt: string;
   action: VariantAction;
   instruction: string | null;
-  logo: { mode: LogoMode; position: LogoPosition } | null;
+  logo: { mode: LogoMode; position: LogoPosition; tint?: LogoTint } | null;
   jobId?: string;
 }): Promise<AssetView> {
   const variant = variantOf(args.from.id, args.from.metadata);
@@ -194,7 +223,7 @@ async function storeVersion(args: {
     },
   });
   if (args.logo?.mode === 'include') {
-    return placeLogoOn({ draft: args.draft, userId: args.userId, assetId: stored.id, position: args.logo.position, hideSource: true });
+    return placeLogoOn({ draft: args.draft, userId: args.userId, assetId: stored.id, position: args.logo.position, ...(args.logo.tint ? { tint: args.logo.tint } : {}), hideSource: true });
   }
   return stored;
 }
@@ -380,6 +409,7 @@ export async function setVariantLogo(args: {
   assetId: string;
   mode: Exclude<LogoMode, 'space'>;
   position: LogoPosition;
+  tint?: LogoTint;
 }): Promise<{ asset: AssetView; changed: boolean; note: string | null }> {
   const asset = await ownAsset(args.draft, args.assetId);
   if (isCreative(asset)) {
@@ -389,11 +419,19 @@ export async function setVariantLogo(args: {
   const current = logoOf(asset.metadata);
 
   if (args.mode === 'include') {
-    if (current?.mode === 'include' && current.applied && current.position === args.position) {
+    // A change of COLOUR is a change, even at the same position — without
+    // this, switching a logo to white on a dark photograph did nothing.
+    const tint = args.tint ?? 'original';
+    if (
+      current?.mode === 'include' &&
+      current.applied &&
+      current.position === args.position &&
+      (current.tint ?? 'original') === tint
+    ) {
       return { asset: toAssetView(asset), changed: false, note: null };
     }
     const source = await cleanSource(args.draft, asset);
-    const view = await placeLogoOn({ draft: args.draft, userId: args.userId, assetId: source.id, position: args.position });
+    const view = await placeLogoOn({ draft: args.draft, userId: args.userId, assetId: source.id, position: args.position, tint });
     const placed = view.id !== source.id;
     return {
       asset: view,
@@ -426,7 +464,7 @@ export async function setVariantLogo(args: {
     platform: source.platform,
     metadata: {
       ...lineage(asset, version, 'logo', null),
-      logo: { mode: 'none', position: current.position, applied: false, reason: null },
+      logo: { mode: 'none', position: current.position, applied: false, reason: null, tint: current.tint ?? 'original' },
     },
   });
   return { asset: view, changed: true, note: null };

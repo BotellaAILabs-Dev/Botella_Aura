@@ -37,6 +37,43 @@ export const LOGO_MODE_HINTS: Record<LogoMode, string> = {
 export const LOGO_POSITIONS = ['bottom-right', 'bottom-left', 'top-right', 'top-left'] as const;
 export type LogoPosition = (typeof LOGO_POSITIONS)[number];
 
+/**
+ * How the logo is coloured when it is placed.
+ *
+ * 'original' is the default and the only one that touches nothing — the
+ * uploaded file's own pixels, as before. The others recolour the logo's opaque
+ * pixels while keeping its exact SHAPE and transparency, which is what a brand
+ * guideline means by a one-colour or reversed logo: the mark is unchanged, its
+ * ink is not.
+ *
+ * This is for legibility, not creativity. A dark logo disappears into a dark
+ * photograph; 'white' is the standard answer and every brand book has a
+ * reversed version for exactly this. 'brand' uses the workspace's own primary
+ * colour. The image model is never asked to draw or recolour a logo
+ * (see the file header) — this is a deterministic pixel operation on the
+ * uploaded file.
+ */
+export const LOGO_TINTS = ['original', 'white', 'black', 'brand'] as const;
+export type LogoTint = (typeof LOGO_TINTS)[number];
+
+export const LOGO_TINT_LABELS: Record<LogoTint, string> = {
+  original: 'Original colours',
+  white: 'White',
+  black: 'Black',
+  brand: 'Brand colour',
+};
+
+export const LOGO_TINT_HINTS: Record<LogoTint, string> = {
+  original: 'Your logo file exactly as uploaded.',
+  white: 'One-colour white — for dark or busy photographs.',
+  black: 'One-colour black — for light, clean backgrounds.',
+  brand: 'One colour, in your brand’s primary colour.',
+};
+
+export function isLogoTint(value: unknown): value is LogoTint {
+  return (LOGO_TINTS as readonly string[]).includes(value as string);
+}
+
 export const VARIANT_ACTIONS = ['generated', 'refined', 'regenerated', 'logo'] as const;
 export type VariantAction = (typeof VARIANT_ACTIONS)[number];
 
@@ -58,6 +95,10 @@ export interface LogoInfo {
   applied: boolean;
   /** Why it is not, when it was asked for. */
   reason: string | null;
+  /** How it was coloured. Absent on images placed before tinting existed. */
+  tint?: LogoTint;
+  /** The colour actually used for 'brand', as a hex string. */
+  tintColor?: string | null;
 }
 
 /** Read the lineage of an asset (an image made before variants is its own version 1). */
@@ -83,6 +124,9 @@ export function logoOf(metadata: unknown): LogoInfo | null {
     position: (LOGO_POSITIONS as readonly string[]).includes(l.position as string) ? (l.position as LogoPosition) : 'bottom-right',
     applied: Boolean(l.applied),
     reason: typeof l.reason === 'string' ? l.reason : null,
+    // An image placed before tinting existed carries the uploaded colours.
+    tint: isLogoTint(l.tint) ? l.tint : 'original',
+    tintColor: typeof l.tintColor === 'string' ? l.tintColor : null,
   };
 }
 

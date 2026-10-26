@@ -1,4 +1,5 @@
 import { unsupportedNumbers } from '@/lib/ai-opportunity-detection';
+import { toneMismatch, type SourceSafety } from '@/lib/brand-safety';
 import { ROBOTIC_PHRASES, type CopyLimits } from '@/lib/content-playbook';
 import { DETAIL_LABELS, detailsOf, unconfirmedDetails } from '@/lib/post-details';
 import { bodySchemaFor, type ContentTypeKey } from '@/lib/validations/content';
@@ -47,7 +48,11 @@ export interface QualityIssue {
     /** A variation changed a fact from the original (lib/content-variations.ts). */
     | 'facts-changed'
     /** A website/address/phone/email typed for the post is not confirmed yet (lib/post-details.ts). */
-    | 'details-unconfirmed';
+    | 'details-unconfirmed'
+    /** The copy sells off source material about real harm (lib/brand-safety.ts). */
+    | 'source-tone-mismatch'
+    /** A variation is about a different subject than the original (lib/content-variations.ts). */
+    | 'topic-drift';
   severity: IssueSeverity;
   message: string;
 }
@@ -288,6 +293,13 @@ export interface QualityContext {
    * asked to add it, instead of being a warning that can ship.
    */
   ctaRequired?: boolean;
+  /**
+   * The verdict on the material this piece was written FROM
+   * (lib/brand-safety.ts). Present and not 'clear' when the source involves
+   * real harm, which is the only case where celebratory and sales language is
+   * checked at all — on ordinary material it is exactly what is wanted.
+   */
+  sourceSafety?: SourceSafety;
   now?: Date;
 }
 
@@ -458,6 +470,24 @@ export function checkQuality(
       severity: 'block',
       message: `Confirm the ${unconfirmed.map((k) => DETAIL_LABELS[k].toLowerCase()).join(', ')} on this post is correct before it is approved.`,
     });
+  }
+
+  // Source fidelity: copy that celebrates or sells off material about deaths,
+  // violence or hardship. This is the check that was missing when a story
+  // about people dying became a post promoting whiskey as bringing people
+  // together — it blocks, because no amount of polish makes that publishable.
+  if (ctx.sourceSafety) {
+    const tone = toneMismatch(ctx.sourceSafety, all);
+    if (tone.mismatch) {
+      push({
+        code: 'source-tone-mismatch',
+        severity: 'block',
+        message:
+          `${ctx.sourceSafety.reason} This copy still reads as promotional (` +
+          `${tone.phrases.map((p) => `“${p}”`).join(', ')}). ` +
+          'Rewrite it so it informs without selling, or write from another source.',
+      });
+    }
   }
 
   return {

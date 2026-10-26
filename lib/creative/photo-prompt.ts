@@ -4,11 +4,12 @@ import type {
   PhotoMood,
 } from '@/lib/creative/spec';
 import {
-  AI_LOOK_NEGATIVE,
-  NO_TEXT_NEGATIVE,
   PEOPLE_DIRECTION,
+  PEOPLE_REALISM_SHORT,
   REALISM_DIRECTION,
-  mergeNegative,
+  photoNegativeFor,
+  shotKindOf,
+  type ShotKind,
 } from '@/lib/photo-realism';
 
 /**
@@ -92,12 +93,15 @@ const SPACE: Record<CreativeLayout, string> = {
 const LANDSCAPE_SPACE =
   'Keep the left half of the frame calm and uncluttered — text will be placed there; the subject sits right of centre.';
 
-/** Generated-image tells (lib/photo-realism.ts) and anything written. */
-export const PHOTO_NEGATIVE = mergeNegative(
-  NO_TEXT_NEGATIVE,
-  AI_LOOK_NEGATIVE,
-  'drawing',
-);
+/**
+ * Generated-image tells (lib/photo-realism.ts) and anything written.
+ *
+ * The default for a creative whose shot is not known. Prefer
+ * photoNegativeFor(kind) via buildPhotoPrompt, which keeps the terms that
+ * matter for the shot actually being taken — the negative prompt is capped, so
+ * which terms come first decides which ones survive at all.
+ */
+export const PHOTO_NEGATIVE = photoNegativeFor('people');
 
 export function buildPhotoPrompt(i: PhotoPromptInput): {
   prompt: string;
@@ -122,18 +126,54 @@ export function buildPhotoPrompt(i: PhotoPromptInput): {
   const after = [REALISM_DIRECTION, PEOPLE_DIRECTION, rules];
   const extra =
     'Photorealistic, editorial advertising quality: realistic textures and materials, accurate proportions, natural skin, true-to-life colour grading, sharp focus on the subject.';
-  const reserved = [lead, ...fixed, ...after].join(' ').length + 2;
-  const scene = clip(
+  // What kind of shot this is, from the creative's type and the scene as
+  // written — read BEFORE the scene is clipped, so the budget below can
+  // account for the people brief. Reading it after would be circular: the
+  // clip length would depend on a brief that depends on the clipped text.
+  const wanted =
     i.direction?.trim() ||
-      i.scene?.trim() ||
-      TYPE_SCENE[i.type](i.business, i.consumer),
-    Math.min(500, 1500 - reserved),
-  ).replace(/[.\s]+$/, '');
+    i.scene?.trim() ||
+    TYPE_SCENE[i.type](i.business, i.consumer);
+  const kind = shotKindFor(i, wanted);
+  const withPeople = kind === 'people' || kind === 'event';
+  // Where there are people to get wrong, say what a real one looks like.
+  const people = withPeople ? [PEOPLE_REALISM_SHORT] : [];
+  // The reserved length must cover everything that will be in the prompt.
+  // It did not count the people brief, so an `event` creative overshot 1,500
+  // by three characters and silently lost its quality line instead.
+  const reserved =
+    [lead, ...fixed, extra, ...people, ...after].join(' ').length + 2;
+  const scene = clip(wanted, Math.min(500, 1500 - reserved)).replace(
+    /[.\s]+$/,
+    '',
+  );
   const core = [`${lead}${scene}.`, ...fixed];
-  const withExtra = [...core, extra, ...after].join(' ');
+  const withExtra = [...core, extra, ...people, ...after].join(' ');
   const prompt =
-    withExtra.length <= 1500 ? withExtra : [...core, ...after].join(' ');
-  return { prompt, negativePrompt: PHOTO_NEGATIVE };
+    withExtra.length <= 1500
+      ? withExtra
+      : // Drop the generic quality line before the people brief: it repeats
+        // what REALISM_DIRECTION already says, and the people brief does not.
+        (() => {
+          const withoutExtra = [...core, ...people, ...after].join(' ');
+          return withoutExtra.length <= 1500
+            ? withoutExtra
+            : [...core, ...after].join(' ');
+        })();
+  return { prompt, negativePrompt: photoNegativeFor(kind) };
+}
+
+/**
+ * The shot a creative is taking. The creative's own type is the better signal
+ * (an `offer` is a product display however its scene reads), and the scene
+ * text decides the cases where the type does not say — a `promotion` is people
+ * for a consumer brand and a workplace for a B2B one.
+ */
+function shotKindFor(i: PhotoPromptInput, scene: string): ShotKind {
+  if (i.type === 'event') return 'event';
+  if (i.type === 'product_launch' || i.type === 'offer') return 'product';
+  if (i.type === 'announcement') return 'place';
+  return shotKindOf(scene);
 }
 
 /** At most `max` characters, on a word boundary. */

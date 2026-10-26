@@ -22,7 +22,7 @@ import {
   type AssetView,
 } from '@/server/media/asset.service';
 import { persistImage } from '@/server/media/persist';
-import { logoSpaceInstruction, type LogoMode, type LogoPosition } from '@/lib/image-variants';
+import { logoSpaceInstruction, type LogoMode, type LogoPosition, type LogoTint } from '@/lib/image-variants';
 
 /**
  * The generation pipeline: prompt in, stored assets out.
@@ -72,7 +72,7 @@ export interface GenerateGraphicsArgs {
    * "space" ask for clean space in a corner; "include" then places the exact
    * uploaded logo there. Absent: as before — no logo, no reserved space.
    */
-  logo?: { mode: LogoMode; position: LogoPosition };
+  logo?: { mode: LogoMode; position: LogoPosition; tint?: LogoTint };
 }
 
 export interface GenerateGraphicsResult {
@@ -215,14 +215,14 @@ export async function generateGraphics(
           aspectRatio: format.ratio,
           platform,
           ...(args.logo
-            ? { metadata: { logo: { mode: args.logo.mode, position: args.logo.position, applied: false, reason: null } } }
+            ? { metadata: { logo: { mode: args.logo.mode, position: args.logo.position, applied: false, reason: null, tint: args.logo.tint ?? 'original' } } }
             : {}),
         });
       // "Include logo": the exact uploaded logo goes on as the image's next
       // version; the logo-free one is kept (hidden) for refinements.
       if (args.logo?.mode === 'include') {
         const { placeLogoOn } = await import('@/server/media/variant.service');
-        assets.push(await placeLogoOn({ draft, userId, assetId: stored.id, position: args.logo.position, hideSource: true }));
+        assets.push(await placeLogoOn({ draft, userId, assetId: stored.id, position: args.logo.position, ...(args.logo.tint ? { tint: args.logo.tint } : {}), hideSource: true }));
       } else {
         assets.push(stored);
       }

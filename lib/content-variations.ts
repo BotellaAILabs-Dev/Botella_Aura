@@ -253,6 +253,119 @@ export function findIntroducedFacts(
 }
 
 // ---------------------------------------------------------------------------
+// Topic
+// ---------------------------------------------------------------------------
+
+/**
+ * Words too common to say anything about what a piece is ABOUT. Marketing
+ * filler is in here as well as grammar: "solution", "business" and "team"
+ * appear in every post a brand writes, so counting them as shared subject
+ * matter would make two unrelated posts look like the same topic.
+ */
+const TOPIC_STOP = new Set([
+  'about', 'above', 'after', 'again', 'against', 'already', 'also', 'always',
+  'another', 'anyone', 'anything', 'around', 'because', 'been', 'before',
+  'being', 'below', 'better', 'between', 'both', 'bring', 'brings', 'came',
+  'come', 'comes', 'could', 'does', 'doing', 'done', 'down', 'during', 'each',
+  'early', 'else', 'enough', 'even', 'ever', 'every', 'first', 'from', 'getting',
+  'give', 'gives', 'going', 'good', 'great', 'half', 'have', 'having', 'help',
+  'helps', 'here', 'high', 'into', 'just', 'keep', 'know', 'last', 'later',
+  'least', 'less', 'like', 'little', 'long', 'look', 'looking', 'made', 'make',
+  'makes', 'making', 'many', 'might', 'more', 'most', 'much', 'must', 'need',
+  'needs', 'never', 'next', 'nothing', 'often', 'once', 'only', 'other',
+  'others', 'over', 'own', 'part', 'people', 'place', 'really', 'right', 'same',
+  'says', 'see', 'seen', 'should', 'since', 'some', 'something', 'start',
+  'started', 'still', 'such', 'sure', 'take', 'takes', 'than', 'that', 'their',
+  'them', 'then', 'there', 'these', 'they', 'thing', 'things', 'think', 'this',
+  'those', 'through', 'time', 'today', 'together', 'took', 'under', 'until',
+  'used', 'using', 'very', 'want', 'wants', 'well', 'were', 'what', 'when',
+  'where', 'which', 'while', 'will', 'with', 'within', 'without', 'work',
+  'working', 'would', 'year', 'years', 'your',
+  // Marketing filler — present in everything, so evidence of nothing.
+  'business', 'brand', 'customer', 'customers', 'client', 'clients', 'team',
+  'teams', 'company', 'companies', 'product', 'products', 'service',
+  'services', 'solution', 'solutions', 'market', 'marketing', 'growth',
+  'result', 'results', 'best', 'new', 'more',
+]);
+
+/** The words that carry a piece's subject: content words, 4+ characters. */
+export function topicTerms(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const raw of text.toLowerCase().split(/[^a-z0-9'-]+/)) {
+    const w = raw.replace(/^[''-]+|[''-]+$/g, '');
+    if (w.length < 4 || TOPIC_STOP.has(w)) continue;
+    out.add(stem(w));
+  }
+  return out;
+}
+
+/**
+ * Enough singularisation that "distilleries", "distillery" and "distillers"
+ * count as the same subject. Deliberately crude — this feeds a ratio, so a
+ * word stemmed oddly costs a little accuracy in one term, and a real stemmer
+ * is a dependency for no gain here.
+ */
+function stem(w: string): string {
+  if (w.length > 4 && w.endsWith('ies')) return `${w.slice(0, -3)}y`;
+  if (w.length > 5 && (w.endsWith('sses') || w.endsWith('shes') || w.endsWith('ches')))
+    return w.slice(0, -2);
+  if (w.length > 4 && w.endsWith('s') && !w.endsWith('ss') && !w.endsWith('us'))
+    return w.slice(0, -1);
+  return w;
+}
+
+/**
+ * How much subject matter the original and the variation share, 0–1.
+ *
+ * The naive version of this — the share of the ORIGINAL's subject words the
+ * variation still uses — is wrong, and wrong in the direction that hurts:
+ * "make it 40% shorter" is a legitimate variation whose whole job is to drop
+ * material. A shortened post scores about 0.24 that way and would be blocked
+ * as off-topic, which is a false accusation about the user's own request.
+ *
+ * So this takes the better of the two directions:
+ *   - how much of the original the variation kept (catches a version that
+ *     abandoned the subject), and
+ *   - how much of the variation is drawn from the original (catches a version
+ *     that is mostly new subject matter).
+ * A shorter version scores high on the second, a reworded one on the first,
+ * and a post about something else scores low on both — which is the only case
+ * worth blocking.
+ */
+export function topicOverlap(original: string, variation: string): number {
+  const a = topicTerms(original);
+  const b = topicTerms(variation);
+  // Nothing distinctive to compare: on topic by default. Never a false block
+  // on a post whose subject words the stop list happens to cover.
+  if (a.size === 0 || b.size === 0) return 1;
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared++;
+  return Math.max(shared / a.size, shared / b.size);
+}
+
+/**
+ * Below this share of the original's subject words, a variation has drifted
+ * off topic.
+ *
+ * Set from the floor rather than the ideal: a legitimate "different hook, same
+ * subject" rewrite keeps well over half of the original's subject words, and a
+ * genuinely rewritten short post about the same thing still lands around 0.4.
+ * The cases this catches are the ones that kept the brand and the format and
+ * changed what the piece is about.
+ */
+export const TOPIC_DRIFT_FLOOR = 0.3;
+
+/** Subject words from the original that the variation dropped entirely. */
+export function droppedTopicTerms(
+  original: string,
+  variation: string,
+  limit = 6,
+): string[] {
+  const b = topicTerms(variation);
+  return [...topicTerms(original)].filter((w) => !b.has(w)).slice(0, limit);
+}
+
+// ---------------------------------------------------------------------------
 // Versions
 // ---------------------------------------------------------------------------
 
