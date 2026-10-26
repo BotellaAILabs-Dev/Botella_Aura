@@ -60,7 +60,7 @@ export async function getOnboardingState(companyId: string): Promise<OnboardingS
     select: { industry: true, website: true, brandVoiceNotes: true, preferences: true },
   });
 
-  const [materials, connections, linkedIn, plans, briefings] = await Promise.all([
+  const [materials, connections, linkedIn, plans, briefings, trendConfig] = await Promise.all([
     db.knowledgeSource.count({ where: { companyId } }),
     // Any working connector counts as a channel. ERROR/EXPIRED rows do not:
     // a connection that stopped working is exactly when the user needs to be
@@ -69,6 +69,12 @@ export async function getOnboardingState(companyId: string): Promise<OnboardingS
     db.linkedInConnection.count({ where: { companyId } }),
     db.marketingPlan.count({ where: { companyId } }),
     db.workspaceBriefing.count({ where: { companyId } }),
+    // Where the business sells. Derived like everything else here: the step is
+    // done when a country is actually stored, not when the form was opened.
+    db.companyTrendConfig.findUnique({
+      where: { companyId },
+      select: { geoCountry: true, geoCity: true, geoRegion: true },
+    }),
   ]);
 
   const brand = company ? readBrandAssets(company) : null;
@@ -95,6 +101,14 @@ export async function getOnboardingState(companyId: string): Promise<OnboardingS
       done: hasBusinessProfile(business),
       detail: business?.description
         ? company?.industry?.trim() || 'Described'
+        : undefined,
+    },
+    market: {
+      done: Boolean(trendConfig?.geoCountry?.trim()),
+      detail: trendConfig?.geoCountry?.trim()
+        ? [trendConfig.geoCity?.trim(), trendConfig.geoCountry.trim().toUpperCase()]
+            .filter(Boolean)
+            .join(', ')
         : undefined,
     },
     materials: {

@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 
-import { NAV_ITEMS, NAV_SECTIONS, navBySection, findNavItem } from '@/lib/nav';
+import {
+  NAV_ITEMS,
+  NAV_GROUPS,
+  navByGroup,
+  groupForPath,
+  findNavItem,
+} from '@/lib/nav';
 
 /**
  * Navigation has to be readable by a marketer, not by the team that built it.
@@ -93,35 +99,113 @@ describe('nav descriptions', () => {
 });
 
 describe('nav structure', () => {
-  it('groups items by what the user is trying to do', () => {
-    const labels = NAV_SECTIONS.map((s) => s.label).filter(Boolean);
-    // Verb-led groups ("Know your market") answer "where do I go for X" far
-    // better than nouns ("Intelligence").
-    for (const label of labels) {
-      expect(label.length).toBeGreaterThan(3);
-    }
-    expect(labels.length).toBeGreaterThanOrEqual(4);
+  it('shows a handful of groups, not a directory of every page', () => {
+    // The review asked for "approximately four or five tabs". Six, with Setup
+    // as the last of them, is that. If this ever creeps back toward twenty,
+    // the sidebar has become a directory again.
+    expect(NAV_GROUPS.length).toBeLessThanOrEqual(6);
+    expect(NAV_GROUPS.length).toBeGreaterThanOrEqual(4);
   });
 
-  it('puts every item in a real section', () => {
-    const ids = new Set(NAV_SECTIONS.map((s) => s.id));
+  it('names groups for what the user is trying to do', () => {
+    for (const group of NAV_GROUPS) {
+      expect(group.label.length).toBeGreaterThan(3);
+      // Short enough to scan in a sidebar.
+      expect(group.label.length).toBeLessThanOrEqual(16);
+      expect(group.description.length).toBeGreaterThan(10);
+    }
+  });
+
+  it('puts every page in a real group', () => {
+    const ids = new Set(NAV_GROUPS.map((g) => g.id));
     for (const item of NAV_ITEMS) {
-      expect(ids.has(item.section), `${item.label} has an unknown section`).toBe(true);
+      expect(ids.has(item.group), `${item.label} has an unknown group`).toBe(true);
     }
   });
 
-  it('leaves no section empty', () => {
-    for (const section of navBySection()) {
-      expect(section.items.length).toBeGreaterThan(0);
+  it('leaves no group empty', () => {
+    for (const group of navByGroup()) {
+      expect(group.items.length).toBeGreaterThan(0);
     }
   });
 
-  it('keeps every route resolvable — renaming must not move a page', () => {
-    // The rename changed labels only. If an href drifted, a link somewhere
+  it('sends every group somewhere that exists', () => {
+    // A group header that lands on a page with no nav entry is a dead end.
+    const hrefs = new Set(NAV_ITEMS.map((i) => i.href));
+    for (const group of NAV_GROUPS) {
+      expect(hrefs.has(group.href), `${group.label} points nowhere`).toBe(true);
+    }
+  });
+
+  it('keeps no more than a readable handful of pages in any one group', () => {
+    // "Too much information on individual pages" applies to the sidebar too:
+    // a group of nine is the old flat list with a lid on it.
+    for (const group of navByGroup()) {
+      expect(
+        group.items.length,
+        `${group.label} has ${group.items.length} pages`,
+      ).toBeLessThanOrEqual(5);
+    }
+  });
+
+  it('keeps every route resolvable — regrouping must not move a page', () => {
+    // Grouping changed the sidebar only. If an href drifted, a link somewhere
     // else in the app is now broken.
     for (const item of NAV_ITEMS) {
       expect(findNavItem(item.href)).toBeDefined();
       expect(item.href.startsWith('/dashboard')).toBe(true);
     }
+  });
+
+  it('has one nav entry per page', () => {
+    // Campaigns and Campaign ideas were two entries into overlapping work.
+    const hrefs = NAV_ITEMS.map((i) => i.href);
+    expect(new Set(hrefs).size).toBe(hrefs.length);
+  });
+
+  it('no longer competes with itself over campaigns', () => {
+    // The page still exists at /dashboard/advisor — it is reached from
+    // Campaigns, rather than sitting beside it in the sidebar.
+    expect(NAV_ITEMS.some((i) => i.href === '/dashboard/advisor')).toBe(false);
+    expect(NAV_ITEMS.some((i) => i.href === '/dashboard/campaigns')).toBe(true);
+  });
+});
+
+describe('which group a page belongs to', () => {
+  it('opens the group of the page you are on', () => {
+    expect(groupForPath('/dashboard')).toBe('home');
+    expect(groupForPath('/dashboard/suggestions')).toBe('home');
+    expect(groupForPath('/dashboard/trends')).toBe('market');
+    expect(groupForPath('/dashboard/content')).toBe('create');
+    expect(groupForPath('/dashboard/leads')).toBe('customers');
+    expect(groupForPath('/dashboard/analytics')).toBe('results');
+    expect(groupForPath('/dashboard/settings')).toBe('setup');
+  });
+
+  it('does not put everything in Home just because /dashboard is a prefix', () => {
+    // The bug a startsWith scan in declaration order would produce: every
+    // route begins with /dashboard, so Home would always win and the sidebar
+    // would never open the group the user is in.
+    for (const item of NAV_ITEMS) {
+      if (item.href === '/dashboard') continue;
+      expect(groupForPath(item.href)).toBe(item.group);
+    }
+  });
+
+  it('keeps a sub-route in its parent page’s group', () => {
+    expect(groupForPath('/dashboard/content/new')).toBe('create');
+    expect(groupForPath('/dashboard/suggestions/history')).toBe('home');
+    expect(groupForPath('/dashboard/settings/trends')).toBe('setup');
+  });
+
+  it('does not match a page whose href is merely a string prefix of another', () => {
+    // /dashboard/content must not claim /dashboard/contentfoo.
+    expect(groupForPath('/dashboard/contentfoo')).not.toBe('create');
+  });
+
+  it('falls back to a group rather than throwing on an unknown page', () => {
+    expect(NAV_GROUPS.some((g) => g.id === groupForPath('/dashboard/nowhere'))).toBe(
+      true,
+    );
   });
 });

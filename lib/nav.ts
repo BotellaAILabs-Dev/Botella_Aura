@@ -13,7 +13,6 @@ import {
   Megaphone,
   Plug,
   Gauge,
-  Lightbulb,
   CalendarRange,
   Building2,
   Telescope,
@@ -49,29 +48,73 @@ export interface NavItem {
    * ("daily digests aggregated from four sources").
    */
   description?: string;
-  /** Which sidebar section this belongs to. */
-  section: NavSection;
+  /** Which primary group this belongs to. */
+  group: NavGroupId;
 }
 
 /**
- * Sidebar sections, in order.
+ * Primary navigation groups, in order.
  *
- * Fourteen flat links read as a menu of separate tools rather than one
- * assistant. Grouping them by what the user is trying to DO — see how things
- * are going, make something, grow the pipeline, check the result — gives the
- * sidebar a clear top (the score) and an obvious reading order, without moving
- * or removing any page.
+ * Twenty-one links in a sidebar is a menu of separate tools, not an assistant.
+ * Labelled sections helped them read in an order, but every one of the
+ * twenty-one was still on screen at once — so the page still asked the user to
+ * find their own way around, and the review was blunt about it: too many tabs,
+ * too much on every page.
+ *
+ * So the sidebar now shows SIX things. A group's children appear only when you
+ * are in that group, which is the only time they are the answer to anything.
+ * Every page keeps its URL — this moves nothing and deletes nothing, so no
+ * link anywhere in the app, in an email, or in a bookmark breaks.
+ *
+ * `href` is where the group itself goes: its most useful child, not a landing
+ * page that exists only to list the others.
  */
-export const NAV_SECTIONS = [
-  { id: 'overview', label: '' },
-  { id: 'intelligence', label: 'Know your market' },
-  { id: 'create', label: 'Create content' },
-  { id: 'grow', label: 'Find customers' },
-  { id: 'measure', label: 'See what worked' },
-  { id: 'setup', label: 'Setup' },
+export const NAV_GROUPS = [
+  {
+    id: 'home',
+    label: 'Home',
+    href: '/dashboard',
+    icon: LayoutDashboard,
+    description: 'What needs you today, and what Aura suggests doing next.',
+  },
+  {
+    id: 'market',
+    label: 'Your market',
+    href: '/dashboard/intelligence',
+    icon: Radar,
+    description: 'How your marketing is doing, what your market is talking about, and what to act on.',
+  },
+  {
+    id: 'create',
+    label: 'Create',
+    href: '/dashboard/content',
+    icon: PenLine,
+    description: 'Plan, write and publish your content and campaigns.',
+  },
+  {
+    id: 'customers',
+    label: 'Customers',
+    href: '/dashboard/leads',
+    icon: Target,
+    description: 'Find people worth contacting, reach out, and reply to them.',
+  },
+  {
+    id: 'results',
+    label: 'Results',
+    href: '/dashboard/analytics',
+    icon: BarChart3,
+    description: 'Real numbers from what you published, and what works for you.',
+  },
+  {
+    id: 'setup',
+    label: 'Setup',
+    href: '/dashboard/settings',
+    icon: Settings,
+    description: 'What Aura knows about your business, and the tools it is connected to.',
+  },
 ] as const;
 
-export type NavSection = (typeof NAV_SECTIONS)[number]['id'];
+export type NavGroupId = (typeof NAV_GROUPS)[number]['id'];
 
 export const NAV_ITEMS: NavItem[] = [
   {
@@ -79,14 +122,14 @@ export const NAV_ITEMS: NavItem[] = [
     href: '/dashboard',
     icon: LayoutDashboard,
     ready: true,
-    section: 'overview',
+    group: 'home',
   },
   {
     label: 'Aura Suggests',
     href: '/dashboard/suggestions',
     icon: Sparkles,
     ready: true,
-    section: 'overview',
+    group: 'home',
     description: 'What Aura thinks you should do next, why, and the evidence behind it.',
   },
   {
@@ -94,13 +137,13 @@ export const NAV_ITEMS: NavItem[] = [
     href: '/dashboard/review',
     icon: ClipboardCheck,
     ready: true,
-    section: 'overview',
+    group: 'home',
     description: 'Everything Aura made that is waiting on you, reviewed and approved in one place.',
   },
   {
     label: 'Marketing health',
     href: '/dashboard/intelligence',
-    section: 'intelligence',
+    group: 'market',
     icon: Gauge,
     ready: true,
     description:
@@ -109,7 +152,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     label: 'Market trends',
     href: '/dashboard/trends',
-    section: 'intelligence',
+    group: 'market',
     icon: Radar,
     ready: true,
     sprint: 2,
@@ -118,25 +161,16 @@ export const NAV_ITEMS: NavItem[] = [
   {
     label: 'Opportunities',
     href: '/dashboard/opportunities',
-    section: 'intelligence',
+    group: 'market',
     icon: Telescope,
     ready: true,
     description:
       'What Aura noticed you could act on, why, and the evidence behind each one.',
   },
   {
-    label: 'Campaign ideas',
-    href: '/dashboard/advisor',
-    section: 'intelligence',
-    icon: Lightbulb,
-    ready: true,
-    description:
-      'Campaign ideas worth your time, with the evidence behind each one.',
-  },
-  {
     label: 'Content plan',
     href: '/dashboard/planner',
-    section: 'create',
+    group: 'create',
     icon: CalendarRange,
     ready: true,
     description: 'Turn your goals into a month of dated, ready-to-write posts.',
@@ -144,7 +178,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     label: 'Content Studio',
     href: '/dashboard/content',
-    section: 'create',
+    group: 'create',
     icon: PenLine,
     ready: true,
     sprint: 3,
@@ -153,7 +187,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     label: 'Publishing',
     href: '/dashboard/executions',
-    section: 'create',
+    group: 'create',
     icon: Send,
     ready: true,
     description: 'Everything approved to publish: scheduled, publishing, published, and what needs you.',
@@ -161,7 +195,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     label: 'Campaigns',
     href: '/dashboard/campaigns',
-    section: 'create',
+    group: 'create',
     icon: Megaphone,
     ready: true,
     sprint: 6,
@@ -170,7 +204,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     label: 'Leads',
     href: '/dashboard/leads',
-    section: 'grow',
+    group: 'customers',
     icon: Target,
     ready: true,
     sprint: 5,
@@ -179,7 +213,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     label: 'Outreach',
     href: '/dashboard/outreach',
-    section: 'grow',
+    group: 'customers',
     icon: Send,
     ready: true,
     sprint: 4,
@@ -188,7 +222,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     label: 'Comments & replies',
     href: '/dashboard/engagement',
-    section: 'grow',
+    group: 'customers',
     icon: MessageCircle,
     ready: true,
     sprint: 4,
@@ -197,34 +231,34 @@ export const NAV_ITEMS: NavItem[] = [
   {
     label: 'Competitors',
     href: '/dashboard/competitors',
-    section: 'intelligence',
+    group: 'market',
     icon: Users,
     ready: true,
     sprint: 4,
     description: 'What your competitors changed this week, and what it means for you.',
   },
   {
-    label: 'What works for you',
-    href: '/dashboard/memory',
-    section: 'measure',
-    icon: Brain,
-    ready: true,
-    sprint: 5,
-    description: 'Patterns learned from your own results — what to do more of.',
-  },
-  {
     label: 'Results',
     href: '/dashboard/analytics',
-    section: 'measure',
+    group: 'results',
     icon: BarChart3,
     ready: true,
     sprint: 6,
     description: 'Real numbers from what you published — reach, replies, and trends.',
   },
   {
+    label: 'What works for you',
+    href: '/dashboard/memory',
+    group: 'results',
+    icon: Brain,
+    ready: true,
+    sprint: 5,
+    description: 'Patterns learned from your own results — what to do more of.',
+  },
+  {
     label: 'About my business',
     href: '/dashboard/business',
-    section: 'setup',
+    group: 'setup',
     icon: Building2,
     ready: true,
     description: 'What Aura knows about your business, and what you still need to tell it.',
@@ -232,7 +266,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     label: 'Your tools',
     href: '/dashboard/connectors',
-    section: 'setup',
+    group: 'setup',
     icon: Plug,
     ready: true,
     description: 'Connect LinkedIn, analytics and your CRM so Aura uses real data.',
@@ -240,7 +274,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     label: 'WhatsApp assistant',
     href: '/dashboard/whatsapp-assistant',
-    section: 'setup',
+    group: 'setup',
     icon: MessageCircle,
     ready: true,
     description: 'Use Aura from WhatsApp, link your number, and see how your team uses it.',
@@ -250,7 +284,7 @@ export const NAV_ITEMS: NavItem[] = [
     href: '/dashboard/settings',
     icon: Settings,
     ready: true,
-    section: 'setup',
+    group: 'setup',
   },
 ];
 
@@ -258,11 +292,56 @@ export function findNavItem(href: string): NavItem | undefined {
   return NAV_ITEMS.find((i) => i.href === href);
 }
 
-/** Nav items grouped into sections, preserving NAV_SECTIONS order. */
-export function navBySection(): { id: NavSection; label: string; items: NavItem[] }[] {
-  return NAV_SECTIONS.map((section) => ({
-    id: section.id,
-    label: section.label,
-    items: NAV_ITEMS.filter((i) => i.section === section.id),
-  })).filter((section) => section.items.length > 0);
+export interface NavGroupView {
+  id: NavGroupId;
+  label: string;
+  href: string;
+  icon: LucideIcon;
+  description: string;
+  items: NavItem[];
+}
+
+/** The six groups with their pages, in NAV_GROUPS order. */
+export function navByGroup(): NavGroupView[] {
+  return NAV_GROUPS.map((group) => ({
+    id: group.id,
+    label: group.label,
+    href: group.href,
+    icon: group.icon,
+    description: group.description,
+    items: NAV_ITEMS.filter((i) => i.group === group.id),
+  })).filter((group) => group.items.length > 0);
+}
+
+/**
+ * Which group a path belongs to — the group whose own href or any of whose
+ * pages matches it.
+ *
+ * Longest match wins, because `/dashboard` is a prefix of every route: a
+ * `startsWith` scan in declaration order would put every page in Home and the
+ * sidebar would never open the group the user is actually in.
+ */
+export function groupForPath(pathname: string): NavGroupId {
+  let best: { group: NavGroupId; length: number } | null = null;
+  for (const item of NAV_ITEMS) {
+    const matches =
+      item.href === '/dashboard'
+        ? pathname === '/dashboard'
+        : pathname === item.href || pathname.startsWith(`${item.href}/`);
+    if (matches && (!best || item.href.length > best.length)) {
+      best = { group: item.group, length: item.href.length };
+    }
+  }
+  // A page with no nav entry of its own (a detail route, say) still belongs
+  // somewhere; fall back to the group whose href it sits under.
+  if (!best) {
+    for (const group of NAV_GROUPS) {
+      // The same boundary check as above, and for the same reason: a bare
+      // `startsWith` lets /dashboard/content claim /dashboard/contentfoo.
+      if (group.href !== '/dashboard' && pathname.startsWith(`${group.href}/`)) {
+        return group.id;
+      }
+    }
+  }
+  return best?.group ?? 'home';
 }

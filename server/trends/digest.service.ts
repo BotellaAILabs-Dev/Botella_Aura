@@ -101,7 +101,7 @@ export async function generateDigestForCompany({
     }),
   );
   const config = await ensureTrendConfig(companyId);
-  const ctx = toFetchContext(config);
+  const ctx = toFetchContext(config, company);
   const flags = getEnabledFlags(config);
 
   // Determine which sources run vs. are skipped (enabled but not configured).

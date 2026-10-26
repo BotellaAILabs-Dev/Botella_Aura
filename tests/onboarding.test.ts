@@ -227,3 +227,37 @@ describe('market mode — B2C vs B2B', () => {
     expect(marketingProfileSchema.parse({ marketMode: 'B2C' }).marketMode).toBe('B2C');
   });
 });
+
+/**
+ * Where the business operates.
+ *
+ * This setting already existed, but only in Settings → Market trends, which a
+ * new user has no reason to open — so every workspace ran on the default and
+ * was shown United States news whatever country it was in. Asking during setup
+ * is what makes the localisation that already existed actually apply.
+ */
+describe('the market step', () => {
+  it('is asked early, before the optional polish', () => {
+    const ids = ONBOARDING_STEPS.map((s) => s.id);
+    expect(ids).toContain('market');
+    // Straight after the business itself: it costs one answer and changes
+    // every trend the workspace is shown from then on.
+    expect(ids.indexOf('market')).toBe(1);
+    expect(ids.indexOf('market')).toBeLessThan(ids.indexOf('plan'));
+  });
+
+  it('sends the user where the setting actually lives', () => {
+    expect(onboardingStep('market').href).toBe('/dashboard/settings/trends');
+  });
+
+  it('says what the user gets, not what the field is called', () => {
+    const why = onboardingStep('market').why.toLowerCase();
+    expect(why).toMatch(/news|trend/);
+    // The consequence of skipping it is the point, so it has to be stated.
+    expect(why).toMatch(/united states|default/);
+  });
+
+  it('is not required — Aura still works without it', () => {
+    expect(onboardingStep('market').required).toBe(false);
+  });
+});

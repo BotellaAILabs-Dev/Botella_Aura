@@ -117,7 +117,7 @@ describe('navigation', () => {
     const item = NAV_ITEMS.find((i) => i.href === '/dashboard/business');
     expect(item).toMatchObject({
       label: 'About my business',
-      section: 'setup',
+      group: 'setup',
     });
     expect(onboardingStep('business').href).toBe('/dashboard/business');
   });

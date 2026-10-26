@@ -39,8 +39,17 @@ export async function getTrendConfig(companyId: string) {
   return db.companyTrendConfig.findUnique({ where: { companyId } });
 }
 
-/** Convert a stored config into the context passed to trend sources. */
-export function toFetchContext(config: CompanyTrendConfig): TrendFetchContext {
+/**
+ * Convert a stored config into the context passed to trend sources.
+ *
+ * `industry` is not on the trend config — it belongs to the company — so the
+ * caller passes it in. A source uses it to pick press that is about this
+ * business rather than ingesting the same feeds for everyone.
+ */
+export function toFetchContext(
+  config: CompanyTrendConfig,
+  company?: { industry?: string | null } | null,
+): TrendFetchContext {
   return {
     keywords: config.keywords,
     subreddits: config.subreddits,
@@ -51,6 +60,7 @@ export function toFetchContext(config: CompanyTrendConfig): TrendFetchContext {
     city: config.geoCity,
     language: config.language,
     timeRangeDays: config.timeRangeDays,
+    industry: company?.industry ?? null,
   };
 }
 

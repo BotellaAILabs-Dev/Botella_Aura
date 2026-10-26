@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { Megaphone, Plus, ArrowRight } from 'lucide-react';
+import { Megaphone, Plus, ArrowRight, Lightbulb } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
 import { resolveActiveCompany } from '@/lib/active-company';
@@ -36,19 +36,40 @@ export default async function CampaignsPage() {
     </Button>
   );
 
+  /**
+   * Campaign ideas used to be its own sidebar entry, competing with this page
+   * over the same work. It is now reached from here — the page is unchanged
+   * and its URL still resolves, it just no longer asks the user to guess which
+   * of two campaign tabs they wanted.
+   */
+  const ideasBtn = (
+    <Button asChild size="sm" variant="outline">
+      <Link href="/dashboard/advisor">
+        <Lightbulb className="h-4 w-4" /> Campaign ideas
+      </Link>
+    </Button>
+  );
+
+  const headerActions = (
+    <div className="flex flex-wrap items-center gap-2">
+      {ideasBtn}
+      {canManage ? newBtn : null}
+    </div>
+  );
+
   return (
     <div>
       <PageHeader
         title="Campaigns"
         description="Orchestrate content, outreach, and discovery into one reviewable plan."
-        actions={canManage ? newBtn : undefined}
+        actions={headerActions}
       />
       {campaigns.length === 0 ? (
         <EmptyState
           icon={Megaphone}
           title="No campaigns yet"
-          description="Describe a goal and Aura plans a 30-day schedule across your modules — every generated item still lands in your approval queue first."
-          action={canManage ? newBtn : undefined}
+          description="Describe a goal and Aura plans a 30-day schedule across your modules — every generated item still lands in your approval queue first. Not sure what to run? Start from Campaign ideas."
+          action={canManage ? newBtn : ideasBtn}
         />
       ) : (
         <div className="grid gap-3">

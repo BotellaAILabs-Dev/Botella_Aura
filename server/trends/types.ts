@@ -49,6 +49,12 @@ export interface TrendFetchContext {
   language?: string | null;
   /** Only surface items newer than this many days. */
   timeRangeDays?: number | null;
+  /**
+   * The company's industry, so a source can choose press that is actually
+   * about this business. Without it the news source fell back to a technology
+   * reading list for every workspace, whatever it sold.
+   */
+  industry?: string | null;
 }
 
 /** Contract every trend source implements. */

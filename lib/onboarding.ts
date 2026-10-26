@@ -7,6 +7,7 @@ import {
   Plug,
   CalendarRange,
   Sparkles,
+  Globe2,
 } from 'lucide-react';
 
 /**
@@ -27,6 +28,7 @@ import {
  */
 export const ONBOARDING_STEP_IDS = [
   'business',
+  'market',
   'materials',
   'brand',
   'audience',
@@ -69,6 +71,25 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     cta: 'Review your business',
     icon: Building2,
     required: true,
+  },
+  {
+    id: 'market',
+    /**
+     * Where the business actually sells.
+     *
+     * This setting existed, but only in Settings → Market trends, which a new
+     * user has no reason to open — so every workspace ran on the default and
+     * was shown United States news. A business in India was being told what to
+     * post about by US headlines, which is the "trends were not appropriately
+     * localized" finding. Asked during setup, it is answered once by the one
+     * person who knows.
+     */
+    title: 'Tell Aura where you operate',
+    why: 'Your country and city decide which news and trends Aura shows you. Without them it reads the United States.',
+    href: '/dashboard/settings/trends',
+    cta: 'Set your market',
+    icon: Globe2,
+    required: false,
   },
   {
     id: 'materials',

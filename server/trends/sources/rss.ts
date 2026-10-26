@@ -24,29 +24,106 @@ const MAX_FEEDS = 8;
 const MAX_ITEMS_PER_FEED = 20;
 
 /**
- * Curated keyless publisher feeds — always ingested for breadth. When the
- * company has keywords configured, only items matching a keyword are kept (so
- * the digest stays on-topic); with no keywords, they provide general coverage.
+ * Publisher feeds that apply to any business, whatever it sells.
+ *
+ * This list used to be TechCrunch, The Verge, Ars Technica, VentureBeat and
+ * Wired — a technology-press reading list, ingested for every workspace on the
+ * platform. For a bourbon brand, a restaurant or a clinic, every item from
+ * them is noise, and with no keywords configured they were the "general
+ * coverage" the digest fell back on. That is the "sources were not sufficiently
+ * verified" and "trends were not appropriately localized" finding.
+ *
+ * What is left is the two feeds that are about MARKETING — which is what this
+ * product is for, whoever the customer is. Industry press now comes from
+ * INDUSTRY_FEEDS, matched to the business, and anything regional comes from
+ * the geo-aware Google News headlines built per request.
+ *
  * All are public RSS/Atom the publisher offers for consumption (not scraping).
  */
-const CURATED_FEEDS: Array<{ url: string; label: string }> = [
-  { url: 'https://techcrunch.com/feed/', label: 'TechCrunch' },
-  { url: 'https://www.theverge.com/rss/index.xml', label: 'The Verge' },
-  { url: 'https://feeds.arstechnica.com/arstechnica/index', label: 'Ars Technica' },
-  { url: 'https://venturebeat.com/feed/', label: 'VentureBeat' },
-  { url: 'https://www.wired.com/feed/rss', label: 'Wired' },
-  { url: 'https://feeds.bbci.co.uk/news/business/rss.xml', label: 'BBC Business' },
+export const CURATED_FEEDS: Array<{ url: string; label: string }> = [
   { url: 'https://www.marketingdive.com/feeds/news/', label: 'Marketing Dive' },
   { url: 'https://feeds.feedburner.com/entrepreneur/latest', label: 'Entrepreneur' },
+];
+
+/**
+ * Industry press, used only when the business is actually in that industry.
+ *
+ * Matched against the company's own industry and keywords. A business that
+ * matches nothing gets no industry feed at all — which is correct. Returning a
+ * technology feed to a distillery is worse than returning nothing, because it
+ * fills the digest with plausible-looking items that are irrelevant, and those
+ * are what became off-topic posts.
+ */
+const INDUSTRY_FEEDS: Array<{
+  match: RegExp;
+  feeds: Array<{ url: string; label: string }>;
+}> = [
   {
-    url: 'https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-US&gl=US&ceid=US:en',
-    label: 'Google News · Tech',
+    match: /\b(tech|software|saas|startup|developer|it services|cloud|ai|fintech)\b/i,
+    feeds: [
+      { url: 'https://techcrunch.com/feed/', label: 'TechCrunch' },
+      { url: 'https://www.theverge.com/rss/index.xml', label: 'The Verge' },
+    ],
   },
   {
-    url: 'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en',
-    label: 'Google News · Business',
+    match: /\b(food|drink|beverage|restaurant|cafe|bar|brewer\w*|distiller\w*|winer\w*|spirits|bourbon|whisk\w*|hospitality|catering)\b/i,
+    feeds: [
+      { url: 'https://www.fooddive.com/feeds/news/', label: 'Food Dive' },
+      { url: 'https://www.restaurantdive.com/feeds/news/', label: 'Restaurant Dive' },
+    ],
+  },
+  {
+    match: /\b(retail|ecommerce|e-commerce|shop|store|dtc|consumer goods|fashion|apparel)\b/i,
+    feeds: [{ url: 'https://www.retaildive.com/feeds/news/', label: 'Retail Dive' }],
+  },
+  {
+    match: /\b(health|healthcare|clinic|medical|dental|wellness|pharma|fitness)\b/i,
+    feeds: [{ url: 'https://www.healthcaredive.com/feeds/news/', label: 'Healthcare Dive' }],
+  },
+  {
+    match: /\b(property|real estate|construction|architect\w*|builder|contractor)\b/i,
+    feeds: [{ url: 'https://www.constructiondive.com/feeds/news/', label: 'Construction Dive' }],
+  },
+  {
+    match: /\b(bank|finance|financial|insurance|lending|accounting|wealth)\b/i,
+    feeds: [{ url: 'https://www.bankingdive.com/feeds/news/', label: 'Banking Dive' }],
+  },
+  {
+    match: /\b(travel|tourism|hotel|resort|airline|holiday)\b/i,
+    feeds: [{ url: 'https://www.hotelmanagement.net/rss.xml', label: 'Hotel Management' }],
+  },
+  {
+    match: /\b(education|school|university|college|training|edtech|course)\b/i,
+    feeds: [{ url: 'https://www.educationdive.com/feeds/news/', label: 'Education Dive' }],
   },
 ];
+
+/** Industry press for this business, or nothing when none applies. */
+export function industryFeeds(ctx: TrendFetchContext): Array<{ url: string; label: string }> {
+  const about = [ctx.industry ?? '', ...ctx.keywords].join(' ');
+  if (!about.trim()) return [];
+  const out: Array<{ url: string; label: string }> = [];
+  for (const entry of INDUSTRY_FEEDS) {
+    if (entry.match.test(about)) out.push(...entry.feeds);
+  }
+  // Two industries can both match ("craft brewery software"); keep both, but
+  // not more than a digest can use.
+  return out.slice(0, 4);
+}
+
+/**
+ * Google News top headlines for a topic, in the workspace's own locale.
+ *
+ * These two were previously hardcoded to `hl=en-US&gl=US&ceid=US:en`, so a
+ * business anywhere outside the United States was shown US headlines no matter
+ * what country it had configured — while the per-keyword searches right beside
+ * them were correctly localised. That is the localization gap the review
+ * raised, and it was a literal string, not a design decision.
+ */
+export function googleTopicUrl(topic: 'BUSINESS' | 'NATION', geo: GeoOpts): string {
+  const hl = `${geo.language}-${geo.country}`;
+  return `https://news.google.com/rss/headlines/section/topic/${topic}?hl=${hl}&gl=${geo.country}&ceid=${geo.country}:${geo.language}`;
+}
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -89,7 +166,7 @@ function toArray<T>(v: T | T[] | undefined): T[] {
   return Array.isArray(v) ? v : [v];
 }
 
-interface GeoOpts {
+export interface GeoOpts {
   country: string; // ISO code, e.g. "US"
   language: string; // e.g. "en"
   location: string; // "City Region" hint appended to the query (may be empty)
@@ -114,7 +191,7 @@ function bingNewsUrl(keyword: string, geo: GeoOpts, cacheBust: number): string {
 }
 
 /** Resolve geo/locale options from the company config (with safe defaults). */
-function resolveGeo(ctx: TrendFetchContext): GeoOpts {
+export function resolveGeo(ctx: TrendFetchContext): GeoOpts {
   const country = (ctx.country || 'US').toUpperCase().slice(0, 2);
   const language = (ctx.language || 'en').toLowerCase().slice(0, 2);
   const location = [ctx.city, ctx.region].filter(Boolean).join(' ').trim();
@@ -146,7 +223,20 @@ export class NewsSource implements TrendSource {
       // Geo/locale-aware Google News + Bing per keyword.
       ...kws.map((k) => ({ url: googleNewsUrl(k, geo), label: 'Google News', keyword: k.toLowerCase() })),
       ...kws.map((k) => ({ url: bingNewsUrl(k, geo, now), label: 'Bing News', keyword: k.toLowerCase() })),
-      // Curated publisher feeds — on-topic only when keywords exist.
+      // Top headlines in the workspace's own country, not always the US.
+      {
+        url: googleTopicUrl('BUSINESS', geo),
+        label: 'Google News · Business',
+        requireMatch: keywords.length > 0,
+      },
+      {
+        url: googleTopicUrl('NATION', geo),
+        label: 'Google News · National',
+        requireMatch: keywords.length > 0,
+      },
+      // Industry press, only where it is this business's industry.
+      ...industryFeeds(ctx).map((f) => ({ ...f, requireMatch: keywords.length > 0 })),
+      // Marketing press — relevant to every workspace on the platform.
       ...CURATED_FEEDS.map((f) => ({ ...f, requireMatch: keywords.length > 0 })),
       // Company-configured feeds — always kept (the user chose them).
       ...ctx.rssFeeds.slice(0, MAX_FEEDS).map((url) => ({ url, label: 'RSS' })),
