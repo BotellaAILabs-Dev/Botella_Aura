@@ -328,16 +328,34 @@ export function heuristicPrompt(
       // Only where there are people to get wrong, and short — see
       // PEOPLE_REALISM_SHORT on why the full brief does not go here.
       ...(withPeople ? [PEOPLE_REALISM_SHORT] : []),
-    ].filter(Boolean);
-    const optional = [
-      // First of the optionals: the platform's photographic register shapes
-      // the whole frame, where the palette and setting only tint it. The
-      // person's own direction still outranks it — fitPrompt places that
-      // immediately after the opening, before any of these are considered.
-      platformDirection,
+      // A prohibition, not a preference. This sat in the optional list, where
+      // it was dropped whenever the budget ran out — so "never show this"
+      // reached the model only when there happened to be room for it.
       visual?.brand.avoid.length
         ? sentence(`Never depict: ${visual.brand.avoid.join(', ')}`)
         : '',
+    ].filter(Boolean);
+    /**
+     * Ordered by how specific each part is to THIS business, because the
+     * budget drops whole parts from the end and says nothing about it.
+     *
+     * The platform register used to come first, on the reasoning that it
+     * shapes the whole frame while the palette only tints it. Measured, that
+     * reasoning cost the brand everything: the realism direction and the
+     * people brief fill ~1,120 of the 1,328 characters available, the
+     * register took the remaining 175, and the palette, the setting and the
+     * product were all silently dropped — on Instagram and LinkedIn, the two
+     * that matter most here. An image in the wrong colours is further from
+     * the brand than one in a slightly generic register, and the register is
+     * the part the realism direction and the camera line already mostly
+     * carry. So the brand goes first, and the register takes what is left.
+     *
+     * The person's own direction still outranks all of it — fitPrompt places
+     * that immediately after the opening, before any of these are weighed.
+     */
+    const optional = [
+      // What is in the frame, before what colour it is: a photograph of the
+      // wrong thing in the right palette is not closer to the brief.
       visual?.product
         ? sentence(`Where it fits, show: ${clip(visual.product.value, 200)}`)
         : '',
@@ -345,6 +363,7 @@ export function heuristicPrompt(
         ? `Colour: built around ${visual.brand.palette.join(', ')} in light and surfaces, not as flat blocks.`
         : '',
       visual?.setting ?? '',
+      platformDirection,
     ];
     return {
       prompt: fitPrompt({ required, guidance, optional }),

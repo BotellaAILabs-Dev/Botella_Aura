@@ -409,10 +409,12 @@ async function main() {
     let d = await load();
     let r = reviewOf(d);
     check(
-      'a new draft carries a structured review: status, score, all ten dimensions',
+      'a new draft carries a structured review: status, score, every dimension',
       r?.status === 'pass' &&
         r.trigger === 'generated' &&
-        r.dimensions.length === 10 &&
+        // Counted from the list itself. Spelling the number out here meant
+        // that adding brand_safety broke this check instead of extending it.
+        r.dimensions.length === REVIEW_DIMENSIONS.length &&
         typeof r.score === 'number',
       JSON.stringify(r ?? null).slice(0, 400),
     );
@@ -734,7 +736,7 @@ async function main() {
       edited.status === 200 &&
         getR.status === 200 &&
         getR.json?.current === false &&
-        getR.json?.review?.dimensions?.length === 10 &&
+        getR.json?.review?.dimensions?.length === REVIEW_DIMENSIONS.length &&
         (await ownerC.page(`/dashboard/content/${long.id}`)).text.includes(
           'Out of date',
         ),

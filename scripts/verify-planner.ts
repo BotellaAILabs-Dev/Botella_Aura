@@ -19,6 +19,7 @@
 import bcrypt from 'bcryptjs';
 
 import { db } from '@/lib/db';
+import { stuckAfterMs } from '@/server/jobs/job.service';
 import type { PlanInputs } from '@/lib/validations/planner';
 import { isClaudeConfigured } from '@/server/ai/claude';
 import {
@@ -458,9 +459,32 @@ async function main() {
         attempts: 1,
         createdAt: new Date(Date.now() - 3 * 60_000),
         startedAt: new Date(Date.now() - 3 * 60_000),
+        /**
+         * Backdated too, and that is the whole point of this fixture.
+         * Liveness is measured from the LAST activity, because a progress
+         * write is what proves a runner is still there — and `@updatedAt`
+         * means Prisma stamps this with now() unless it is given a value. A
+         * corpse born with a fresh `updatedAt` looks like a run that just
+         * reported progress, so the app reattached to it, correctly, and the
+         * check below failed on a fixture that was never dead.
+         */
+        updatedAt: new Date(Date.now() - 3 * 60_000),
         progress: { step: 'running', message: 'Drafting…', percent: 35 },
       },
     });
+    const aged = await db.generationJob.findUniqueOrThrow({
+      where: { id: dead.id },
+    });
+    const ageMs = Date.now() - aged.updatedAt.getTime();
+    check(
+      // Assert the fixture before asserting the behaviour: a corpse that is
+      // not actually cold tests nothing, and silently passes as "reused".
+      'the fabricated dead run is older than the plan fuse',
+      ageMs > stuckAfterMs('MARKETING_PLAN'),
+      `last activity ${Math.round(ageMs / 1000)}s ago, fuse ${
+        stuckAfterMs('MARKETING_PLAN') / 1000
+      }s`,
+    );
     const retry = (
       await me.req('POST', '/api/jobs', { kind: 'MARKETING_PLAN', inputs })
     ).json as { id: string; reused?: boolean };

@@ -571,6 +571,67 @@ function extractText(
     .trim();
 }
 
+/**
+ * Repair the two ways a model writes JSON that is not JSON: a comma before the
+ * closing brace, and a property name without quotes. Both are valid
+ * JavaScript, which is presumably why they turn up.
+ *
+ * Done as a character scan rather than a regex because the same characters
+ * inside a string value must be left exactly as they are — a caption that ends
+ * `..., }` is content, not a syntax error.
+ */
+function repairModelJson(s: string): string {
+  const out: string[] = [];
+  let inString = false;
+  let escaped = false;
+  /** The last character written that was not whitespace. */
+  let prev = '';
+  /** Index of the next non-space character, without slicing the remainder. */
+  const peek = (from: number): number => {
+    let j = from;
+    while (j < s.length && /\s/.test(s[j]!)) j += 1;
+    return j;
+  };
+  for (let i = 0; i < s.length; i += 1) {
+    const ch = s[i]!;
+    if (inString) {
+      out.push(ch);
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      out.push(ch);
+      prev = ch;
+      continue;
+    }
+    // A comma whose next non-space character closes the structure.
+    if (ch === ',') {
+      const j = peek(i + 1);
+      if (s[j] === '}' || s[j] === ']') continue;
+      out.push(ch);
+      prev = ch;
+      continue;
+    }
+    // A bare property name, in a position where a name is expected.
+    if ((prev === '{' || prev === ',') && /[A-Za-z_$]/.test(ch)) {
+      let j = i;
+      while (j < s.length && /[\w$]/.test(s[j]!)) j += 1;
+      if (s[peek(j)] === ':') {
+        out.push(`"${s.slice(i, j)}"`);
+        prev = '"';
+        i = j - 1;
+        continue;
+      }
+    }
+    out.push(ch);
+    if (!/\s/.test(ch)) prev = ch;
+  }
+  return out.join('');
+}
+
 /** Tolerant JSON extraction — handles ```json fences and surrounding prose. */
 export function parseJson<T>(raw: string): T {
   let s = raw.trim();
@@ -582,5 +643,21 @@ export function parseJson<T>(raw: string): T {
   if (firstBrace >= 0 && lastBrace > firstBrace) {
     s = s.slice(firstBrace, lastBrace + 1);
   }
-  return JSON.parse(s) as T;
+  try {
+    return JSON.parse(s) as T;
+  } catch (err) {
+    // Only ever a second chance: valid JSON never reaches the repair, so a
+    // document that parses is never rewritten. The original error is what is
+    // thrown if the repair does not help, because it is the one that says
+    // where the real problem was.
+    const repaired = repairModelJson(s);
+    if (repaired !== s) {
+      try {
+        return JSON.parse(repaired) as T;
+      } catch {
+        // fall through to the original error
+      }
+    }
+    throw err;
+  }
 }

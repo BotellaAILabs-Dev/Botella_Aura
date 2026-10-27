@@ -126,9 +126,12 @@ function sourceFor(meta: Meta): ReviewerInput['source'] {
         }
       : null;
   }
+  // Classified on the material as it stands, because that is what the writer
+  // worked from; redacted only on the way to the model, which has no need for
+  // whatever contact details a fetched page happened to carry.
   const safety = classifySource(material);
   return {
-    material: material.slice(0, 4000),
+    material: redactSensitive(material.slice(0, 4000), { personal: true }).text,
     posture: safety.posture,
     concerns: [...new Set(safety.hits.map((h) => TOPIC_LABEL[h.topic]))],
   };
@@ -222,7 +225,16 @@ async function reviewerInputFor(draft: ContentDraft): Promise<{
             evidence,
           }
         : null,
-    request: source.brief ?? null,
+    /**
+     * The person's own words, with keys and card numbers taken out.
+     * `personal: false`, as the writer's own context does it (lib/
+     * generation-context.ts): their contact details in their own brief are
+     * theirs to include, but a key pasted into it is still a key, and this
+     * block goes to the AI provider.
+     */
+    request: source.brief
+      ? redactSensitive(source.brief, { personal: false }).text
+      : null,
     facts: knowledge.slice(0, 3000),
     alcohol: w.alcohol,
     // The material the piece was written from, with the verdict reached on it

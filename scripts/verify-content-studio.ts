@@ -274,27 +274,45 @@ async function main() {
       badQ?.approvable === false &&
         Boolean(badQ.issues.some((i) => i.code === 'alcohol-excess')),
     );
-    await transition({
-      companyId,
-      userId: user.id,
-      draftId: ig.id,
-      to: 'PENDING_APPROVAL',
-    });
+    /**
+     * Non-compliant copy must not reach a human approver, and must not be
+     * approved. There are two gates in front of it — submission runs a fresh
+     * review (content.service.ts), and approval runs the compliance check —
+     * and which one speaks first depends on what the reviewer makes of the
+     * copy. This asserted that the second gate held while assuming the first
+     * would let the draft past, so a reviewer doing its job failed the script.
+     * Refusal at either gate is the behaviour being checked.
+     */
     let refused = '';
+    let refusedAt = '';
     try {
       await transition({
         companyId,
         userId: user.id,
         draftId: ig.id,
-        to: 'APPROVED',
+        to: 'PENDING_APPROVAL',
       });
     } catch (err) {
       refused = err instanceof Error ? err.message : String(err);
+      refusedAt = 'submission';
+    }
+    if (!refused) {
+      try {
+        await transition({
+          companyId,
+          userId: user.id,
+          draftId: ig.id,
+          to: 'APPROVED',
+        });
+      } catch (err) {
+        refused = err instanceof Error ? err.message : String(err);
+        refusedAt = 'approval';
+      }
     }
     check(
-      'approval is refused while it stands',
-      /Fix before approving/.test(refused),
-      refused.slice(0, 120),
+      'non-compliant copy cannot move on, and is told why',
+      /Fix (?:it|before)/.test(refused),
+      `refused at ${refusedAt || 'neither gate'}: ${refused.slice(0, 160)}`,
     );
     const fixed = await refineDraft({
       draft: await db.contentDraft.findUniqueOrThrow({ where: { id: ig.id } }),

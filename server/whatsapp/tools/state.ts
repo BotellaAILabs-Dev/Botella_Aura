@@ -66,6 +66,25 @@ export async function readState(linkId: string, companyId: string): Promise<Sess
 export async function writeState(linkId: string, companyId: string, patch: Partial<SessionState>): Promise<SessionState> {
   const current = await readState(linkId, companyId);
   const next: SessionState = { ...current, ...patch, companyId };
+  /**
+   * `targets` belongs to one draft, as its own comment above says. Nothing
+   * dropped it when the conversation moved to a different draft, so networks
+   * chosen for the post someone was writing silently became the answer to
+   * "where should this other post go?" — and publish stopped asking, because
+   * it already had targets. The confirmation still named them, so nothing was
+   * ever published unseen; it was asking a question it had answered itself
+   * with a choice made about something else.
+   *
+   * A patch that names both at once still wins: that is one draft and its
+   * networks being set together.
+   */
+  if (
+    patch.draftId !== undefined &&
+    patch.draftId !== current.draftId &&
+    patch.targets === undefined
+  ) {
+    delete next.targets;
+  }
   for (const k of Object.keys(next) as (keyof SessionState)[]) {
     if (next[k] === undefined) delete next[k];
   }
