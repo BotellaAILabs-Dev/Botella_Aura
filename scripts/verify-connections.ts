@@ -28,6 +28,7 @@ import type { CompanyRole, Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { encrypt } from '@/lib/crypto';
 import { discoverAccounts } from '@/lib/connection-manager';
+import { requireRealMeta } from './lib/meta-mode';
 import { recordDiscoveredAccounts } from '@/server/connections/accounts';
 import { syncLinkedInMirror } from '@/server/connections/manager.service';
 import { checkConnectionHealth, connectionGate, markRevoked, recordExecutionResult, runConnectionSweep } from '@/server/connections/health.service';
@@ -134,6 +135,12 @@ async function main() {
   const B = await workspace('B', ['OWNER']);
   const owner = A.web.OWNER!;
   const companyId = A.company.id;
+  // Several checks here turn on Meta refusing a token this suite made up.
+  await requireRealMeta({
+    suite: 'verify:connections',
+    base: BASE,
+    cookie: owner.cookie(),
+  });
   try {
     // ------------------------------------------------------------------ 1
     console.log('\n1. Connection Manager data model');

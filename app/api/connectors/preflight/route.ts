@@ -3,6 +3,7 @@ import { preflightConnector } from '@/server/connectors/preflight';
 import { oauthRedirectPaths } from '@/server/connectors/providers';
 import { absoluteUrl, getAppUrl } from '@/lib/app-url';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
+import { usingGraphStub } from '@/lib/graph-base';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +26,14 @@ export async function GET(req: Request) {
     if (!id) {
       return jsonOk({
         appUrl: getAppUrl(),
+        /**
+         * Whether this server talks to a local stand-in for Meta instead of
+         * Meta (docs/SANDBOX.md). Reported because a sandbox that looks like
+         * production is how a demo gets mistaken for a working integration —
+         * and because the verify suites that check what happens when Meta
+         * REFUSES a token cannot run against one that accepts.
+         */
+        graphStub: usingGraphStub(),
         redirectUris: oauthRedirectPaths().map((entry) => ({
           ...entry,
           uri: absoluteUrl(entry.path),

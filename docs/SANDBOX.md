@@ -133,7 +133,31 @@ say nothing about either.
 
 ---
 
-## 5. Pointing it at a different workspace
+## 5. Two modes, and which suite belongs to which
+
+The sandbox and "real Meta" are mutually exclusive, because they test opposite
+things. Neither is a substitute for the other.
+
+| | a plain `npm run dev` | `npm run sandbox` |
+| --- | --- | --- |
+| Graph calls go to | Meta | the stand-in |
+| A made-up token is | refused | accepted |
+| What can be checked | that Aura never claims a publish that did not happen | that publishing works at all |
+| Suites | `verify:meta`, `verify:connections`, `verify:instagram-api`, `verify:one-click` | `sandbox check` (`verify:sandbox` + the WhatsApp loop) |
+
+The four refusal suites ask the app which mode it is in — `graphStub` on
+`GET /api/connectors/preflight` — and stop with an explanation and exit code 2
+rather than reporting failures that are only the wrong mode
+(`scripts/lib/meta-mode.ts`). `verify:one-click` publishes in-process, so it
+checks its own environment instead of the app's.
+
+So: run the whole verify suite against a plain dev server, and
+`npm run sandbox check` against the sandbox. Running everything in one shell
+with `META_GRAPH_BASE_URL` set is what the guard exists to catch.
+
+---
+
+## 6. Pointing it at a different workspace
 
 The check makes its own throwaway workspace and deletes it afterwards. To watch
 it in the UI instead, connect Meta by hand with the stand-in's ids: a

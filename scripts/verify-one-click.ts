@@ -20,6 +20,7 @@
 import type { CompanyRole, Prisma } from '@prisma/client';
 
 import { db } from '@/lib/db';
+import { requireRealMeta } from './lib/meta-mode';
 import { encrypt } from '@/lib/crypto';
 import { META_SCOPES } from '@/lib/meta';
 import { contentHash } from '@/server/approval/approval.service';
@@ -128,6 +129,8 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000ff2f75e70000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082', 'hex');
 
 async function main() {
+  // Publishes in-process, so the override that matters is this process's.
+  await requireRealMeta({ suite: 'verify:one-click' });
   const users: Record<string, { id: string }> = {};
   const mk = async (tag: string) => db.company.create({ data: { name: `zzverify 1click ${tag} ${STAMP}`, slug: `zzverify-1click-${tag}-${STAMP}` } });
   const A = await mk('a');

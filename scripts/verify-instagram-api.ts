@@ -18,6 +18,7 @@
 import bcrypt from 'bcryptjs';
 
 import { db } from '@/lib/db';
+import { requireRealMeta } from './lib/meta-mode';
 import { encrypt } from '@/lib/crypto';
 import { contentHash } from '@/server/approval/approval.service';
 
@@ -145,6 +146,12 @@ async function main() {
   try {
     await ownerWeb.signIn(owner.email);
     await memberWeb.signIn(member.email);
+    // This suite checks what happens when Meta refuses the credential.
+    await requireRealMeta({
+      suite: 'verify:instagram-api',
+      base: BASE,
+      cookie: ownerWeb.cookie(),
+    });
     const upload = `/api/content/graphics/upload?draftId=${draft.id}`;
 
     console.log('Video');
