@@ -8,14 +8,14 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { SignupForm } from '@/components/auth/signup-form';
-import { GoogleButton } from '@/components/auth/google-button';
+import { SocialButtons } from '@/components/auth/social-buttons';
 import { AuthDivider } from '@/components/auth/auth-divider';
+import { enabledSocialProviders } from '@/lib/social-signin';
 
 export const metadata: Metadata = { title: 'Sign up' };
 
 export default function SignupPage() {
-  const googleEnabled =
-    !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_CLIENT_SECRET;
+  const social = enabledSocialProviders();
 
   return (
     <Card className="shadow-lg">
@@ -26,9 +26,13 @@ export default function SignupPage() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {googleEnabled && (
+        {social.length > 0 && (
           <>
-            <GoogleButton label="Sign up with Google" callbackUrl="/onboarding" />
+            <SocialButtons
+              providers={social}
+              callbackUrl="/onboarding"
+              mode="signup"
+            />
             <AuthDivider />
           </>
         )}

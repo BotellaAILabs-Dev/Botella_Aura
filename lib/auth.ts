@@ -9,15 +9,21 @@ import { verifyPassword } from '@/lib/password';
 import { signInSchema } from '@/lib/validations/auth';
 import { recordAudit } from '@/server/services/audit.service';
 import { logger } from '@/lib/logger';
+import { LinkedInSignIn, oauthEmailLinkable } from '@/lib/auth-linkedin';
+import { socialProviderConfigured } from '@/lib/social-signin';
 /**
  * Build the provider list conditionally so the app runs locally with only
- * credentials configured. Google is enabled when its env vars are present.
+ * credentials configured. Google and LinkedIn are each enabled when their
+ * credential pair is present — tested through lib/social-signin.ts, which the
+ * login and signup pages use to decide whether to draw the button, so a button
+ * can never appear for a provider that was not built.
  *
- * >>> SPRINT 2: LinkedIn OAuth plugs in HERE <<<
- * Add a LinkedInProvider({ clientId, clientSecret }) block guarded by
- * LINKEDIN_CLIENT_ID/SECRET. No other auth code needs to change — the Prisma
- * `Account` table already models arbitrary OAuth providers. Use ONLY the
- * official LinkedIn OAuth API. No scraping / unofficial endpoints, ever.
+ * LinkedIn here is sign-in only (`openid profile email`). Reading a company
+ * page or publishing is the separate, deliberately granted connection in
+ * server/services/linkedin.service.ts. Both halves use the one LinkedIn app,
+ * which means one pair of credentials and two redirect URLs to register —
+ * `npm run auth:endpoints` prints them. Official LinkedIn OAuth only; no
+ * scraping, no unofficial endpoints, ever.
  */
 function buildProviders(): Provider[] {
   const providers: Provider[] = [
@@ -55,11 +61,25 @@ function buildProviders(): Provider[] {
     }),
   ];
 
-  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  if (socialProviderConfigured('google')) {
     providers.push(
       GoogleProvider({
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        clientId: process.env.GOOGLE_CLIENT_ID!,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+        allowDangerousEmailAccountLinking: true,
+      }),
+    );
+  }
+
+  if (socialProviderConfigured('linkedin')) {
+    providers.push(
+      LinkedInSignIn({
+        clientId: process.env.LINKEDIN_CLIENT_ID!,
+        clientSecret: process.env.LINKEDIN_CLIENT_SECRET!,
+        // Finds the workspace someone already has under this address instead
+        // of creating a second, empty one. Safe only because the signIn
+        // callback below refuses an address the provider says it never
+        // verified — see oauthEmailLinkable().
         allowDangerousEmailAccountLinking: true,
       }),
     );
@@ -78,6 +98,20 @@ export const authOptions: NextAuthOptions = {
   },
   providers: buildProviders(),
   callbacks: {
+    /**
+     * The gate on email-based account linking. Both OAuth providers are
+     * configured to link by address, which is what makes "log in with Google"
+     * land in the workspace you signed up for with a password; the cost is that
+     * an address the provider never confirmed would be a way in. Refuse those.
+     */
+    async signIn({ account, profile }) {
+      if (account?.type !== 'oauth') return true;
+      if (oauthEmailLinkable(profile)) return true;
+      logger.warn('Rejected OAuth sign-in with an unverified email', {
+        provider: account.provider,
+      });
+      return '/login?error=EmailNotVerified';
+    },
     async jwt({ token, user }) {
       // On sign-in, `user` is present — copy id/role onto the token.
       if (user) {

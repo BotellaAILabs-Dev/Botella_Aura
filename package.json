@@ -85,6 +85,7 @@
     "demo:whatsapp": "tsx scripts/demo-whatsapp.ts",
     "whatsapp:local": "node scripts/whatsapp-local.mjs",
     "env:check": "tsx scripts/env-check.ts",
+  "auth:endpoints": "tsx scripts/auth-endpoints.ts",
     "verify:sprint9:all": "tsx scripts/verify-sprint9-all.ts",
     "load:meta-stub": "tsx scripts/load/meta-stub.ts",
     "load:whatsapp": "tsx scripts/load/whatsapp-load.ts",

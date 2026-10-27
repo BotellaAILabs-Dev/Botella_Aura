@@ -35,6 +35,11 @@ export const GROUPS: Group[] = [
     optional: ['WHATSAPP_GRAPH_API_VERSION', 'WHATSAPP_DISPLAY_NUMBER', 'WHATSAPP_WORKER_CONCURRENCY', 'WHATSAPP_QUICK_RETRY_MS', 'WHATSAPP_RETENTION_DAYS'],
   },
   { key: 'meta', label: 'Facebook & Instagram (Meta login)', required: ['META_CLIENT_ID', 'META_CLIENT_SECRET'], optional: ['META_GRAPH_VERSION', 'META_OAUTH_PKCE', 'META_REQUEST_INSIGHTS', 'META_LOGIN_CONFIG_ID'] },
+  {
+    key: 'google',
+    label: 'Google (sign-in + Analytics/Search Console)',
+    required: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'],
+  },
   { key: 'linkedin', label: 'LinkedIn', required: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'], optional: ['LINKEDIN_ORG_URN', 'LINKEDIN_OAUTH_PKCE', 'LINKEDIN_API_VERSION'] },
   { key: 'video', label: 'File storage (Instagram video)', required: ['ASSET_S3_ENDPOINT', 'ASSET_S3_BUCKET', 'ASSET_S3_ACCESS_KEY_ID', 'ASSET_S3_SECRET_ACCESS_KEY'], optional: ['ASSET_S3_REGION', 'ASSET_S3_PUBLIC_BASE_URL'] },
 ];
