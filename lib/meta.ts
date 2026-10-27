@@ -15,10 +15,24 @@ import crypto from 'node:crypto';
  * a Page and so are never offered.
  */
 
+import { graphBaseFrom } from '@/lib/graph-base';
+
 /** Graph API version — one place. Meta retires each version about two years after release. */
 export const META_GRAPH_VERSION = process.env.META_GRAPH_VERSION?.trim() || 'v23.0';
-export const GRAPH_BASE = 'https://graph.facebook.com';
-export const graphUrl = (path: string) => `${GRAPH_BASE}/${META_GRAPH_VERSION}/${path.replace(/^\//, '')}`;
+
+/**
+ * Read per call rather than captured once, so a process that sets
+ * META_GRAPH_BASE_URL before importing this module is not required to — and a
+ * test can point it at a stand-in and back without re-importing.
+ *
+ * Loopback only (lib/graph-base.ts): every Graph request carries an access
+ * token, and a mistyped host must never receive it.
+ */
+export const graphBase = () => graphBaseFrom(process.env.META_GRAPH_BASE_URL);
+
+/** The single builder for every Graph URL — the one place a sandbox redirects. */
+export const graphUrl = (path: string) =>
+  `${graphBase()}/${META_GRAPH_VERSION}/${path.replace(/^\//, '')}`;
 
 /**
  * The permissions requested — the minimum for what Aura does, each one

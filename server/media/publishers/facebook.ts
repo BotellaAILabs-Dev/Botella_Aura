@@ -2,7 +2,7 @@ import { httpRequest } from '@/lib/http';
 import { logger } from '@/lib/logger';
 import { isCredentialRejection } from '@/lib/connection-errors';
 import { resolveCredential } from '@/server/connectors/connection.service';
-import { META_GRAPH_VERSION } from '@/lib/meta';
+import { graphUrl } from '@/lib/meta';
 
 /**
  * Facebook Page publishing, via the official Graph API.
@@ -32,9 +32,6 @@ import { META_GRAPH_VERSION } from '@/lib/meta';
  * That costs one extra request per publish and means a rotated page token
  * repairs itself, instead of failing until someone reconnects.
  */
-// One Graph API version for every Meta call (lib/meta.ts).
-const GRAPH_VERSION = META_GRAPH_VERSION;
-
 export class FacebookPublishError extends Error {
   readonly status = 502;
   /** The provider refused the stored credential (Meta 190 / HTTP 401): reconnect. */
@@ -83,9 +80,9 @@ export async function getFacebookContext(
   let pages: AccountsPage[];
   try {
     const res = await httpRequest(
-      `https://graph.facebook.com/${GRAPH_VERSION}/me/accounts?fields=id,name,access_token&limit=100&access_token=${encodeURIComponent(
+      graphUrl(`me/accounts?fields=id,name,access_token&limit=100&access_token=${encodeURIComponent(
         credential.accessToken,
-      )}`,
+      )}`),
       { method: 'GET', timeoutMs: 20_000, retries: 1 },
     );
     if (!res.ok) {
@@ -154,7 +151,7 @@ export async function publishFacebookPostWithId(args: {
   });
 
   const res = await httpRequest(
-    `https://graph.facebook.com/${GRAPH_VERSION}/${context.pageId}/${endpoint}`,
+    graphUrl(`${context.pageId}/${endpoint}`),
     {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -192,9 +189,9 @@ async function fetchPermalink(
 ): Promise<string | null> {
   try {
     const res = await httpRequest(
-      `https://graph.facebook.com/${GRAPH_VERSION}/${postId}?fields=permalink_url&access_token=${encodeURIComponent(
+      graphUrl(`${postId}?fields=permalink_url&access_token=${encodeURIComponent(
         context.pageAccessToken,
-      )}`,
+      )}`),
       { method: 'GET', timeoutMs: 15_000, retries: 1 },
     );
     if (!res.ok) return null;

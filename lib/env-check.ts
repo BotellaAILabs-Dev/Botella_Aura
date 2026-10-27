@@ -87,8 +87,19 @@ export function checkEnv(env: Env, opts: { production?: boolean } = {}): EnvRepo
     }
   }
 
-  if (isSet(env, 'WHATSAPP_GRAPH_BASE_URL')) {
-    (opts.production ? errors : warnings).push('WHATSAPP_GRAPH_BASE_URL is set — WhatsApp goes to the load-test stub, not Meta.');
+  /**
+   * The sandbox overrides. Harmless locally and said out loud; fatal in
+   * production, where it would mean nothing is actually being published and
+   * the dashboard would still report success.
+   */
+  for (const [key, what] of [
+    ['WHATSAPP_GRAPH_BASE_URL', 'WhatsApp'],
+    ['META_GRAPH_BASE_URL', 'Facebook and Instagram'],
+  ] as const) {
+    if (!isSet(env, key)) continue;
+    (opts.production ? errors : warnings).push(
+      `${key} is set — ${what} go to the local stand-in, not Meta.`,
+    );
   }
   if (isSet(env, 'LINKEDIN_API_VERSION')) {
     const v = env.LINKEDIN_API_VERSION!.trim();

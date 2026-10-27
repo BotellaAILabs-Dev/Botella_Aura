@@ -40,12 +40,30 @@ describe('environment check', () => {
     expect(checkEnv({ ...core, NEXT_PUBLIC_APP_NAME: 'Aura' }).errors).toEqual([]);
   });
 
-  it('production rules: no localhost URLs, no load-test stub, https', () => {
+  it('production rules: no localhost URLs, no Graph stand-in, https', () => {
     const local = checkEnv({ ...core, NEXTAUTH_URL: 'http://localhost:3000', WHATSAPP_GRAPH_BASE_URL: 'http://localhost:4010' }, { production: true });
     expect(local.errors.join(' ')).toMatch(/NEXTAUTH_URL points at localhost/);
-    expect(local.errors.join(' ')).toMatch(/load-test stub/);
-    // Locally the same settings are fine (the stub is only a warning).
+    // Named by variable rather than by the wording of the sentence, which has
+    // already changed once (the stub is the sandbox now, not only a load test).
+    expect(local.errors.join(' ')).toMatch(/WHATSAPP_GRAPH_BASE_URL is set/);
+    // Locally the same settings are fine (the stand-in is only a warning).
     expect(checkEnv({ ...core, NEXTAUTH_URL: 'http://localhost:3000' }).errors).toEqual([]);
+  });
+
+  /**
+   * Facebook and Instagram have the same override now, and in production it
+   * means posts are going nowhere while the dashboard reports success.
+   */
+  it('production rules: the Meta Graph stand-in is an error too', () => {
+    const prod = checkEnv(
+      { ...core, NEXTAUTH_URL: 'https://aura.example.com', META_GRAPH_BASE_URL: 'http://localhost:4010' },
+      { production: true },
+    );
+    expect(prod.errors.join(' ')).toMatch(/META_GRAPH_BASE_URL is set/);
+    expect(checkEnv({ ...core, META_GRAPH_BASE_URL: 'http://localhost:4010' }).errors).toEqual([]);
+    expect(checkEnv({ ...core, META_GRAPH_BASE_URL: 'http://localhost:4010' }).warnings.join(' ')).toMatch(
+      /META_GRAPH_BASE_URL is set/,
+    );
   });
 
   it('a malformed ENCRYPTION_KEY is caught', () => {

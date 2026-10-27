@@ -1,6 +1,7 @@
 import type { WhatsAppConfig } from '@/lib/whatsapp';
 import { clampText } from '@/lib/whatsapp';
 import { logger } from '@/lib/logger';
+import { graphBaseFrom } from '@/lib/graph-base';
 
 /**
  * The official WhatsApp Cloud API (graph.facebook.com) — sending a text reply
@@ -14,26 +15,15 @@ import { logger } from '@/lib/logger';
 const TIMEOUT_MS = 15_000;
 
 /**
- * The Graph API host. Only load tests change it (WHATSAPP_GRAPH_BASE_URL,
- * pointing at scripts/load/meta-stub.ts) — sending thousands of test replies
- * to Meta would be refused and could get the sender rate-limited. Unset in
- * every real deployment.
+ * The Graph API host. Changed only by the local sandbox and the load tests
+ * (WHATSAPP_GRAPH_BASE_URL, pointing at scripts/load/meta-stub.ts) — sending
+ * thousands of test replies to Meta would be refused and could get the sender
+ * rate-limited. Unset in every real deployment.
+ *
+ * The loopback rule is shared with the Facebook and Instagram path, so all
+ * three products accept a stand-in on exactly the same terms.
  */
-const META_GRAPH = 'https://graph.facebook.com';
-
-function graphBase(): string {
-  const override = process.env.WHATSAPP_GRAPH_BASE_URL?.trim();
-  if (!override) return META_GRAPH;
-  // Loopback only: the access token goes with every request, so a mistaken
-  // value must never send it to another host.
-  try {
-    const host = new URL(override).hostname;
-    if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') return override.replace(/\/$/, '');
-  } catch {
-    /* not a URL */
-  }
-  return META_GRAPH;
-}
+const graphBase = () => graphBaseFrom(process.env.WHATSAPP_GRAPH_BASE_URL);
 
 export class WhatsAppApiError extends Error {
   constructor(

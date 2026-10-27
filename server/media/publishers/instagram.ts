@@ -2,7 +2,7 @@ import { httpRequest } from '@/lib/http';
 import { logger } from '@/lib/logger';
 import { isCredentialRejection } from '@/lib/connection-errors';
 import { resolveCredential } from '@/server/connectors/connection.service';
-import { META_GRAPH_VERSION } from '@/lib/meta';
+import { graphUrl } from '@/lib/meta';
 
 /**
  * Instagram publishing, via the official Instagram Graph API.
@@ -38,8 +38,6 @@ import { META_GRAPH_VERSION } from '@/lib/meta';
  * with the container ids; `continueInstagramPost` (the publish sweep) picks
  * it up later. A container not published within 24 hours expires.
  */
-// One Graph API version for every Meta call (lib/meta.ts).
-const GRAPH_VERSION = META_GRAPH_VERSION;
 const CONTAINER_TIMEOUT_MS = 60_000;
 const CONTAINER_POLL_MS = 2000;
 
@@ -122,7 +120,7 @@ async function createMediaContainer(
   params: Record<string, string>,
 ): Promise<string> {
   const res = await httpRequest(
-    `https://graph.facebook.com/${GRAPH_VERSION}/${context.igUserId}/media`,
+    graphUrl(`${context.igUserId}/media`),
     {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -168,9 +166,9 @@ async function waitForContainer(
 
   while (Date.now() < deadline) {
     const res = await httpRequest(
-      `https://graph.facebook.com/${GRAPH_VERSION}/${containerId}?fields=status_code,status&access_token=${encodeURIComponent(
+      graphUrl(`${containerId}?fields=status_code,status&access_token=${encodeURIComponent(
         context.accessToken,
-      )}`,
+      )}`),
       { timeoutMs: 10_000, retries: 1 },
     );
     const body = (await res.json().catch(() => ({}))) as {
@@ -201,7 +199,7 @@ async function publishContainer(
   containerId: string,
 ): Promise<string> {
   const res = await httpRequest(
-    `https://graph.facebook.com/${GRAPH_VERSION}/${context.igUserId}/media_publish`,
+    graphUrl(`${context.igUserId}/media_publish`),
     {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -235,9 +233,9 @@ async function fetchPermalink(
 ): Promise<string | null> {
   try {
     const res = await httpRequest(
-      `https://graph.facebook.com/${GRAPH_VERSION}/${mediaId}?fields=permalink&access_token=${encodeURIComponent(
+      graphUrl(`${mediaId}?fields=permalink&access_token=${encodeURIComponent(
         context.accessToken,
-      )}`,
+      )}`),
       { timeoutMs: 10_000, retries: 1 },
     );
     if (!res.ok) return null;
@@ -271,9 +269,9 @@ async function containerStatus(
   id: string,
 ): Promise<{ code: ContainerStatus; detail: string | null }> {
   const res = await httpRequest(
-    `https://graph.facebook.com/${GRAPH_VERSION}/${id}?fields=status_code,status&access_token=${encodeURIComponent(
+    graphUrl(`${id}?fields=status_code,status&access_token=${encodeURIComponent(
       context.accessToken,
-    )}`,
+    )}`),
     { timeoutMs: 10_000, retries: 1 },
   );
   const body = (await res.json().catch(() => ({}))) as {
