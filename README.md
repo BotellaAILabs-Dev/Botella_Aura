@@ -262,6 +262,10 @@ signing secret, and wire the cron endpoints to your scheduler.
 | `pnpm db:migrate`   | Apply migrations (dev)                              |
 | `pnpm db:seed`      | Seed demo user + company                            |
 | `pnpm db:studio`    | Open Prisma Studio                                  |
+| `pnpm sandbox`      | WhatsApp, Facebook and Instagram against a local stand-in for Meta ([docs/SANDBOX.md](docs/SANDBOX.md)) |
+| `pnpm sandbox check`| Prove all three publish end to end, with no Meta account |
+| `pnpm auth:endpoints`| Every OAuth redirect URI to register, for any port or domain ([docs/AUTH-SETUP.md](docs/AUTH-SETUP.md)) |
+| `pnpm env:check`    | Which integrations are configured, by variable name only |
 
 ---
 
