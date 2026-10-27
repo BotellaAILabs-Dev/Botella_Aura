@@ -25,10 +25,17 @@ import { recordOpportunity } from '@/server/opportunities/opportunity.service';
 import { createRecommendationFromOpportunity } from '@/server/recommendations/recommendation.service';
 import { collectSignals } from '@/server/signals/signal.service';
 
-const BASE = (process.env.AURA_URL ?? 'http://localhost:3000').replace(
-  /\/$/,
-  '',
-);
+/**
+ * Resolved exactly as every other verify script does. This one read AURA_URL
+ * alone and defaulted to port 3000, so `VERIFY_BASE_URL=... pnpm verify:access`
+ * silently tested whatever was on 3000 instead — or nothing, and reported 25
+ * access-control failures that were only a wrong port.
+ */
+const BASE = (
+  process.env.VERIFY_BASE_URL ??
+  process.env.AURA_URL ??
+  'http://localhost:3001'
+).replace(/\/$/, '');
 const PASSWORD = `Zz-verify-${Date.now()}!`;
 
 let failures = 0;
