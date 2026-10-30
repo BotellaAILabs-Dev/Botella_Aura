@@ -252,6 +252,14 @@ enum AuditAction {
   EXECUTION_STATE_CHANGED
   EXECUTION_ROUTING_FAILED
   WORKSPACE_TIMEZONE_CHANGED
+  // --- Website / CMS publishing (server/websites) ---
+  WEBSITE_CONNECTED
+  WEBSITE_DISCONNECTED
+  WEBSITE_REAUTH_REQUIRED
+  WEBSITE_PUBLISH_REQUESTED
+  WEBSITE_PUBLISHED
+  WEBSITE_PUBLISH_FAILED
+  WEBSITE_SCHEDULE_UPDATED
 }
 
 /// Which social network a post is aimed at.
@@ -634,6 +642,9 @@ model Company {
   contentPublications   ContentPublication[]
   executionHandoffs ExecutionHandoff[]
   executions        Execution[]
+  websiteConnections    WebsiteConnection[]
+  websitePublications   WebsitePublication[]
+  websiteSchedules      WebsitePublishSchedule[]
 
   @@index([slug])
 }
@@ -806,6 +817,8 @@ model ContentDraft {
   publications         ContentPublication[]
   executionHandoffs ExecutionHandoff[]
   executions           Execution[]
+  /// Where this blog has been (or will be) published — one row per website.
+  websitePublications  WebsitePublication[]
 
   @@index([companyId, status])
   @@index([companyId, scheduledFor])
@@ -2761,4 +2774,141 @@ model ExecutionHandoff {
   @@unique([contentDraftId, platform])
   @@index([companyId, status])
   @@index([status, scheduledFor])
+}
+// ---------------------------------------------------------------------------
+// Website / CMS publishing (server/websites, docs/WEBSITE-PUBLISHING.md)
+// ---------------------------------------------------------------------------
+
+enum WebsiteConnectionStatus {
+  CONNECTED
+  /// The site answered with an error the last time Aura used it.
+  ERROR
+  /// The credential was refused (revoked, expired, password changed):
+  /// a person has to reconnect before anything else is published.
+  REAUTH_REQUIRED
+  /// Disconnected by a person. Credentials are wiped; history is kept.
+  DISCONNECTED
+}
+
+/// A website a workspace publishes blogs to. Several per workspace, and
+/// several per platform (two WordPress sites for two brands).
+model WebsiteConnection {
+  id             String                  @id @default(cuid())
+  companyId      String
+  /// Registry id from lib/website-platforms.ts ("wordpress", "shopify", "ghost").
+  /// A string, not an enum, so a new platform needs no migration.
+  platform       String
+  /// The person's name for it ("Brand A blog").
+  name           String
+  /// Normalised site origin (https://example.com, shop.myshopify.com).
+  siteUrl        String
+  status         WebsiteConnectionStatus @default(CONNECTED)
+  /// How it authenticated: "app_password", "oauth", "access_token", "admin_api_key".
+  authKind       String
+  /// AES-256-GCM encrypted JSON of the secrets (lib/crypto.ts). Null once
+  /// disconnected. Never returned to the browser.
+  credentialsEnc String?                 @db.Text
+  /// Non-secret display label (the WordPress user, the shop name).
+  accountLabel   String?
+  /// Non-secret publishing defaults (default blog, author, categories, mode).
+  settings       Json                    @default("{}")
+  /// What the site supports, found at connect time (SEO plugin, blogs…).
+  capabilities   Json                    @default("{}")
+  lastError      String?                 @db.Text
+  lastCheckedAt  DateTime?
+  connectedById  String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  company      Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  publications WebsitePublication[]
+  schedule     WebsitePublishSchedule?
+
+  @@unique([companyId, platform, siteUrl])
+  @@index([companyId])
+}
+
+enum WebsitePublicationStatus {
+  /// Waiting for its time (scheduledFor).
+  SCHEDULED
+  /// An attempt is running (startedAt is its lease).
+  PUBLISHING
+  /// Live on the site.
+  PUBLISHED
+  /// Created on the site as an unpublished draft, as asked.
+  DRAFTED
+  FAILED
+  /// A scheduled publish a person called off.
+  CANCELLED
+}
+
+/// One blog on one website. Retries reuse this row: once the site has given
+/// the post an id (externalId), a retry updates that post rather than
+/// creating a second one.
+model WebsitePublication {
+  id                  String                   @id @default(cuid())
+  companyId           String
+  contentDraftId      String
+  websiteConnectionId String
+  status              WebsitePublicationStatus
+  /// "publish" (live) or "draft" (saved unpublished on the site).
+  mode                String                   @default("publish")
+  scheduledFor        DateTime?
+  /// Set by the recurring schedule rather than a person's click.
+  viaSchedule         Boolean                  @default(false)
+  /// The approved content fingerprint (server/approval) this was sent with.
+  contentHash         String?
+  /// What was sent: SEO fields, slug, categories, tags, author.
+  options             Json                     @default("{}")
+  /// Which SEO fields the site actually took, and which it cannot hold.
+  seoReport           Json                     @default("{}")
+  /// Ids the site gave uploads/terms on earlier attempts, reused on retry.
+  remoteState         Json                     @default("{}")
+  attempts            Int                      @default(0)
+  startedAt           DateTime?
+  publishedAt         DateTime?
+  externalId          String?
+  externalUrl         String?
+  /// auth | validation | rate_limit | network | not_found | unknown
+  errorCode           String?
+  errorMessage        String?                  @db.Text
+  /// Recent attempts: [{ at, status, message }], newest last, capped.
+  log                 Json                     @default("[]")
+  requestedById       String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  company           Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contentDraft      ContentDraft      @relation(fields: [contentDraftId], references: [id], onDelete: Cascade)
+  websiteConnection WebsiteConnection @relation(fields: [websiteConnectionId], references: [id], onDelete: Cascade)
+
+  @@unique([contentDraftId, websiteConnectionId])
+  @@index([companyId, updatedAt])
+  @@index([status, scheduledFor])
+}
+
+/// "Auto-publish approved blogs": a recurring slot per website. Only drafts a
+/// person approved are ever picked (server/websites/publish.service.ts).
+model WebsitePublishSchedule {
+  id                  String    @id @default(cuid())
+  companyId           String
+  websiteConnectionId String    @unique
+  enabled             Boolean   @default(false)
+  /// ISO weekdays, 1 = Monday … 7 = Sunday.
+  weekdays            Int[]     @default([])
+  /// Wall-clock "HH:MM" in the workspace timezone.
+  timeOfDay           String    @default("09:00")
+  /// "publish" or "draft".
+  mode                String    @default("publish")
+  /// How many approved blogs go out per slot.
+  postsPerSlot        Int       @default(1)
+  nextRunAt           DateTime?
+  lastRunAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  company           Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  websiteConnection WebsiteConnection @relation(fields: [websiteConnectionId], references: [id], onDelete: Cascade)
+
+  @@index([enabled, nextRunAt])
 }

@@ -7,6 +7,7 @@ import { resolveActiveCompany } from '@/lib/active-company';
 import { getMembership } from '@/server/services/company.service';
 import { can } from '@/lib/rbac';
 import { getLinkedInStatus } from '@/server/services/linkedin.service';
+import { listWebsites } from '@/server/websites/connection.service';
 import {
   listConnections,
   resolveCredential,
@@ -82,10 +83,11 @@ export default async function ConnectorsPage({
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const [membership, linkedIn, connections] = await Promise.all([
+  const [membership, linkedIn, connections, websites] = await Promise.all([
     getMembership(user.id, active.id),
     getLinkedInStatus(active.id),
     listConnections(active.id),
+    listWebsites(active.id),
   ]);
   const canManage = membership ? can(membership.role, 'company:update') : false;
   const byId = new Map(connections.map((c) => [c.connectorId, c]));
@@ -107,6 +109,30 @@ export default async function ConnectorsPage({
     const provider = getProvider(c.id);
     const readiness = providerReadiness(c.id);
     const connection = byId.get(c.id) ?? null;
+
+    // Blog publishing to websites has its own page (several sites per platform).
+    if (c.id === 'wordpress' || c.id === 'shopify') {
+      const sites = websites.filter((w) => w.platform === c.id);
+      const live = sites.find((w) => w.state === 'connected') ?? sites[0];
+      return {
+        id: c.id,
+        name: c.name,
+        category: c.category,
+        description: c.description,
+        color: c.color,
+        connectHref: c.connectHref,
+        implemented: true,
+        connectable: true,
+        connection: live
+          ? {
+              status: live.state === 'connected' ? ('CONNECTED' as const) : live.state === 'reauth' ? ('EXPIRED' as const) : ('ERROR' as const),
+              accountLabel: sites.length > 1 ? `${sites.length} sites` : live.name,
+              errorMessage: live.state === 'connected' ? null : live.lastError,
+              lastSyncedAt: live.lastCheckedAt,
+            }
+          : null,
+      };
+    }
 
     // LinkedIn keeps its dedicated OAuth flow in Settings → Connections.
     if (c.id === 'linkedin') {

@@ -158,9 +158,11 @@ export const CONNECTORS: Connector[] = [
     id: 'shopify',
     name: 'Shopify',
     category: 'Commerce',
-    description: 'Products and sales data to ground product content.',
-    status: 'coming_soon',
+    description: 'Publish approved blogs as articles on your Shopify store.',
+    // Blog publishing lives in Settings → Website publishing (server/websites).
+    status: 'available',
     color: '#95BF47',
+    connectHref: '/dashboard/settings/websites',
   },
   {
     id: 'google-cse',
@@ -192,9 +194,10 @@ export const CONNECTORS: Connector[] = [
     id: 'wordpress',
     name: 'WordPress',
     category: 'Social & Publishing',
-    description: 'Publish approved blog drafts to your site.',
-    status: 'coming_soon',
+    description: 'Publish approved blogs to your site, with images and SEO fields.',
+    status: 'available',
     color: '#21759B',
+    connectHref: '/dashboard/settings/websites',
   },
   // --- Design ---
   {

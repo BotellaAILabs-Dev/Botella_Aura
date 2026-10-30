@@ -895,6 +895,7 @@ export const RECOMMENDED_FIELDS = CONTEXT_FIELDS.filter(
  *
  * Newsletter has three, because any one of them is somewhere a newsletter can
  * be sent from; LinkedIn also counts the dedicated LinkedInConnection table.
+ * Blog counts any connected website (WebsiteConnection, by platform id).
  */
 export const CHANNEL_CONNECTORS: Record<
   (typeof CONTENT_CHANNELS)[number],
@@ -904,7 +905,7 @@ export const CHANNEL_CONNECTORS: Record<
   X: ['x'],
   Instagram: ['meta'],
   YouTube: ['youtube'],
-  Blog: ['wordpress'],
+  Blog: ['wordpress', 'shopify', 'ghost'],
   Newsletter: ['mailchimp', 'klaviyo', 'hubspot'],
 };
 

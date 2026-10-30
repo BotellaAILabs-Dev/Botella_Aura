@@ -27,6 +27,7 @@ const { tx, db } = vi.hoisted(() => {
     marketingPlan: { findFirst: vi.fn().mockResolvedValue(null) },
     connection: { findMany: vi.fn().mockResolvedValue([]) },
     linkedInConnection: { findFirst: vi.fn().mockResolvedValue(null) },
+    websiteConnection: { findMany: vi.fn().mockResolvedValue([]) },
     auditLog: { count: vi.fn().mockResolvedValue(0) },
     campaign: { findMany: vi.fn().mockResolvedValue([]) },
     contentDraft: { findMany: vi.fn().mockResolvedValue([]) },

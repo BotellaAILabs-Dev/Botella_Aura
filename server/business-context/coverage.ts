@@ -623,6 +623,11 @@ export async function auditContextCoverage(
   ]);
   if (!company || !ctx) return null;
 
+  // Connected websites publish the Blog channel (server/websites).
+  const websites = await db.websiteConnection.findMany({
+    where: { companyId, status: 'CONNECTED' },
+    select: { platform: true },
+  });
   const checks = checkCoverage(
     {
       company,
@@ -632,7 +637,7 @@ export async function auditContextCoverage(
       trend,
       latestPlanInputs: plan?.inputs ?? null,
       activeCampaigns: campaigns,
-      connectorIds: connections.map((x) => x.connectorId),
+      connectorIds: [...new Set([...connections.map((x) => x.connectorId), ...websites.map((w) => w.platform)])],
       linkedInActive: linkedIn > 0,
       knowledgeChunks: chunks,
       realMemories: memories.filter(

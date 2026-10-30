@@ -2,6 +2,7 @@ import { runScheduledPublishes } from '@/server/content/publish.service';
 import { advanceProcessing } from '@/server/content/processing.service';
 import { runExecutionSweep } from '@/server/execution/execution-actions.service';
 import { collectMetaInsights } from '@/server/connectors/meta-insights.service';
+import { runDueWebsitePublishing } from '@/server/websites/publish.service';
 import { handleRouteError, jsonError, jsonOk } from '@/lib/api';
 import { isCronAuthorized } from '@/lib/cron-auth';
 
@@ -18,6 +19,8 @@ import { isCronAuthorized } from '@/lib/cron-auth';
  *     are retried automatically, after their backoff
  *   - work stops being started after ~45 s, so the function is never stopped
  *     mid-publish; whatever is left goes on the next run
+ *   - blogs scheduled for connected websites, and recurring auto-publish
+ *     slots, go out under the same rules (server/websites/publish.service.ts)
  *
  *   Local: curl -X POST localhost:3000/api/cron/publish -H "authorization: Bearer $CRON_SECRET"
  */
@@ -35,9 +38,11 @@ export async function POST(req: Request) {
     const processing = await advanceProcessing();
     // Rate-limited executions whose backoff is over (lib/execution-state.ts).
     const retries = await runExecutionSweep(new Date(), { deadline });
+    // Blogs to connected websites (scheduled + recurring auto-publish).
+    const websites = await runDueWebsitePublishing(new Date(), { deadline });
     // Organic analytics, only with time to spare (it is never urgent).
     const insights = Date.now() < deadline.getTime() ? await collectMetaInsights().catch(() => null) : null;
-    return jsonOk({ ...result, processing, retries, insights, ms: Date.now() - started });
+    return jsonOk({ ...result, processing, retries, websites, insights, ms: Date.now() - started });
   } catch (error) {
     return handleRouteError(error);
   }
