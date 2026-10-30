@@ -496,6 +496,10 @@ export function buildBusinessContext(
   const offerings = resolver.precedence('identity.offerings', [
     { source: 'workspace_profile', value: business?.offerings },
   ]);
+  const products =
+    resolver.precedence('identity.products', [
+      { source: 'workspace_profile', value: business?.products ?? [] },
+    ]) ?? [];
   const industry = resolver.precedence('identity.industry', [
     { source: 'workspace_profile', value: company.industry },
   ]);
@@ -777,6 +781,7 @@ export function buildBusinessContext(
       industry,
       description,
       offerings,
+      products,
       visual,
     },
     audience: {
@@ -855,6 +860,7 @@ export function fieldPresence(
     'identity.name': Boolean(identity.name),
     'identity.description': Boolean(identity.description),
     'identity.offerings': Boolean(identity.offerings),
+    'identity.products': identity.products.length > 0,
     'identity.industry': Boolean(identity.industry),
     'identity.website': Boolean(identity.website),
     'identity.visual': Boolean(identity.visual),

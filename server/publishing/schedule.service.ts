@@ -1,4 +1,6 @@
+import { db } from '@/lib/db';
 import type { SocialPlatformKey } from '@/lib/platforms';
+import { safeTimeZone, zonedParts, zonedToUtc } from '@/lib/timezone';
 import { getContentPerformance, type ContentPerf } from '@/server/memory/performance.service';
 
 /**
@@ -25,7 +27,7 @@ import { getContentPerformance, type ContentPerf } from '@/server/memory/perform
 export type SlotConfidence = 'learned' | 'default';
 
 export interface RecommendedSlot {
-  /** When to publish, in UTC. */
+  /** When to publish (an instant; chosen in the workspace's timezone). */
   at: Date;
   /** Why this slot, in one sentence the user can check. */
   reason: string;
@@ -49,9 +51,9 @@ const MEANINGFUL_LIFT = 1.2;
 /**
  * Common posting windows, used only until a workspace has its own data.
  *
- * Weekday is 1-7 (Monday-Sunday, ISO). Hours are UTC, which is a real
- * limitation: without a workspace timezone these are only right for European
- * and UK-ish audiences. Stated here rather than papered over.
+ * Weekday is 1-7 (Monday-Sunday, ISO). Hours are wall-clock hours in the
+ * workspace's timezone (Company.timezone), so "Tuesday 09:00" is 09:00 where
+ * the business is, not 09:00 in London.
  */
 const DEFAULT_WINDOWS: Record<string, { weekday: number; hour: number; note: string }> = {
   LINKEDIN: {
@@ -88,10 +90,20 @@ function weekdayName(isoWeekday: number): string {
   return WEEKDAY_NAMES[isoWeekday - 1] ?? 'Tuesday';
 }
 
-/** ISO weekday (1 = Monday) from a Date, in UTC. */
-function isoWeekday(date: Date): number {
-  const day = date.getUTCDay();
-  return day === 0 ? 7 : day;
+/** ISO weekday (1 = Monday) and hour of an instant, on the clock in `tz`. */
+function localWeekdayHour(date: Date, tz: string): { weekday: number; hour: number } {
+  const p = zonedParts(date, tz);
+  const day = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay();
+  return { weekday: day === 0 ? 7 : day, hour: p.hour };
+}
+
+/** The instant of `hour`:00 on the local calendar day `days` after `from`'s. */
+function localDayAt(from: Date, days: number, hour: number, tz: string): Date {
+  const p = zonedParts(from, tz);
+  const d = new Date(Date.UTC(p.year, p.month - 1, p.day + days));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const local = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(hour)}:00`;
+  return zonedToUtc(local, tz).at;
 }
 
 interface DayStat {
@@ -107,7 +119,7 @@ interface DayStat {
  * Returns null when the sample is too thin to support a claim — which is the
  * common case for a new workspace, and the honest answer.
  */
-export function learnTiming(perf: ContentPerf[]): DayStat | null {
+export function learnTiming(perf: ContentPerf[], timeZone = 'UTC'): DayStat | null {
   const published = perf.filter((p) => p.publishedAt);
   if (published.length < MIN_TOTAL_POSTS) return null;
 
@@ -116,13 +128,13 @@ export function learnTiming(perf: ContentPerf[]): DayStat | null {
   for (const post of published) {
     const at = new Date(post.publishedAt!);
     if (Number.isNaN(at.getTime())) continue;
-    const day = isoWeekday(at);
+    const { weekday: day, hour } = localWeekdayHour(at, timeZone);
     if (!byDay.has(day)) {
       byDay.set(day, []);
       hoursByDay.set(day, []);
     }
     byDay.get(day)!.push(post.engagement);
-    hoursByDay.get(day)!.push(at.getUTCHours());
+    hoursByDay.get(day)!.push(hour);
   }
 
   const overall =
@@ -149,15 +161,14 @@ export function learnTiming(perf: ContentPerf[]): DayStat | null {
   return best;
 }
 
-/** The next occurrence of a weekday/hour at or after `after`. */
-function nextOccurrence(after: Date, weekday: number, hour: number): Date {
-  const at = new Date(after);
-  at.setUTCHours(hour, 0, 0, 0);
-  const daysAhead = (weekday - isoWeekday(at) + 7) % 7;
-  at.setUTCDate(at.getUTCDate() + daysAhead);
-  // Same weekday but the hour has already passed today — go to next week.
-  if (at.getTime() <= after.getTime()) at.setUTCDate(at.getUTCDate() + 7);
-  return at;
+/** The next weekday/hour on the workspace's clock, strictly after `after`. */
+export function nextOccurrence(after: Date, weekday: number, hour: number, timeZone = 'UTC'): Date {
+  // Same weekday but the hour has already passed today — that is next week.
+  for (let days = 0; days <= 7; days += 1) {
+    const at = localDayAt(after, days, hour, timeZone);
+    if (at.getTime() > after.getTime() && localWeekdayHour(at, timeZone).weekday === weekday) return at;
+  }
+  return localDayAt(after, 7, hour, timeZone);
 }
 
 /**
@@ -175,10 +186,15 @@ export async function recommendSlot(args: {
   after?: Date;
   /** Slots already assigned in this batch, so posts spread out. */
   taken?: Date[];
+  /** The workspace's timezone; read from the company when not given. */
+  timeZone?: string;
 }): Promise<RecommendedSlot> {
   const after = args.after ?? new Date();
-  const perf = await getContentPerformance(args.companyId);
-  const learned = learnTiming(perf);
+  const [perf, timeZone] = await Promise.all([
+    getContentPerformance(args.companyId),
+    args.timeZone ?? workspaceTimeZone(args.companyId),
+  ]);
+  const learned = learnTiming(perf, timeZone);
 
   let weekday: number;
   let hour: number;
@@ -200,14 +216,15 @@ export async function recommendSlot(args: {
     confidence = 'default';
   }
 
-  let at = nextOccurrence(after, weekday, hour);
+  let at = nextOccurrence(after, weekday, hour, timeZone);
 
   // Spread a batch out. Each collision moves on by a day rather than an hour,
   // because two posts on the same day compete with each other.
   const taken = (args.taken ?? []).map((d) => d.getTime());
   let guard = 0;
   while (taken.some((t) => Math.abs(t - at.getTime()) < 20 * 3_600_000) && guard < 14) {
-    at = new Date(at.getTime() + 86_400_000);
+    // A local day on, so the hour holds across a clock change.
+    at = localDayAt(at, 1, hour, timeZone);
     guard += 1;
   }
 
@@ -227,6 +244,7 @@ export async function recommendSlots(args: {
   after?: Date;
 }): Promise<RecommendedSlot[]> {
   const slots: RecommendedSlot[] = [];
+  const timeZone = await workspaceTimeZone(args.companyId);
   for (let i = 0; i < args.count; i += 1) {
     slots.push(
       await recommendSlot({
@@ -234,8 +252,15 @@ export async function recommendSlots(args: {
         ...(args.platform ? { platform: args.platform } : {}),
         ...(args.after ? { after: args.after } : {}),
         taken: slots.map((s) => s.at),
+        timeZone,
       }),
     );
   }
   return slots;
+}
+
+/** The workspace's timezone, or UTC when it has none (or an invalid one). */
+async function workspaceTimeZone(companyId: string): Promise<string> {
+  const c = await db.company.findUnique({ where: { id: companyId }, select: { timezone: true } });
+  return safeTimeZone(c?.timezone);
 }

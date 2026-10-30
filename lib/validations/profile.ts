@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { readProducts } from '@/lib/products';
+
 import { CONTENT_CHANNELS } from '@/lib/validations/planner';
 import { CONTENT_TYPES, type ContentTypeKey } from '@/lib/validations/content';
 import { detailProblem, type BusinessFacts, type DetailKey } from '@/lib/post-details';
@@ -92,6 +94,12 @@ export const businessProfileSchema = z.object({
     .optional()
     .or(z.literal(''))
     .transform((v) => v || undefined),
+  /**
+   * The product catalogue (lib/products.ts). Each entry is still prose in the
+   * business's own words, one product at a time. Read leniently: a damaged
+   * entry is dropped rather than failing the description next to it.
+   */
+  products: z.unknown().transform(readProducts).optional(),
 });
 
 export type BusinessProfile = z.infer<typeof businessProfileSchema>;

@@ -1,5 +1,6 @@
 import type { BusinessContextSnapshot } from '@/lib/business-context-snapshot';
 import type { ContentBrief } from '@/lib/content-brief';
+import { pickProducts, productLine } from '@/lib/products';
 import {
   relevantMemory,
   type HandoffInput,
@@ -445,16 +446,18 @@ export function assembleGenerationContext(
   };
 
   // What the piece is about — for every relevance decision below.
-  const about = topicWords(
-    [
-      input.brief,
-      cb?.keyMessage?.value,
-      cb?.recommendation.title,
-      cb?.opportunity?.title,
-    ]
-      .filter(Boolean)
-      .join(' '),
-  );
+  const aboutText = [
+    input.brief,
+    cb?.keyMessage?.value,
+    cb?.recommendation.title,
+    cb?.opportunity?.title,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const about = topicWords(aboutText);
+  // The products this piece is about; when it names none, the lead products,
+  // so a general post is still about something the business really sells.
+  const picked = pickProducts(s.products?.catalog ?? [], aboutText, 3);
 
   const raw: { key: ContextSectionKey; text: string; from: string }[] = [];
   const add = (key: ContextSectionKey, text: string, from: string) => {
@@ -472,6 +475,11 @@ export function assembleGenerationContext(
         `${s.business.name}${s.business.industry ? ` (${s.business.industry})` : ''}`,
       s.business?.description && `What it does: ${s.business.description}`,
       s.products?.offerings && `What it sells: ${s.products.offerings}`,
+      picked.products.length > 0 &&
+        (picked.matched
+          ? 'Products this piece is about:'
+          : 'Its main products (the brief names none — feature one only if it fits):'),
+      ...picked.products.map((p) => `- ${clean(productLine(p), true)}`),
       ...(s.products?.highlights ?? [])
         .filter((h) => overlap(about, `${h.title ?? ''} ${h.excerpt}`) > 0)
         .slice(0, 2)

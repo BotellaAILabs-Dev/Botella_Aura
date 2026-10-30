@@ -1,3 +1,4 @@
+import { offeringsSummary } from '@/lib/products';
 import crypto from 'node:crypto';
 
 import type { ContentDraft, ImageProvider } from '@prisma/client';
@@ -96,7 +97,7 @@ export async function loadBrand(companyId: string): Promise<BrandInfo> {
     name: ctx?.identity.name ?? company.name,
     industry: ctx?.identity.industry ?? company.industry ?? null,
     description: ctx?.identity.description ?? null,
-    offerings: ctx?.identity.offerings ?? null,
+    offerings: (ctx ? offeringsSummary(ctx.identity) : null),
     website: ctx?.identity.website ?? company.website ?? null,
     colors: {
       primary: v?.primaryColor ?? null,

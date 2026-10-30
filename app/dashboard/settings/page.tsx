@@ -16,6 +16,7 @@ import {
   Bot,
   Building2,
   ShieldCheck,
+  Globe,
 } from 'lucide-react';
 
 import { requireUser } from '@/lib/auth-helpers';
@@ -232,6 +233,24 @@ export default async function SettingsPage() {
             </CardHeader>
             <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
               Manage connections <ChevronRight className="h-4 w-4" />
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link href="/dashboard/settings/websites" className="group">
+          <Card className="h-full transition-shadow group-hover:shadow-md">
+            <CardHeader>
+              <div className="mb-1 flex items-center gap-2">
+                <Globe className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">Website publishing</CardTitle>
+              </div>
+              <CardDescription>
+                Connect WordPress, Shopify or Ghost and publish approved blogs
+                straight to your site — now or on a schedule.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-center gap-1 text-sm font-medium text-primary">
+              Connect a website <ChevronRight className="h-4 w-4" />
             </CardContent>
           </Card>
         </Link>

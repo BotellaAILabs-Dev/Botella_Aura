@@ -1,3 +1,4 @@
+import { offeringsSummary } from '@/lib/products';
 import type { ContentDraft, Prisma } from '@prisma/client';
 
 import { db } from '@/lib/db';
@@ -184,7 +185,7 @@ async function reviewerInputFor(draft: ContentDraft): Promise<{
       name: w.company.name,
       industry: ctx?.identity.industry ?? w.company.industry ?? null,
       description: ctx?.identity.description ?? null,
-      offerings: ctx?.identity.offerings ?? null,
+      offerings: (ctx ? offeringsSummary(ctx.identity) : null),
     },
     audience:
       brief?.targetAudience?.value ??

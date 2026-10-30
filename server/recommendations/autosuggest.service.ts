@@ -1,3 +1,4 @@
+import { offeringsSummary } from '@/lib/products';
 import { db } from '@/lib/db';
 import { ACTIVE_STATUSES } from '@/lib/opportunities';
 import { logger } from '@/lib/logger';
@@ -88,7 +89,7 @@ export async function suggestFromOpportunities(
   const ctx = await getBusinessContext(companyId, { sections: [] });
   const may = mayWriteRecommendations({
     description: ctx?.identity.description ?? null,
-    offerings: ctx?.identity.offerings ?? null,
+    offerings: (ctx ? offeringsSummary(ctx.identity) : null),
     audience: ctx?.audience.stated ?? null,
     goals: ctx?.objectives.goals ?? null,
     channels: ctx?.channels.preferred ?? [],

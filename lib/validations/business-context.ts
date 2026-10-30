@@ -6,6 +6,7 @@ import {
   CONTENT_TYPES,
 } from '@/lib/validations/content';
 import { websiteSchema } from '@/lib/validations/company';
+import { PRODUCT_LIMITS } from '@/lib/products';
 import {
   AUDIENCE_MAX,
   GOALS_MAX,
@@ -71,6 +72,44 @@ const enumList = <T extends readonly [string, ...string[]]>(
     .max(max)
     .transform((list) => [...new Set(list)]);
 
+/** Optional text inside a product: '' and null both mean "not given". */
+const productText = (max: number, label: string) =>
+  z.preprocess(
+    (v) => (v === undefined ? null : v),
+    text(max, label),
+  );
+
+/**
+ * One product. `id` is kept when editing an existing one and left out for a
+ * new one (the write rules assign it).
+ */
+const productPatch = z
+  .object({
+    id: z
+      .string()
+      .trim()
+      .max(40)
+      .regex(/^[A-Za-z0-9_-]+$/, 'Not a valid product id.')
+      .optional(),
+    name: z.preprocess(
+      (v) => (typeof v === 'string' ? clean(v) : v),
+      z
+        .string()
+        .min(1, 'Every product needs a name.')
+        .max(PRODUCT_LIMITS.name, `A product name must be ${PRODUCT_LIMITS.name} characters or fewer.`),
+    ),
+    description: productText(PRODUCT_LIMITS.description, 'A product description'),
+    audience: productText(PRODUCT_LIMITS.audience, 'Who a product is for'),
+    benefit: productText(PRODUCT_LIMITS.benefit, 'Why people choose a product'),
+    price: productText(PRODUCT_LIMITS.price, 'A price'),
+    url: z.preprocess(
+      (v) => (v === '' || v === undefined ? null : v),
+      z.union([z.null(), websiteSchema.pipe(z.string())]),
+    ),
+    featured: z.boolean().optional().default(false),
+  })
+  .strict();
+
 const identityPatch = z
   .object({
     name: text(80, 'Company name'),
@@ -81,6 +120,11 @@ const identityPatch = z
     industry: text(80, 'Industry'),
     description: text(600, 'The description'),
     offerings: text(400, 'What you sell'),
+    /** The whole catalogue: the list sent replaces the stored one. */
+    products: z
+      .array(productPatch)
+      .max(PRODUCT_LIMITS.max, `List up to ${PRODUCT_LIMITS.max} products.`)
+      .nullable(),
     visual: z
       .object({
         logoAssetId: z.preprocess(

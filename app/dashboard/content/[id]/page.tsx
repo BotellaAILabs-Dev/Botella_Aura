@@ -59,6 +59,7 @@ import { GraphicStudio } from '@/components/dashboard/content/graphic-studio';
 import { CreativeStudio } from '@/components/dashboard/content/creative-studio';
 import { AgnesImageGenerator } from '@/components/dashboard/content/agnes-image-generator';
 import { MultiPublish } from '@/components/dashboard/content/multi-publish';
+import { WebsitePublish } from '@/components/dashboard/content/website-publish';
 import { ExecutionReadiness } from '@/components/dashboard/content/execution-readiness';
 import { getExecutionHandoff } from '@/server/execution/execution-handoff.service';
 import { listExecutions } from '@/server/execution/execution-actions.service';
@@ -351,6 +352,9 @@ export default async function DraftDetailPage({
               </CardContent>
             </Card>
           )}
+
+          {/* Blogs: straight to the connected website(s) — WordPress, Shopify, Ghost. */}
+          {type === 'BLOG' && draft.status !== 'REJECTED' && <WebsitePublish draftId={draft.id} />}
 
           {!copyOnly && <MultiPublish draftId={draft.id} />}
 

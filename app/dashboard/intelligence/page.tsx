@@ -13,6 +13,9 @@ import {
 import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
 import { IntelligenceView } from '@/components/dashboard/intelligence/intelligence-view';
+import { MarketingGapsCard } from '@/components/dashboard/intelligence/marketing-gaps-card';
+import { getMarketingGaps } from '@/server/intelligence/marketing-gaps.service';
+import { getBusinessContext } from '@/server/business-context/business-context.service';
 
 export const metadata: Metadata = { title: 'Marketing Intelligence' };
 export const dynamic = 'force-dynamic';
@@ -22,10 +25,12 @@ export default async function IntelligencePage() {
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const [membership, snapshot, history] = await Promise.all([
+  const [membership, snapshot, history, gaps, ctx] = await Promise.all([
     getMembership(user.id, active.id),
     getLatestIntelligence(active.id),
     getScoreHistory(active.id, 60),
+    getMarketingGaps(active.id),
+    getBusinessContext(active.id, { sections: [] }),
   ]);
   const canRun = membership ? can(membership.role, 'content:create') : false;
 
@@ -48,6 +53,11 @@ export default async function IntelligencePage() {
             </Button>
           </div>
         }
+      />
+      <MarketingGapsCard
+        gaps={gaps}
+        canCreate={canRun}
+        hasProducts={Boolean(ctx?.identity.products.length)}
       />
       <IntelligenceView snapshot={snapshot} history={history} canRun={canRun} />
     </div>

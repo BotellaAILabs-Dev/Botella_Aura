@@ -188,7 +188,9 @@ describe('channels and integrations', () => {
   it('knows which channels Aura can connect', () => {
     expect(integrationAvailable('LinkedIn')).toBe(true);
     expect(integrationAvailable('Instagram')).toBe(true);
-    for (const c of ['X', 'YouTube', 'Blog', 'Newsletter'])
+    // Blogs publish to a connected website (WordPress, Shopify, Ghost).
+    expect(integrationAvailable('Blog')).toBe(true);
+    for (const c of ['X', 'YouTube', 'Newsletter'])
       expect(integrationAvailable(c)).toBe(false);
   });
 

@@ -1,3 +1,4 @@
+import { offeringsSummary } from '@/lib/products';
 import type { ContentDraft } from '@prisma/client';
 
 import { db } from '@/lib/db';
@@ -71,7 +72,7 @@ export async function visualBriefForDraft(
       platform,
       channel: platform ? platformSpec(platform).label : null,
       keyMessage: hook ? { value: hook, source: 'post' } : null,
-      offerings: ctx?.identity.offerings ?? null,
+      offerings: (ctx ? offeringsSummary(ctx.identity) : null),
       description: ctx?.identity.description ?? null,
       audience: ctx?.audience.stated ?? null,
       marketMode: marketing?.marketMode ?? ctx?.audience.marketMode ?? null,

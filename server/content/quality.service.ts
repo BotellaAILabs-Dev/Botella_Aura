@@ -1,3 +1,4 @@
+import { offeringsSummary } from '@/lib/products';
 import type { Campaign, Company, ContentDraft } from '@prisma/client';
 
 import { db } from '@/lib/db';
@@ -79,7 +80,7 @@ export async function loadWritingContext(
     company.industry,
     context?.identity.industry,
     context?.identity.description,
-    context?.identity.offerings,
+    context ? offeringsSummary(context.identity) : null,
   ]);
   const avoid = context?.voice.profile?.topicsToAvoid ?? [];
 

@@ -1,3 +1,4 @@
+import { offeringsSummary } from '@/lib/products';
 import { db } from '@/lib/db';
 import {
   validateRecommendation,
@@ -20,7 +21,7 @@ async function businessFor(
   return {
     name: ctx?.identity.name ?? '',
     description: ctx?.identity.description ?? null,
-    offerings: ctx?.identity.offerings ?? null,
+    offerings: (ctx ? offeringsSummary(ctx.identity) : null),
     goals: ctx?.objectives.goals ?? null,
     audience: ctx?.audience.stated ?? null,
     channels: ctx?.channels.preferred ?? [],

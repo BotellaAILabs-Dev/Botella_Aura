@@ -1,3 +1,4 @@
+import { offeringsSummary } from '@/lib/products';
 import { createHash } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 
@@ -147,6 +148,12 @@ export async function computeSourceStamp(
     }),
   ]);
   if (!company) return null;
+  // Connecting or losing a website changes which channels Aura can publish to.
+  const websites = await db.websiteConnection.aggregate({
+    where: { companyId, status: 'CONNECTED' },
+    _max: { updatedAt: true },
+    _count: { _all: true },
+  });
 
   const t = (d: Date | null | undefined) => (d ? d.toISOString() : '-');
   const parts = [
@@ -163,6 +170,8 @@ export async function computeSourceStamp(
     `campaigns:${t(campaigns._max.updatedAt)}:${campaigns._count._all}`,
     `content:${t(content._max.updatedAt)}:${content._count._all}`,
     `analytics:${t(analytics._max.generatedAt)}:${analytics._count._all}`,
+    // Only when there are any, so workspaces without websites keep their stamp.
+    ...(websites._count._all ? [`websites:${t(websites._max.updatedAt)}:${websites._count._all}`] : []),
   ];
   return createHash('sha256')
     .update(parts.join('|'))
@@ -248,7 +257,7 @@ async function rebuild(
   // Product evidence: what the business's own material says about what it
   // sells, retrieved against its own description of itself.
   const query = [
-    ctx.identity.offerings,
+    offeringsSummary(ctx.identity),
     ctx.identity.description,
     ctx.identity.name,
   ]

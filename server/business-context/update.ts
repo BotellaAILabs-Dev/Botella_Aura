@@ -4,6 +4,7 @@ import {
   storedFactMetaSchema,
   type SourceType,
 } from '@/lib/business-context';
+import { newProductId, readProducts, type Product } from '@/lib/products';
 import type { BrandVoiceProfile } from '@/lib/validations/content';
 import { brandVoiceProfileSchema } from '@/lib/validations/content';
 import {
@@ -99,6 +100,7 @@ export const CONFIRMABLE_FIELDS = [
   'identity.industry',
   'identity.description',
   'identity.offerings',
+  'identity.products',
   'audience.marketMode',
   'audience.stated',
   'objectives.goals',
@@ -250,6 +252,15 @@ export function planBusinessContextWrite(
       touched.add('business');
     }
   }
+  if (id.products !== undefined) {
+    const before = readProducts(business.products);
+    const after = planProducts(before, id.products ?? [], issues);
+    if (after && JSON.stringify(after) !== JSON.stringify(before)) {
+      business.products = after.length ? after : undefined;
+      touched.add('business');
+      changed.push('identity.products');
+    }
+  }
   for (const [key, value] of Object.entries(id.visual ?? {})) {
     if (value === undefined || (str(brand[key]) ?? null) === value) continue;
     brand[key] = value;
@@ -361,6 +372,8 @@ export function planBusinessContextWrite(
         return business.description;
       case 'identity.offerings':
         return business.offerings;
+      case 'identity.products':
+        return business.products;
       case 'audience.marketMode':
         return marketing.marketMode;
       case 'audience.stated':
@@ -460,6 +473,60 @@ export function planBusinessContextWrite(
   }
 
   return { data, changed, references, confirmed };
+}
+
+type ProductInput = NonNullable<
+  NonNullable<BusinessContextPatch['identity']>['products']
+>[number];
+
+/**
+ * The catalogue after a write, or null when it is refused (issues added).
+ *
+ * The list sent replaces the stored one. An entry with a known id keeps that
+ * id; anything else is new and gets one, so a client cannot pick ids. Names
+ * must be real (R3) and unique, because a post names products by name.
+ */
+function planProducts(
+  before: Product[],
+  input: ProductInput[],
+  issues: ContextUpdateIssue[],
+): Product[] | null {
+  const known = new Set(before.map((p) => p.id));
+  const seen = new Set<string>();
+  const out: Product[] = [];
+  let ok = true;
+  for (const item of input) {
+    const name = item.name.trim();
+    const key = name.toLowerCase();
+    if (isPlaceholder(name)) {
+      issues.push({
+        field: 'identity.products',
+        message: `“${name}” looks like a placeholder. Enter the product's real name.`,
+      });
+      ok = false;
+      continue;
+    }
+    if (seen.has(key)) {
+      issues.push({
+        field: 'identity.products',
+        message: `“${name}” is listed twice. Give each product its own name.`,
+      });
+      ok = false;
+      continue;
+    }
+    seen.add(key);
+    out.push({
+      id: item.id && known.has(item.id) ? item.id : newProductId(),
+      name,
+      description: item.description ?? null,
+      audience: item.audience ?? null,
+      benefit: item.benefit ?? null,
+      price: item.price ?? null,
+      url: item.url ?? null,
+      featured: item.featured ?? false,
+    });
+  }
+  return ok ? out : null;
 }
 
 const REQUIRED_LABELS: Record<string, string> = {

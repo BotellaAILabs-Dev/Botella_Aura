@@ -1,3 +1,4 @@
+import { offeringsSummary } from '@/lib/products';
 import { db } from '@/lib/db';
 import {
   buildContextHandoff,
@@ -39,7 +40,7 @@ export async function getContextHandoff(
     business: {
       name: ctx?.identity.name ?? '',
       description: ctx?.identity.description ?? null,
-      offerings: ctx?.identity.offerings ?? null,
+      offerings: (ctx ? offeringsSummary(ctx.identity) : null),
       industry: ctx?.identity.industry ?? null,
       website: ctx?.identity.website ?? null,
       goals: ctx?.objectives.goals ?? null,

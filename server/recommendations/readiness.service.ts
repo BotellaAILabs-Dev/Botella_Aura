@@ -1,3 +1,4 @@
+import { offeringsSummary } from '@/lib/products';
 import { db } from '@/lib/db';
 import { assessReadiness, type Readiness } from '@/lib/data-readiness';
 import { ACTIVE_STATUSES } from '@/lib/opportunities';
@@ -51,7 +52,7 @@ export async function getReadiness(
   return assessReadiness({
     business: {
       description: ctx?.identity.description ?? null,
-      offerings: ctx?.identity.offerings ?? null,
+      offerings: (ctx ? offeringsSummary(ctx.identity) : null),
       audience: ctx?.audience.stated ?? null,
       goals: ctx?.objectives.goals ?? null,
       channels: ctx?.channels.preferred ?? [],

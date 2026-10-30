@@ -24,10 +24,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/toaster';
 import {
+  bodySchemaFor,
   CONTENT_TONES,
   type ContentTone,
   type ContentTypeKey,
 } from '@/lib/validations/content';
+import { issueKey } from '@/lib/draft-fields';
+import { DraftFieldsEditor } from '@/components/dashboard/content/draft-fields-editor';
 import { TONE_LABEL } from '@/components/dashboard/content/generation-options';
 
 type Status = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'PUBLISHED';
@@ -88,6 +91,10 @@ export function DraftActions({
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [json, setJson] = useState(bodyJson);
+  // The form edits the body object; JSON stays as an advanced fallback.
+  const [form, setForm] = useState<Record<string, unknown>>(() => parseBody(bodyJson));
+  const [rawMode, setRawMode] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [refineOpen, setRefineOpen] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -135,13 +142,33 @@ export function DraftActions({
   }
 
   async function saveEdit() {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(json);
-    } catch {
-      toast.error('That is not valid JSON.');
+    let parsed: unknown = form;
+    if (rawMode) {
+      try {
+        parsed = JSON.parse(json);
+      } catch {
+        toast.error('That is not valid JSON.');
+        return;
+      }
+    }
+    // Check against the content shape here, so each problem shows under its
+    // own field instead of one error for the whole draft.
+    const check = bodySchemaFor(type).safeParse(parsed);
+    if (!check.success) {
+      const errs: Record<string, string> = {};
+      for (const issue of check.error.issues) {
+        const key = issueKey(issue.path);
+        if (!errs[key]) errs[key] = friendlyIssue(issue);
+      }
+      setFieldErrors(errs);
+      toast.error(
+        rawMode
+          ? `Fix the content first: ${Object.entries(errs)[0]?.join(' — ')}`
+          : 'Some fields need fixing — see the messages under them.',
+      );
       return;
     }
+    setFieldErrors({});
     setBusy('edit');
     try {
       const res = await fetch(`/api/content/drafts/${draftId}`, {
@@ -509,7 +536,19 @@ export function DraftActions({
             <Button variant="outline" size="sm" onClick={() => setRefineOpen((v) => !v)}>
               <Sparkles className="h-4 w-4" /> Custom instruction
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setEditing((v) => !v)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                // Start from the draft as it stands now, not a stale copy.
+                if (!editing) {
+                  setForm(parseBody(bodyJson));
+                  setJson(bodyJson);
+                  setFieldErrors({});
+                }
+                setEditing((v) => !v);
+              }}
+            >
               <Pencil className="h-4 w-4" /> {editing ? 'Cancel edit' : 'Edit'}
             </Button>
           </>
@@ -545,24 +584,76 @@ export function DraftActions({
       )}
 
       {editing && (
-        <div className="space-y-2 rounded-md border border-border p-3">
-          <Label htmlFor="json">Structured content (JSON)</Label>
-          <Textarea
-            id="json"
-            rows={14}
-            value={json}
-            onChange={(e) => setJson(e.target.value)}
-            className="font-mono text-xs"
-          />
+        <div className="space-y-3 rounded-md border border-border p-3">
+          {rawMode ? (
+            <>
+              <Label htmlFor="json">Structured content (JSON)</Label>
+              <Textarea
+                id="json"
+                rows={14}
+                value={json}
+                onChange={(e) => setJson(e.target.value)}
+                className="font-mono text-xs"
+              />
+            </>
+          ) : (
+            <DraftFieldsEditor
+              type={type}
+              value={form}
+              onChange={setForm}
+              errors={fieldErrors}
+              idPrefix={`edit-${draftId}`}
+            />
+          )}
           <p className="text-xs text-muted-foreground">
-            Edits are validated against the {type} content shape. Saving returns
-            the draft to Draft status for re-approval.
+            Saving returns the draft to Draft, so it is approved again before it goes out.
           </p>
-          <Button size="sm" onClick={saveEdit} loading={loading('edit')}>
-            Save edits
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={saveEdit} loading={loading('edit')}>
+              Save edits
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                // Carry edits across, in whichever direction.
+                if (rawMode) {
+                  try {
+                    setForm(JSON.parse(json) as Record<string, unknown>);
+                  } catch {
+                    toast.error('That is not valid JSON, so it cannot be shown as a form.');
+                    return;
+                  }
+                } else {
+                  setJson(JSON.stringify(form, null, 2));
+                }
+                setFieldErrors({});
+                setRawMode((v) => !v);
+              }}
+            >
+              {rawMode ? 'Back to the form' : 'Advanced: edit as JSON'}
+            </Button>
+          </div>
         </div>
       )}
     </div>
   );
+}
+
+function parseBody(json: string): Record<string, unknown> {
+  try {
+    const v = JSON.parse(json) as unknown;
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** A schema issue in words a person can act on. */
+function friendlyIssue(issue: { code: string; message: string; minimum?: unknown; maximum?: unknown; type?: string }): string {
+  if (issue.code === 'too_small' && issue.type === 'string') return 'This can’t be empty.';
+  if (issue.code === 'too_small' && issue.type === 'array') return `Needs at least ${String(issue.minimum)}.`;
+  if (issue.code === 'too_big' && issue.type === 'string') return `Keep this to ${String(issue.maximum)} characters.`;
+  if (issue.code === 'too_big' && issue.type === 'array') return `At most ${String(issue.maximum)}.`;
+  return issue.message;
 }

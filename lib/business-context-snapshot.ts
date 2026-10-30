@@ -9,6 +9,7 @@ import {
 } from '@/lib/business-context';
 import { CONTENT_CHANNELS } from '@/lib/validations/planner';
 import { MARKET_MODES } from '@/lib/validations/profile';
+import { productSchema } from '@/lib/products';
 
 /**
  * The Business Context Snapshot: what an AI workflow is handed.
@@ -101,7 +102,7 @@ export const SECTION_FIELDS: Record<SnapshotSection, string[]> = {
     'identity.industry',
     'identity.website',
   ],
-  products: ['identity.offerings', 'knowledge.coverage'],
+  products: ['identity.offerings', 'identity.products', 'knowledge.coverage'],
   audience: [
     'audience.marketMode',
     'audience.stated',
@@ -125,6 +126,7 @@ export const SNAPSHOT_LIMITS = {
   competitors: 8,
   keywords: 10,
   highlights: 3,
+  products: 12,
   recentTopics: 8,
   excerptChars: 280,
   voiceList: 6,
@@ -160,6 +162,11 @@ export const snapshotSchema = z.object({
   products: z
     .object({
       offerings: z.string().nullable(),
+      /**
+       * The product catalogue, featured products first. Optional so snapshots
+       * stored before it existed still parse.
+       */
+      catalog: z.array(productSchema.omit({ id: true })).optional(),
       /** Passages from the business's own uploaded material about what it sells. */
       highlights: z.array(
         z.object({

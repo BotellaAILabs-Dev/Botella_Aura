@@ -6,6 +6,7 @@ import {
   CONTENT_TYPES,
 } from '@/lib/validations/content';
 import { MARKET_MODES } from '@/lib/validations/profile';
+import { productSchema } from '@/lib/products';
 
 /**
  * The Business Context — one structure for everything Aura knows about a
@@ -331,6 +332,8 @@ export const identitySchema = z.object({
   description: nullableText,
   /** What it sells, when named separately from the description. */
   offerings: nullableText,
+  /** The product catalogue: what each product is, who it is for, why. */
+  products: z.array(productSchema),
   /** Logo and colours, for anything visual. */
   visual: z
     .object({
@@ -670,6 +673,15 @@ export const CONTEXT_FIELDS = [
     href: '/dashboard/business',
   },
   {
+    path: 'identity.products',
+    label: 'Products',
+    requirement: 'recommended',
+    sources: ['workspace_profile'],
+    resolution: 'precedence',
+    consumers: ALL_WRITERS,
+    href: '/dashboard/business',
+  },
+  {
     path: 'identity.industry',
     label: 'Industry',
     requirement: 'recommended',
@@ -895,6 +907,7 @@ export const RECOMMENDED_FIELDS = CONTEXT_FIELDS.filter(
  *
  * Newsletter has three, because any one of them is somewhere a newsletter can
  * be sent from; LinkedIn also counts the dedicated LinkedInConnection table.
+ * Blog counts any connected website (WebsiteConnection, by platform id).
  */
 export const CHANNEL_CONNECTORS: Record<
   (typeof CONTENT_CHANNELS)[number],
@@ -904,7 +917,7 @@ export const CHANNEL_CONNECTORS: Record<
   X: ['x'],
   Instagram: ['meta'],
   YouTube: ['youtube'],
-  Blog: ['wordpress'],
+  Blog: ['wordpress', 'shopify', 'ghost'],
   Newsletter: ['mailchimp', 'klaviyo', 'hubspot'],
 };
 
@@ -944,6 +957,10 @@ export const FRESHNESS_RULES: Record<
   'identity.offerings': {
     maxAgeDays: 180,
     why: 'Products and pricing change within a year.',
+  },
+  'identity.products': {
+    maxAgeDays: 180,
+    why: 'Products, prices and who they are for change within a year.',
   },
   'identity.industry': { maxAgeDays: null, why: 'Rarely changes.' },
   'identity.website': {

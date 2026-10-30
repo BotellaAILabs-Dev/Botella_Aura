@@ -26,6 +26,7 @@
     "verify:materials": "tsx scripts/verify-materials.ts",
     "verify:sipn": "tsx scripts/verify-sipn.ts",
     "verify:publishing": "tsx scripts/verify-publishing.ts",
+    "verify:websites": "tsx scripts/verify-websites.ts",
     "verify:context-sources": "tsx scripts/verify-context-sources.ts",
     "verify:opportunities": "tsx scripts/verify-opportunities.ts",
     "verify:signals": "tsx scripts/verify-signals.ts",

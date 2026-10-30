@@ -1,3 +1,4 @@
+import { offeringsSummary } from '@/lib/products';
 import type { Company } from '@prisma/client';
 
 import {
@@ -99,10 +100,10 @@ export async function getBrandContext(
       industry: ctx.identity.industry,
       website: ctx.identity.website,
     },
-    business: ctx.identity.description || ctx.identity.offerings
+    business: ctx.identity.description || offeringsSummary(ctx.identity)
       ? {
           description: ctx.identity.description ?? undefined,
-          offerings: ctx.identity.offerings ?? undefined,
+          offerings: offeringsSummary(ctx.identity) ?? undefined,
         }
       : null,
     audience: toAudienceProfile(ctx),

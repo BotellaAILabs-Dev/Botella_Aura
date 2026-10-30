@@ -41,6 +41,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { ProductsEditor } from '@/components/dashboard/business/products-editor';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
@@ -260,6 +261,13 @@ export function BusinessContextView({ context: ctx, canEdit, logoSrc }: Props) {
         {row('identity.name')}
         {row('identity.description')}
         {row('identity.offerings')}
+        <ProductsEditor
+          products={ctx.identity.products}
+          canEdit={canEdit}
+          onSave={(products) =>
+            send({ patch: { identity: { products } } })
+          }
+        />
         {row('identity.industry')}
         {row('identity.website')}
       </Section>

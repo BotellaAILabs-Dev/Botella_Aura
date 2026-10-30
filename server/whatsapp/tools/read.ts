@@ -1,3 +1,4 @@
+import { offeringsSummary } from '@/lib/products';
 import { z } from 'zod';
 
 import { db } from '@/lib/db';
@@ -282,7 +283,8 @@ export const businessTool: Tool<typeof none> = {
     const lines = [`${bold(c.identity.name ?? ctx.companyName)}`];
     if (c.identity.industry) lines.push(`Industry: ${plain(c.identity.industry)}`);
     if (c.identity.description) lines.push('', clip(plain(c.identity.description), 400));
-    if (c.identity.offerings) lines.push('', `${bold('What you offer')}\n${clip(plain(c.identity.offerings), 300)}`);
+    const offer = offeringsSummary(c.identity);
+    if (offer) lines.push('', `${bold('What you offer')}\n${clip(plain(offer), 300)}`);
     if (c.audience.stated) lines.push('', `${bold('Who you serve')}\n${clip(plain(c.audience.stated), 250)}`);
     const tone = c.voice.profile?.toneDescriptors ?? [];
     if (tone.length) lines.push('', `${bold('Brand voice')}: ${plain(tone.slice(0, 5).join(', '))}`);

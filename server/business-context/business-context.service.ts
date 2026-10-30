@@ -1,3 +1,4 @@
+import { productLine } from '@/lib/products';
 import type { InsightType } from '@prisma/client';
 
 import { db } from '@/lib/db';
@@ -236,7 +237,7 @@ async function loadMarket(companyId: string) {
 }
 
 async function loadConnections(companyId: string) {
-  const [connections, linkedIn] = await Promise.all([
+  const [connections, linkedIn, websites] = await Promise.all([
     db.connection.findMany({
       where: { companyId, status: 'CONNECTED', ...NOT_MIRRORED },
       select: { connectorId: true, lastSyncedAt: true, updatedAt: true },
@@ -245,13 +246,19 @@ async function loadConnections(companyId: string) {
       where: { companyId, status: 'ACTIVE' },
       select: { updatedAt: true },
     }),
+    // Connected websites (server/websites) publish the Blog channel.
+    db.websiteConnection.findMany({
+      where: { companyId, status: 'CONNECTED' },
+      select: { platform: true, lastCheckedAt: true, updatedAt: true },
+    }),
   ]);
   const synced = [
     ...connections.map((c) => c.lastSyncedAt ?? c.updatedAt),
     ...(linkedIn ? [linkedIn.updatedAt] : []),
+    ...websites.map((w) => w.lastCheckedAt ?? w.updatedAt),
   ];
   return {
-    connectorIds: connections.map((c) => c.connectorId),
+    connectorIds: [...new Set([...connections.map((c) => c.connectorId), ...websites.map((w) => w.platform)])],
     linkedInConnected: Boolean(linkedIn),
     lastSyncedAt: synced.length
       ? new Date(Math.max(...synced.map((d) => d.getTime())))
@@ -514,7 +521,12 @@ function memoryBlock(
 const BLOCK_FIELDS: Partial<
   Record<keyof ContextPromptOptions, ContextFieldPath[]>
 > = {
-  identity: ['identity.description', 'identity.offerings', 'identity.industry'],
+  identity: [
+    'identity.description',
+    'identity.offerings',
+    'identity.products',
+    'identity.industry',
+  ],
   audience: [
     'audience.marketMode',
     'audience.stated',
@@ -560,7 +572,12 @@ export function unknownFields(
   options: ContextPromptOptions,
 ): ContextFieldPath[] {
   return [...fieldsUsedBy(options)].filter(
-    (path) => !ctx.meta.facts[path] && contextField(path).requirement !== 'optional',
+    (path) =>
+      !ctx.meta.facts[path] &&
+      contextField(path).requirement !== 'optional' &&
+      // A business that says what it sells in a sentence has told Aura; a
+      // catalogue sharpens that, its absence is not an unknown.
+      !(path === 'identity.products' && ctx.meta.facts['identity.offerings']),
   );
 }
 
@@ -660,6 +677,16 @@ export function businessContextToPrompt(
         ctx.identity.industry,
       ),
     );
+    if (ctx.identity.products.length) {
+      blocks.push(
+        [
+          'PRODUCTS — what each is, who it is for and why people choose it, in the company’s own words. Name a product only as described here:',
+          ...ctx.identity.products
+            .slice(0, 12)
+            .map((p) => `- ${productLine(p)}${p.featured ? ' [lead product]' : ''}`),
+        ].join('\n'),
+      );
+    }
   }
   if (o.audience) blocks.push(audienceToPrompt(audience));
   if (o.buyer) blocks.push(buyerBlock(ctx));

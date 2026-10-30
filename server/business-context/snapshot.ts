@@ -18,6 +18,7 @@ import {
   type SnapshotView,
 } from '@/lib/business-context-snapshot';
 import { MATERIAL_CATEGORIES } from '@/lib/materials';
+import { productLine } from '@/lib/products';
 import type { RetrievedChunk } from '@/server/knowledge/retrieve';
 
 /**
@@ -157,6 +158,18 @@ export function buildSnapshot(
   const offerings = admit('identity.offerings', identity.offerings)
     ? identity.offerings
     : null;
+  const catalog = admit(
+    'identity.products',
+    identity.products.map((p) => p.name).join(', ') || null,
+  )
+    ? [...identity.products]
+        .sort((a, b) => Number(b.featured) - Number(a.featured))
+        .slice(0, SNAPSHOT_LIMITS.products)
+        .map(({ id: _id, ...p }) => ({
+          ...p,
+          description: p.description && trim(p.description, SNAPSHOT_LIMITS.excerptChars),
+        }))
+    : [];
   const highlights = passages
     .filter(
       (p) =>
@@ -377,7 +390,10 @@ export function buildSnapshot(
     view: 'full',
     strict: false,
     business,
-    products: offerings || highlights.length ? { offerings, highlights } : null,
+    products:
+      offerings || catalog.length || highlights.length
+        ? { offerings, catalog, highlights }
+        : null,
     audience:
       marketMode ||
       description ||
@@ -528,6 +544,10 @@ export function snapshotToPrompt(s: BusinessContextSnapshot): string {
   }
   if (s.products) {
     push(s.products.offerings && `What it sells: ${s.products.offerings}`);
+    if (s.products.catalog?.length) {
+      push('Products:');
+      for (const p of s.products.catalog) push(`- ${productLine(p)}`);
+    }
     if (s.products.highlights.length) {
       push('From its own documents:');
       for (const h of s.products.highlights) {

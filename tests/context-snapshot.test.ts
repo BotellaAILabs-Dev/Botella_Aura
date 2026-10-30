@@ -27,6 +27,7 @@ const { db, getBusinessContext, retrieve } = vi.hoisted(() => {
       marketingPlan: { aggregate: agg({ updatedAt: null }) },
       connection: { aggregate: agg({ updatedAt: null }) },
       linkedInConnection: { findFirst: vi.fn().mockResolvedValue(null) },
+      websiteConnection: { aggregate: vi.fn().mockResolvedValue({ _max: { updatedAt: null }, _count: { _all: 0 } }) },
       knowledgeChunk: { aggregate: agg({ createdAt: null }) },
       marketingMemory: { aggregate: agg({ generatedAt: null }) },
       campaign: { aggregate: agg({ updatedAt: null }) },
