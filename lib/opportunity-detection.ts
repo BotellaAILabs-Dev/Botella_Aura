@@ -6,6 +6,7 @@ import type {
 } from '@/lib/opportunities';
 import type { SignalReliability, SignalSource } from '@/lib/signals';
 import type { SignalKind } from '@/lib/opportunities';
+import { signalPosture } from '@/lib/brand-safety';
 
 /**
  * Opportunity detection rules — when does a set of signals amount to a real
@@ -454,6 +455,8 @@ export interface DetectionResult {
     reason: Suppression;
     detail: string;
   }[];
+  /** Stories left out because they are about real harm (brand safety). */
+  sensitive?: string[];
 }
 
 /**
@@ -506,8 +509,17 @@ export function detectOpportunities(
   options: DetectionOptions,
 ): DetectionResult {
   const now = options.now;
-  const current = signals.filter((s) => !s.expiresAt || s.expiresAt > now);
-  const result: DetectionResult = { accepted: [], suppressed: [] };
+  // 0. BRAND SAFETY — a story about real harm (deaths, violence, disasters…)
+  //    is never evidence for a marketing opportunity, so no rule sees it.
+  //    Without this, "Join the conversation on whisky" could be proposed off
+  //    a report of people dying (lib/brand-safety.ts).
+  const live = signals.filter((s) => !s.expiresAt || s.expiresAt > now);
+  const current = live.filter((s) => signalPosture(s) !== 'unsuitable');
+  const result: DetectionResult = {
+    accepted: [],
+    suppressed: [],
+    sensitive: live.filter((s) => !current.includes(s)).map((s) => s.title),
+  };
   const suppress = (c: Candidate, reason: Suppression, detail: string) =>
     result.suppressed.push({
       rule: c.rule,
@@ -519,6 +531,9 @@ export function detectOpportunities(
 
   for (const rule of options.rules ?? DETECTION_RULES) {
     for (const c of rule.detect(current, ctx, now)) {
+      if (c.signals.some((s) => signalPosture(s) === 'caution')) {
+        c.criteria.push('some of the coverage touches on a sensitive subject — inform, do not promote off it');
+      }
       if (options.mutedRules?.has(c.rule)) {
         suppress(
           c,

@@ -152,8 +152,16 @@ export function qualityContextFor(
   platform: SocialPlatformKey | null,
   w: WritingContext,
   sources: string[],
-  options: { ctaRequired?: boolean; sourceSafety?: SourceSafety; brief?: string } = {},
+  options: { ctaRequired?: boolean; sourceSafety?: SourceSafety; brief?: string; fromSource?: boolean } = {},
 ): QualityContext {
+  const id = w.context?.identity;
+  const businessText = [
+    id?.description,
+    id?.offerings,
+    ...(id?.products ?? []).flatMap((p) => [p.name, p.description]),
+  ]
+    .filter(Boolean)
+    .join('\n');
   return {
     limits: playbookFor(type, platform).limits,
     sources: [w.system, ...sources].join('\n'),
@@ -161,6 +169,7 @@ export function qualityContextFor(
     alcohol: w.alcohol,
     ...(options.ctaRequired ? { ctaRequired: true } : {}),
     ...(options.brief?.trim() ? { brief: options.brief } : {}),
+    business: { name: id?.name ?? w.company.name, text: businessText, fromSource: options.fromSource ?? false },
     // Only carried when the source involves real harm; a clear verdict is left
     // off, so the tone check stays entirely out of the way on ordinary
     // material (lib/brand-safety.ts).

@@ -28,6 +28,9 @@ import {
   WhatMattersNow,
 } from '@/components/dashboard/home/home-sections';
 
+import { NextBestActions } from '@/components/dashboard/home/next-best-actions';
+import { getNextActions } from '@/server/home/next-best-action.service';
+
 export const metadata: Metadata = { title: 'Home' };
 export const dynamic = 'force-dynamic';
 
@@ -65,11 +68,12 @@ export default async function HomePage() {
     );
   }
 
-  const [row, membership, setup, home] = await Promise.all([
+  const membership = await getMembership(user.id, active.id);
+  const [row, setup, home, nextActions] = await Promise.all([
     getLatestBriefing(active.id),
-    getMembership(user.id, active.id),
     getOnboardingState(active.id),
     getAuraHome(active.id),
+    membership ? getNextActions(active.id, membership.role) : Promise.resolve([]),
   ]);
   const canRun = membership ? can(membership.role, 'content:create') : false;
   const canDecide = membership ? can(membership.role, 'company:update') : false;
@@ -98,6 +102,10 @@ export default async function HomePage() {
             variant={briefing ? 'compact' : undefined}
           />
         )}
+
+        {/* One ranked list across suggestions, gaps, missing details and
+            approvals — so the first thing seen is the one thing to do. */}
+        <NextBestActions actions={nextActions} canAct={canRun} />
 
         <WhatMattersNow data={home.whatMatters} waiting={home.waiting} />
 

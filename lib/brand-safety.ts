@@ -401,3 +401,22 @@ function list(items: string[]): string {
   if (xs.length <= 1) return xs[0] ?? '';
   return `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
 }
+
+/**
+ * The safety of a stored signal: the verdict recorded when it was collected,
+ * or — for news and trend signals stored before verdicts were kept — worked
+ * out from its title and summary. The business's own signals (its results,
+ * profile, documents) are not news and are always clear.
+ */
+export function signalPosture(signal: {
+  source: string;
+  title: string;
+  summary: string;
+  metadata: unknown;
+}): SafetyPosture {
+  const meta = signal.metadata && typeof signal.metadata === 'object' ? (signal.metadata as Record<string, unknown>) : {};
+  const stored = (meta.safety as { posture?: unknown } | undefined)?.posture;
+  if (stored === 'clear' || stored === 'caution' || stored === 'unsuitable') return stored;
+  if (signal.source !== 'TRENDS' && signal.source !== 'EXTERNAL') return 'clear';
+  return classifySource(`${signal.title}\n${signal.summary}`).posture;
+}

@@ -7,6 +7,7 @@ import {
   type SignalReliability,
   type SignalSource,
 } from '@/lib/signals';
+import { classifySource, TOPIC_LABEL, type SafetyPosture } from '@/lib/brand-safety';
 import { readChangesSummary } from '@/server/competitors/types';
 import { normalizeDigestPayload } from '@/server/trends/digest.service';
 import type { TrendSourceId } from '@/server/trends/types';
@@ -46,6 +47,21 @@ const TREND_SOURCE_RELIABILITY: Record<
   twitter: { r: 'LOW', why: 'A post on X' },
 };
 
+function trendSafety(item: { title: string; aiSummary?: string | null; safety?: unknown }): {
+  posture: SafetyPosture;
+  concerns: string[];
+} {
+  const stored = item.safety as { posture?: unknown; concerns?: unknown } | undefined;
+  if (stored && (stored.posture === 'clear' || stored.posture === 'caution' || stored.posture === 'unsuitable')) {
+    return {
+      posture: stored.posture,
+      concerns: Array.isArray(stored.concerns) ? stored.concerns.filter((c): c is string => typeof c === 'string') : [],
+    };
+  }
+  const s = classifySource(`${item.title}\n${item.aiSummary ?? ''}`);
+  return { posture: s.posture, concerns: [...new Set(s.hits.map((h) => TOPIC_LABEL[h.topic]))] };
+}
+
 export function normalizeTrends(
   digests: { id: string; date: Date; payload: unknown }[],
 ): NormalizedSignal[] {
@@ -76,6 +92,10 @@ export function normalizeTrends(
         metadata: {
           trendSource: item.source,
           sourceLabel: item.sourceLabel ?? item.source,
+          // Carried so detection and recommendations can refuse to market
+          // off a story about real harm (lib/brand-safety.ts). Digests stored
+          // before verdicts existed are classified here.
+          safety: trendSafety(item),
           ...(item.suggestedAngle
             ? { suggestedAngle: item.suggestedAngle }
             : {}),

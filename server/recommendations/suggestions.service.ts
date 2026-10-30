@@ -1,3 +1,4 @@
+import { dedupeSuggestions } from '@/lib/next-best-action';
 import { db } from '@/lib/db';
 import { toSuggestion, type SuggestionView } from '@/lib/aura-suggests';
 import { OPEN_RECOMMENDATION_STATUSES } from '@/lib/recommendations';
@@ -23,6 +24,8 @@ export async function getSuggestions(
   accepted: SuggestionView[];
   /** Waiting suggestions that failed a quality check: not shown, with why. */
   heldBack: { id: string; title: string; reason: string; problems: string[] }[];
+  /** Waiting suggestions not shown because a higher-ranked one is about the same thing. */
+  merged?: number;
 }> {
   const now = options.now ?? new Date();
   const ranked = await surfaceRecommendations(companyId, { now });
@@ -109,10 +112,13 @@ export async function getSuggestions(
     );
   }
   const limit = options.limit ?? 20;
+  // The same subject once, however many kinds or channels it was proposed for.
+  const { kept: open, merged } = dedupeSuggestions(
+    shown.filter((v) => OPEN_RECOMMENDATION_STATUSES.includes(v.status)),
+  );
   return {
-    suggestions: shown
-      .filter((v) => OPEN_RECOMMENDATION_STATUSES.includes(v.status))
-      .slice(0, limit),
+    suggestions: open.slice(0, limit),
+    merged,
     accepted: shown.filter((v) => v.stage === 'accepted').slice(0, limit),
     heldBack,
   };

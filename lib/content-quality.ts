@@ -55,7 +55,9 @@ export interface QualityIssue {
     /** A variation is about a different subject than the original (lib/content-variations.ts). */
     | 'topic-drift'
     /** The copy is not about what the person asked for (their own prompt). */
-    | 'off-brief';
+    | 'off-brief'
+    /** The copy says nothing specific to this business (generic marketing). */
+    | 'generic';
   severity: IssueSeverity;
   message: string;
 }
@@ -309,7 +311,33 @@ export interface QualityContext {
    * longer prompt's is flagged for a look.
    */
   brief?: string;
+  /**
+   * What makes this business itself: its name, what it does, what it sells,
+   * its product names. Copy that uses none of it could be about anyone.
+   */
+  business?: {
+    name: string;
+    text: string;
+    /** Written from outside material (a trend, news): generic copy blocks and is rewritten. */
+    fromSource: boolean;
+  };
   now?: Date;
+}
+
+/**
+ * Does the copy say anything only this business would say? True when it
+ * names the business, or uses enough of its own subject words (what it does
+ * and sells). Too little known about the business to judge: true.
+ */
+export function mentionsBusiness(copy: string, business: { name: string; text: string }): boolean {
+  const lower = copy.toLowerCase();
+  if (business.name.trim().length >= 3 && lower.includes(business.name.trim().toLowerCase())) return true;
+  const own = topicTerms(business.text);
+  if (own.size < 3) return true;
+  const used = topicTerms(copy);
+  let shared = 0;
+  for (const w of own) if (used.has(w)) shared++;
+  return shared >= 1;
 }
 
 /**
@@ -425,6 +453,17 @@ ${parts.hashtags.join(' ')}`);
             : `This only touches on what was asked; it leaves out ${cov.missing.slice(0, 5).join(', ')}. Check it covers the request.`,
       });
     }
+  }
+
+  // Specific to this business, not generic marketing.
+  if (ctx.business && !mentionsBusiness(`${text}\n${parts.hashtags.join(' ')}`, ctx.business)) {
+    push({
+      code: 'generic',
+      severity: ctx.business.fromSource ? 'block' : 'warn',
+      message: ctx.business.fromSource
+        ? `This doesn’t connect the story to ${ctx.business.name} — say what it means for your customers or which of your products it relates to.`
+        : `Nothing here is specific to ${ctx.business.name}; it could be any company’s post. Name what you do or a product.`,
+    });
   }
 
   // Length.

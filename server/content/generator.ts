@@ -157,11 +157,14 @@ export async function checkAndRepair(args: {
   sourceSafety?: SourceSafety;
   /** The person's own prompt: copy that ignores it is repaired, not saved. */
   brief?: string;
+  /** Written from a trend or news: copy that never connects it to the business is repaired. */
+  fromSource?: boolean;
 }): Promise<{ body: unknown; quality: QualityReport; repaired: boolean }> {
   const qc = qualityContextFor(args.type, args.platform, args.w, args.sources, {
     ctaRequired: args.ctaRequired ?? false,
     ...(args.sourceSafety ? { sourceSafety: args.sourceSafety } : {}),
     ...(args.brief ? { brief: args.brief } : {}),
+    ...(args.fromSource ? { fromSource: true } : {}),
   });
   const first = finalizeBody(args.type, args.body, qc);
   // Unconfirmed post details are a person's to confirm, not the writer's to fix.
@@ -473,6 +476,7 @@ export async function generateDraft({
         // Only the person's own words: a trend or recommendation brings its
         // own wording, which a good post need not repeat.
         ...(source.kind === 'BRIEF' && source.brief ? { brief: source.brief } : {}),
+        ...(source.kind === 'TREND' ? { fromSource: true } : {}),
       })),
     })),
   );

@@ -16,6 +16,9 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { AuraSuggests } from '@/components/dashboard/suggestions/aura-suggests';
 
+import { NextBestActions } from '@/components/dashboard/home/next-best-actions';
+import { getNextActions } from '@/server/home/next-best-action.service';
+
 export const metadata: Metadata = { title: 'Aura Suggests' };
 export const dynamic = 'force-dynamic';
 
@@ -29,14 +32,20 @@ export default async function SuggestionsPage() {
   const { active } = await resolveActiveCompany(user.id);
   if (!active) return null;
 
-  const [membership, { suggestions, accepted, heldBack }, waiting, readiness] =
+  const membership = await getMembership(user.id, active.id);
+  const [{ suggestions, accepted, heldBack }, waiting, readiness, nextActions] =
     await Promise.all([
-      getMembership(user.id, active.id),
       getSuggestions(active.id),
       openOpportunitiesWithoutSuggestion(active.id),
       getReadiness(active.id),
+      membership ? getNextActions(active.id, membership.role, { limit: 3 }) : Promise.resolve([]),
     ]);
   const pending = waiting.length;
+  // Shown once: a suggestion already in "next best action" is not repeated below.
+  const above = new Set(
+    nextActions.filter((a) => a.source === 'suggestion').map((a) => a.key.slice('suggestion:'.length)),
+  );
+  const listed = suggestions.filter((s) => !above.has(s.id));
   const canAct = membership ? can(membership.role, 'company:update') : false;
   const canRecord = membership ? can(membership.role, 'content:create') : false;
 
@@ -60,6 +69,11 @@ export default async function SuggestionsPage() {
           </>
         }
       />
+      {nextActions.length > 0 && (
+        <div className="mb-6">
+          <NextBestActions actions={nextActions} canAct={canRecord} />
+        </div>
+      )}
       {suggestions.length === 0 &&
       accepted.length === 0 &&
       readiness.canRecommend &&
@@ -108,7 +122,7 @@ export default async function SuggestionsPage() {
             />
           )}
           <AuraSuggests
-            suggestions={suggestions}
+            suggestions={listed}
             accepted={accepted}
             canAct={canAct}
             canRecord={canRecord}

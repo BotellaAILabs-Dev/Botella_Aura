@@ -1,4 +1,5 @@
 import { unsupportedNumbers } from '@/lib/ai-opportunity-detection';
+import { classifySource, TOPIC_LABEL } from '@/lib/brand-safety';
 import { ACTIVE_STATUSES } from '@/lib/opportunities';
 import {
   LOW_CONFIDENCE_BLOCKER,
@@ -35,6 +36,9 @@ import { CONTENT_CHANNELS } from '@/lib/validations/planner';
  *   channel           one Aura supports, that the business uses
  *   confidence        stated honestly: low confidence, or confidence higher
  *                     than its evidence's reliability, is not "trusted"
+ *   brand_safety      not built on news about real harm (deaths, violence,
+ *                     disasters…): marketing off a tragedy is held back; a
+ *                     sensitive-but-usable story is shown marked for care
  *
  * VERDICT
  *   trusted       every check passes
@@ -53,6 +57,7 @@ export const QUALITY_CHECKS = [
   'expected_outcome',
   'channel',
   'confidence',
+  'brand_safety',
 ] as const;
 export type QualityCheck = (typeof QUALITY_CHECKS)[number];
 
@@ -354,6 +359,22 @@ export function validateRecommendation(input: QualityInput): QualityReport {
       'confidence',
       'it claims high confidence, but all its evidence is of low reliability',
     );
+  }
+
+  // --- brand safety ------------------------------------------------------------
+  // Judged on the outside material it was built from — news and trend
+  // stories, and the opportunity's summary of them — not on the business's
+  // own words: a pharmacy writing about flu season is not a sensitive story.
+  const outside = [
+    ...evidence.filter((e) => e.source === 'TRENDS' || e.source === 'EXTERNAL').map((e) => `${e.label}. ${e.detail}`),
+    ...(o && evidence.some((e) => e.source === 'TRENDS') ? [o.summary] : []),
+  ].join('\n');
+  const safety = classifySource(outside);
+  if (safety.posture !== 'clear') {
+    const topics = [...new Set(safety.hits.map((h) => TOPIC_LABEL[h.topic]))].join(', ');
+    if (safety.posture === 'unsuitable')
+      fail('brand_safety', `it is built on news about ${topics}, which must not be used for marketing`);
+    else warn('brand_safety', `its source touches on ${topics} — no promotional angle, and check the tone`);
   }
 
   const checks = QUALITY_CHECKS.map((check) => ({ check, ...out[check] }));

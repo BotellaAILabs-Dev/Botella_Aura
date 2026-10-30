@@ -13,6 +13,7 @@ import {
   type DetectableSignal,
 } from '@/lib/opportunity-detection';
 import { textKey, type SignalSource } from '@/lib/signals';
+import { signalPosture } from '@/lib/brand-safety';
 
 /**
  * AI-assisted opportunity detection — the categories the rules cannot judge
@@ -104,6 +105,8 @@ export function selectSignalsForAi(
     .filter((s) => !s.expiresAt || s.expiresAt > options.now)
     .filter((s) => !rejected.has(s.id))
     .filter((s) => s.source !== 'TRENDS' || s.contextMatches.length > 0)
+    // Never hand the model a story about real harm to find an angle in.
+    .filter((s) => signalPosture(s) !== 'unsuitable')
     .sort(
       (a, b) =>
         REL_RANK[b.reliability] - REL_RANK[a.reliability] ||

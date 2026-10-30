@@ -440,6 +440,7 @@ const RULE_DIMENSION: Record<QualityIssue['code'], ReviewDimension> = {
   // one — the piece is fine, it is just not a version of this piece.
   'topic-drift': 'relevance',
   'off-brief': 'relevance',
+  generic: 'relevance',
 };
 
 /**
