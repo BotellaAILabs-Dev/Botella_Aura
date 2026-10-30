@@ -689,7 +689,62 @@ export function RedirectUriPanel({
             </li>
           ))}
         </ul>
+        <ProviderCheck />
       </CardContent>
     </Card>
+  );
+}
+
+type CheckRow = { label: string; url: string; verdict: string; detail: string };
+
+const VERDICT: Record<string, { text: string; tone: string }> = {
+  accepted: { text: 'Accepted', tone: 'text-primary' },
+  redirect_not_registered: { text: 'Not registered', tone: 'text-destructive' },
+  scope_not_allowed: { text: 'Permission missing', tone: 'text-destructive' },
+  unknown_client: { text: 'App not recognised', tone: 'text-destructive' },
+  no_credentials: { text: 'Not set up', tone: 'text-muted-foreground' },
+  unchecked: { text: 'Unclear', tone: 'text-muted-foreground' },
+};
+
+/**
+ * Asks the providers themselves whether this deployment's redirect URLs are
+ * registered — the check behind most "Sign in with LinkedIn doesn't work".
+ */
+function ProviderCheck() {
+  const [rows, setRows] = useState<CheckRow[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function run() {
+    setBusy(true);
+    try {
+      const res = await fetch('/api/connectors/oauth-check');
+      const data = (await res.json().catch(() => ({}))) as { results?: CheckRow[]; error?: string };
+      if (!res.ok || !data.results) {
+        toast.error(data.error ?? 'Could not run the check.');
+        return;
+      }
+      setRows(data.results);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 space-y-2">
+      <Button size="sm" variant="outline" onClick={() => void run()} loading={busy}>
+        Check with LinkedIn, Google and Meta
+      </Button>
+      {rows && (
+        <ul className="space-y-1 text-xs">
+          {rows.map((r) => (
+            <li key={r.url} className="flex flex-wrap gap-x-2">
+              <span className={`font-medium ${VERDICT[r.verdict]?.tone ?? ''}`}>{VERDICT[r.verdict]?.text ?? r.verdict}</span>
+              <span className="text-foreground">{r.label}</span>
+              <span className="text-muted-foreground">— {r.detail}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

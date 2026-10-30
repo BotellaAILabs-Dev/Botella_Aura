@@ -9,11 +9,11 @@ import { logger } from '@/lib/logger';
  * handling, and retry policy here means those sprints inherit a battle-tested
  * client instead of re-implementing it.
  *
- * Defaults: claude-opus-4-8 with adaptive thinking. Long generations stream
+ * Defaults: claude-opus-5-5 with adaptive thinking. Long generations stream
  * (avoids HTTP timeouts on large max_tokens). One automatic retry on transient
  * failure; a clear typed error otherwise so callers can fall back gracefully.
  */
-export const DEFAULT_MODEL = 'claude-opus-4-8';
+export const DEFAULT_MODEL = 'claude-opus-5-5';
 /**
  * Gemini models per tier.
  *
@@ -75,9 +75,10 @@ const STREAM_THRESHOLD_TOKENS = 8000;
  * here, because most calls in this codebase are short structural work.
  *
  * Prices per million tokens (input / output), Anthropic first-party:
- *   cheap    Haiku 4.5   $1 / $5    — 5x cheaper than premium
- *   standard Sonnet 5    $2 / $10   — 2.5x cheaper than premium
- *   premium  Opus        $5 / $25
+ *   cheap    Haiku 5.5
+ *   standard Sonnet 5.5
+ *   premium  Opus 5.5
+ * (Check current prices on anthropic.com/pricing; the ratio is what matters.)
  *
  * The rule for choosing: does a human read this output as the product? Post
  * copy, the monthly plan and strategic recommendations do — they stay premium.
@@ -99,12 +100,14 @@ interface ModelSpec {
 
 const TIER_DEFAULTS: Record<ModelTier, ModelSpec> = {
   cheap: {
-    id: 'claude-haiku-4-5',
+    id: 'claude-haiku-5-5',
+    // Haiku has rejected `effort` before (4.5 answered 400); not sending it
+    // costs nothing, sending it to a model that refuses fails the request.
     supportsEffort: false,
     supportsAdaptiveThinking: false,
   },
   standard: {
-    id: 'claude-sonnet-5',
+    id: 'claude-sonnet-5-5',
     supportsEffort: true,
     supportsAdaptiveThinking: true,
   },
@@ -406,19 +409,76 @@ export function geminiThinking(
  * thinking (geminiThinking). JSON calls ask for JSON output directly, so no
  * fences or prose come back to strip.
  */
+type GeminiOptions = {
+  json: boolean;
+  effort: NonNullable<CompleteOptions['effort']>;
+  /** Which model class the caller asked for; the tier picks the model. */
+  tier: ModelTier;
+};
+
+/**
+ * Pinned models that recently failed outright, and until when they are
+ * skipped. A deployment can pin a model (GEMINI_MODEL) that Google has since
+ * moved or slowed: `gemini-flash-latest` was measured taking over 90 s for a
+ * two-caption request the default answers in 2 s. Every Content Studio
+ * generation then timed out. Rather than fail every request until someone
+ * edits the environment, a pinned model that times out, is not found or is
+ * overloaded falls back to the tested default, and is skipped for a while.
+ */
+const pinnedUnhealthyUntil = new Map<string, number>();
+export const PINNED_MODEL_COOLDOWN_MS = 10 * 60_000;
+/** A pinned model gets this long before the default is tried instead. */
+export const PINNED_MODEL_TIMEOUT_MS = 45_000;
+
+/** For tests. */
+export function resetPinnedModelHealth(): void {
+  pinnedUnhealthyUntil.clear();
+}
+
+function pinnedFailedOutright(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status;
+  if (status === 404 || status === 503) return true;
+  return err instanceof Error && /did not respond within/.test(err.message);
+}
+
 async function callGemini(
   system: string | undefined,
   prompt: string,
   maxTokens: number,
   timeoutMs: number,
-  options: {
-    json: boolean;
-    effort: NonNullable<CompleteOptions['effort']>;
-    /** Which model class the caller asked for; the tier picks the model. */
-    tier: ModelTier;
-  },
+  options: GeminiOptions,
 ): Promise<string> {
   const model = geminiModelFor(options.tier);
+  const fallback = GEMINI_TIER_DEFAULTS[options.tier];
+  if (model === fallback) return callGeminiModel(model, system, prompt, maxTokens, timeoutMs, options);
+
+  if ((pinnedUnhealthyUntil.get(model) ?? 0) > Date.now()) {
+    return callGeminiModel(fallback, system, prompt, maxTokens, timeoutMs, options);
+  }
+  try {
+    return await callGeminiModel(model, system, prompt, maxTokens, Math.min(timeoutMs, PINNED_MODEL_TIMEOUT_MS), options);
+  } catch (err) {
+    if (!pinnedFailedOutright(err)) throw err;
+    pinnedUnhealthyUntil.set(model, Date.now() + PINNED_MODEL_COOLDOWN_MS);
+    logger.warn('gemini: pinned model failed, using the default instead', {
+      pinned: model,
+      fallback,
+      tier: options.tier,
+      error: err instanceof Error ? err.message.slice(0, 200) : String(err),
+      fix: 'Remove GEMINI_MODEL (or the GEMINI_MODEL_<TIER> override) from the environment, or set it to a model that answers.',
+    });
+    return callGeminiModel(fallback, system, prompt, maxTokens, timeoutMs, options);
+  }
+}
+
+async function callGeminiModel(
+  model: string,
+  system: string | undefined,
+  prompt: string,
+  maxTokens: number,
+  timeoutMs: number,
+  options: GeminiOptions,
+): Promise<string> {
   let res: Response;
   try {
     res = await fetch(

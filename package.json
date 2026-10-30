@@ -89,6 +89,8 @@
   "verify:sandbox": "tsx scripts/verify-sandbox.ts",
     "env:check": "tsx scripts/env-check.ts",
   "auth:endpoints": "tsx scripts/auth-endpoints.ts",
+    "check:oauth": "tsx scripts/check-oauth.ts",
+    "regression:core": "node scripts/regression-core.mjs",
     "verify:sprint9:all": "tsx scripts/verify-sprint9-all.ts",
     "load:meta-stub": "tsx scripts/load/meta-stub.ts",
     "load:whatsapp": "tsx scripts/load/whatsapp-load.ts",

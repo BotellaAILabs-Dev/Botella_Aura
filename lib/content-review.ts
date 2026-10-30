@@ -439,6 +439,7 @@ const RULE_DIMENSION: Record<QualityIssue['code'], ReviewDimension> = {
   // A version about a different subject is a relevance failure, not a safety
   // one — the piece is fine, it is just not a version of this piece.
   'topic-drift': 'relevance',
+  'off-brief': 'relevance',
 };
 
 /**

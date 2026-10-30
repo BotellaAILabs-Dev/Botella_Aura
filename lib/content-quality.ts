@@ -1,6 +1,7 @@
 import { unsupportedNumbers } from '@/lib/ai-opportunity-detection';
 import { toneMismatch, type SourceSafety } from '@/lib/brand-safety';
 import { ROBOTIC_PHRASES, type CopyLimits } from '@/lib/content-playbook';
+import { topicTerms } from '@/lib/content-variations';
 import { DETAIL_LABELS, detailsOf, unconfirmedDetails } from '@/lib/post-details';
 import { bodySchemaFor, type ContentTypeKey } from '@/lib/validations/content';
 
@@ -52,7 +53,9 @@ export interface QualityIssue {
     /** The copy sells off source material about real harm (lib/brand-safety.ts). */
     | 'source-tone-mismatch'
     /** A variation is about a different subject than the original (lib/content-variations.ts). */
-    | 'topic-drift';
+    | 'topic-drift'
+    /** The copy is not about what the person asked for (their own prompt). */
+    | 'off-brief';
   severity: IssueSeverity;
   message: string;
 }
@@ -300,7 +303,51 @@ export interface QualityContext {
    * checked at all — on ordinary material it is exactly what is wanted.
    */
   sourceSafety?: SourceSafety;
+  /**
+   * What the person asked for, in their own words. A draft that shares none
+   * of its subject words is about something else; one that shares few of a
+   * longer prompt's is flagged for a look.
+   */
+  brief?: string;
   now?: Date;
+}
+
+/**
+ * Words that tell Aura what to do or when, not what the post is about:
+ * "Write a LinkedIn post for Monday" names no subject at all. Stemmed the
+ * way topicTerms stems (plurals singular).
+ */
+const PROMPT_WORDS = new Set(
+  (
+    'write writing create make please something anything post caption captions content draft piece ' +
+    'linkedin instagram facebook twitter blog article email newsletter thread carousel reel story stories ' +
+    'short long quick simple engaging catchy professional friendly funny ' +
+    'monday tuesday wednesday thursday friday saturday sunday today tomorrow tonight weekend'
+  )
+    .split(' ')
+    .flatMap((w) => [...topicTerms(w)]),
+);
+
+/** Below this share of a prompt's subject words, a draft is flagged. */
+export const OFF_BRIEF_WARN_SHARE = 0.25;
+
+/**
+ * Is the copy about what was asked? Returns the prompt's subject words the
+ * copy never uses, and whether that blocks (none used) or warns.
+ */
+export function briefCoverage(
+  brief: string,
+  copy: string,
+): { verdict: 'ok' | 'warn' | 'block'; missing: string[]; share: number } {
+  const asked = new Set([...topicTerms(brief)].filter((w) => !PROMPT_WORDS.has(w)));
+  // Too little to judge: "Write something for Monday" names no subject.
+  if (asked.size < 2) return { verdict: 'ok', missing: [], share: 1 };
+  const used = topicTerms(copy);
+  const missing = [...asked].filter((w) => !used.has(w));
+  const share = (asked.size - missing.length) / asked.size;
+  if (share === 0) return { verdict: 'block', missing, share };
+  if (asked.size >= 4 && share < OFF_BRIEF_WARN_SHARE) return { verdict: 'warn', missing, share };
+  return { verdict: 'ok', missing, share };
 }
 
 const STOP = new Set([
@@ -360,6 +407,22 @@ export function checkQuality(
         code: 'avoid-topic',
         severity: 'block',
         message: `Mentions “${topic}”, which the brand never talks about.`,
+      });
+    }
+  }
+
+  // On the brief: the person's own prompt, not just the business.
+  if (ctx.brief?.trim()) {
+    const cov = briefCoverage(ctx.brief, `${text}
+${parts.hashtags.join(' ')}`);
+    if (cov.verdict !== 'ok') {
+      push({
+        code: 'off-brief',
+        severity: cov.verdict,
+        message:
+          cov.verdict === 'block'
+            ? `This isn’t about what was asked — it never mentions ${cov.missing.slice(0, 5).join(', ')}. Write it about that.`
+            : `This only touches on what was asked; it leaves out ${cov.missing.slice(0, 5).join(', ')}. Check it covers the request.`,
       });
     }
   }

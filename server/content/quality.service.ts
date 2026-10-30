@@ -152,7 +152,7 @@ export function qualityContextFor(
   platform: SocialPlatformKey | null,
   w: WritingContext,
   sources: string[],
-  options: { ctaRequired?: boolean; sourceSafety?: SourceSafety } = {},
+  options: { ctaRequired?: boolean; sourceSafety?: SourceSafety; brief?: string } = {},
 ): QualityContext {
   return {
     limits: playbookFor(type, platform).limits,
@@ -160,6 +160,7 @@ export function qualityContextFor(
     avoid: w.avoid,
     alcohol: w.alcohol,
     ...(options.ctaRequired ? { ctaRequired: true } : {}),
+    ...(options.brief?.trim() ? { brief: options.brief } : {}),
     // Only carried when the source involves real harm; a clear verdict is left
     // off, so the tone check stays entirely out of the way on ordinary
     // material (lib/brand-safety.ts).

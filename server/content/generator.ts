@@ -155,10 +155,13 @@ export async function checkAndRepair(args: {
    * rather than only reporting it.
    */
   sourceSafety?: SourceSafety;
+  /** The person's own prompt: copy that ignores it is repaired, not saved. */
+  brief?: string;
 }): Promise<{ body: unknown; quality: QualityReport; repaired: boolean }> {
   const qc = qualityContextFor(args.type, args.platform, args.w, args.sources, {
     ctaRequired: args.ctaRequired ?? false,
     ...(args.sourceSafety ? { sourceSafety: args.sourceSafety } : {}),
+    ...(args.brief ? { brief: args.brief } : {}),
   });
   const first = finalizeBody(args.type, args.body, qc);
   // Unconfirmed post details are a person's to confirm, not the writer's to fix.
@@ -467,6 +470,9 @@ export async function generateDraft({
         sources,
         ctaRequired: mustHaveCta,
         sourceSafety,
+        // Only the person's own words: a trend or recommendation brings its
+        // own wording, which a good post need not repeat.
+        ...(source.kind === 'BRIEF' && source.brief ? { brief: source.brief } : {}),
       })),
     })),
   );
